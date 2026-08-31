@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WebAssembly, from first principles</title>
+<meta name="description" content="WebAssembly, from first principles — part of the WebAssembly course in the arcade-library repository.">
+<link rel="icon" href="../games/pixel-wave/logo.svg">
+<style>
+:root {
+  --bg: #fbfaf7; --panel: #ffffff; --sunk: #f2f0ea;
+  --fg: #14130f; --soft: #4a4842; --muted: #7a776e;
+  --line: rgba(20,19,15,.12); --accent: #b23a18; --accent-wash: rgba(178,58,24,.07);
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121110; --panel: #1a1917; --sunk: #232220;
+    --fg: #f4f2ed; --soft: #b5b1a8; --muted: #86827a;
+    --line: rgba(244,242,237,.14); --accent: #e0714b; --accent-wash: rgba(224,113,75,.12);
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 16px/1.7 var(--sans); -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 52rem; margin: 0 auto; padding: clamp(1.5rem,4vw,3rem) clamp(1.1rem,4vw,2rem) 5rem; }
+.wide { max-width: 64rem; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+h1 { font-size: clamp(1.8rem,4.5vw,2.6rem); line-height: 1.12; letter-spacing: -.025em; margin: 0 0 1.2rem; }
+h2 { font-size: clamp(1.3rem,3vw,1.6rem); letter-spacing: -.015em; margin: 3rem 0 1rem; padding-top: 1.4rem; border-top: 1px solid var(--line); }
+h3 { font-size: 1.12rem; margin: 2rem 0 .7rem; }
+h4 { font-size: 1rem; margin: 1.5rem 0 .5rem; }
+p, ul, ol { margin: 0 0 1.05rem; }
+ul, ol { padding-left: 1.4rem; }
+li { margin-bottom: .4rem; }
+li > ul, li > ol { margin-top: .4rem; }
+strong { font-weight: 650; }
+hr { border: 0; border-top: 1px solid var(--line); margin: 2.5rem 0; }
+blockquote {
+  margin: 0 0 1.05rem; padding: .1rem 0 .1rem 1.1rem;
+  border-left: 3px solid var(--accent); color: var(--soft);
+}
+code {
+  font: .87em/1.5 var(--mono);
+  background: var(--sunk); border: 1px solid var(--line); border-radius: 4px;
+  padding: .1em .35em; overflow-wrap: anywhere;
+}
+pre {
+  background: var(--sunk); border: 1px solid var(--line); border-radius: 10px;
+  padding: 1rem 1.15rem; overflow-x: auto; margin: 0 0 1.4rem;
+}
+pre code { background: none; border: 0; padding: 0; font-size: .84rem; line-height: 1.65; overflow-wrap: normal; }
+/* Wide content scrolls inside its own box; the page body never scrolls sideways. */
+.table-scroll { overflow-x: auto; margin: 0 0 1.4rem; border: 1px solid var(--line); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+th, td { text-align: left; padding: .6rem .85rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { background: var(--sunk); font-weight: 600; white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+img { max-width: 100%; height: auto; }
+
+/* ---- chrome ---- */
+.bar {
+  position: sticky; top: 0; z-index: 5;
+  display: flex; flex-wrap: wrap; align-items: center; gap: .4rem 1rem;
+  padding: .7rem clamp(1.1rem,4vw,2rem);
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(12px); border-bottom: 1px solid var(--line);
+  font-size: .82rem;
+}
+@supports not (background: color-mix(in srgb, red 50%, transparent)) { .bar { background: var(--bg); } }
+.bar a { color: var(--soft); }
+.bar .sep { color: var(--muted); }
+.bar .here { color: var(--fg); font-weight: 600; }
+.eyebrow {
+  font: 500 .7rem/1 var(--mono); letter-spacing: .16em; text-transform: uppercase;
+  color: var(--muted); margin: 0 0 .9rem;
+}
+.pager {
+  display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between;
+  margin-top: 3.5rem; padding-top: 1.5rem; border-top: 1px solid var(--line); font-size: .9rem;
+}
+.pager span { display: block; font: 500 .65rem/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-bottom: .2rem; }
+.pager .next { text-align: right; margin-left: auto; }
+
+/* ---- index ---- */
+.lede { font-size: 1.06rem; color: var(--soft); margin-bottom: 2rem; }
+.part { margin-top: 2.6rem; }
+.part h2 { margin-top: 0; border-top: 0; padding-top: 0; }
+.part > p { color: var(--muted); font-size: .92rem; margin-bottom: 1.1rem; }
+.toc { list-style: none; padding: 0; margin: 0; display: grid; gap: .5rem; }
+.toc a {
+  display: grid; grid-template-columns: 2.4rem 1fr; gap: .8rem; align-items: baseline;
+  padding: .8rem 1rem; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--panel); color: var(--fg);
+}
+.toc a:hover { border-color: var(--accent); text-decoration: none; background: var(--accent-wash); }
+.toc .n { font: 500 .78rem/1.4 var(--mono); color: var(--accent); }
+.toc .t { font-weight: 600; font-size: .97rem; }
+.toc .d { display: block; color: var(--muted); font-size: .85rem; font-weight: 400; margin-top: .15rem; }
+.routes { display: grid; gap: .5rem; grid-template-columns: repeat(auto-fit,minmax(15rem,1fr)); margin-bottom: 2.5rem; }
+.route { padding: .9rem 1rem; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.route strong { display: block; font-size: .93rem; margin-bottom: .2rem; }
+.route span { color: var(--muted); font-size: .85rem; }
+</style>
+</head>
+<body>
+<nav class="bar">
+  <a href="../index.html">Arcade Library</a>
+  <span class="sep">/</span>
+  <span class="here">WebAssembly course</span>
+</nav>
+<main class="wrap wide">
+
+<p class="eyebrow">Documentation</p>
+<h1>WebAssembly, from first principles</h1>
+<p class="lede">
+  A course, not a changelog. It was written alongside two arcade engines in this
+  repository, but only the last third is about them — the rest is the language,
+  the toolchain and the ecosystem, written the way I wish they had been
+  explained to me. Every code sample is real WAT that compiles.
+</p>
+
+<h2 style="border-top:0;padding-top:0;margin-top:2rem">Three ways through this</h2>
+<div class="routes">
+  <div class="route">
+    <strong>Understand the technology</strong>
+    <span>Part I in order, then chapters 11 and 12. Skip Part III. About three hours.</span>
+  </div>
+  <div class="route">
+    <strong>Make your own thing faster</strong>
+    <span>Chapter 1, then 7 — the boundary is almost always where the performance went — then 10 and 13.</span>
+  </div>
+  <div class="route">
+    <strong>Hand-write WAT</strong>
+    <span>All of Part I; you cannot skip chapter 5. Then Part III with game.wat open beside it.</span>
+  </div>
+</div>
+
+<section class="part">
+  <h2>Part I — The language</h2>
+  <p>WebAssembly from first principles. Read in order; chapter 5 is the one you cannot skip.</p>
+  <ul class="toc">
+    <li><a href="01-what-is-webassembly.html">
+      <span class="n">01</span>
+      <span class="t">What WebAssembly actually is<span class="d">The design goals, four common misconceptions, and when it is the wrong tool</span></span>
+    </a></li>
+    <li><a href="02-wat-syntax.html">
+      <span class="n">02</span>
+      <span class="t">Reading and writing WAT<span class="d">S-expressions, the stack machine, folded vs linear form, the module grammar</span></span>
+    </a></li>
+    <li><a href="03-numbers-and-operations.html">
+      <span class="n">03</span>
+      <span class="t">Numbers and operations<span class="d">Four value types. Signedness in the operator, not the type. Float determinism</span></span>
+    </a></li>
+    <li><a href="04-control-flow.html">
+      <span class="n">04</span>
+      <span class="t">Control flow<span class="d">Structured blocks, br as "break to a label", loops that do not loop</span></span>
+    </a></li>
+    <li><a href="05-linear-memory.html">
+      <span class="n">05</span>
+      <span class="t">Linear memory<span class="d">One growable byte array. Addressing, alignment, bounds, and building an allocator</span></span>
+    </a></li>
+    <li><a href="06-functions-tables.html">
+      <span class="n">06</span>
+      <span class="t">Functions, tables and indirect calls<span class="d">The call stack you cannot see, function pointers, dynamic dispatch</span></span>
+    </a></li>
+    <li><a href="07-javascript-interop.html">
+      <span class="n">07</span>
+      <span class="t">The JavaScript boundary<span class="d">Imports, exports, typed-array views, strings, and what a crossing costs</span></span>
+    </a></li>
+    <li><a href="08-globals-and-state.html">
+      <span class="n">08</span>
+      <span class="t">Globals, mutability and module state<span class="d">Where state lives, why globals are not memory, instance isolation</span></span>
+    </a></li>
+  </ul>
+</section>
+
+<section class="part">
+  <h2>Part II — The ecosystem</h2>
+  <p>Everything around the language: toolchains, source languages, non-browser hosts, and an honest account of the security model.</p>
+  <ul class="toc">
+    <li><a href="09-toolchain.html">
+      <span class="n">09</span>
+      <span class="t">The toolchain<span class="d">wabt, Binaryen, wasm-opt, serving wasm correctly, reading a disassembly</span></span>
+    </a></li>
+    <li><a href="10-source-languages.html">
+      <span class="n">10</span>
+      <span class="t">Source languages<span class="d">Rust, C/C++, AssemblyScript, Zig, Go — what each costs in size and ceremony</span></span>
+    </a></li>
+    <li><a href="11-beyond-the-browser.html">
+      <span class="n">11</span>
+      <span class="t">Beyond the browser<span class="d">WASI, edge runtimes, plugin sandboxes, and the Component Model</span></span>
+    </a></li>
+    <li><a href="12-security-model.html">
+      <span class="n">12</span>
+      <span class="t">The security model<span class="d">What the sandbox does and does not protect, and the bugs that survive it</span></span>
+    </a></li>
+    <li><a href="13-debugging-and-profiling.html">
+      <span class="n">13</span>
+      <span class="t">Debugging and profiling<span class="d">Trap messages, DWARF, deterministic replay, and where the time actually went</span></span>
+    </a></li>
+    <li><a href="14-post-mvp-features.html">
+      <span class="n">14</span>
+      <span class="t">Post-MVP features<span class="d">SIMD, threads, bulk memory, GC, tail calls, exceptions — what has shipped</span></span>
+    </a></li>
+  </ul>
+</section>
+
+<section class="part">
+  <h2>Part III — The engines in this repository</h2>
+  <p>The two arcade engines as a worked example, with the WAT open beside the prose.</p>
+  <ul class="toc">
+    <li><a href="15-game-loop-architecture.html">
+      <span class="n">15</span>
+      <span class="t">Architecture of a wasm game loop<span class="d">Who owns the clock, the fixed-timestep question, and the three-call frame</span></span>
+    </a></li>
+    <li><a href="16-entity-pools.html">
+      <span class="n">16</span>
+      <span class="t">Case study: entity pools in linear memory<span class="d">Fixed offsets, strides, the free-slot scan, and why there is no allocator</span></span>
+    </a></li>
+    <li><a href="17-math-without-a-stdlib.html">
+      <span class="n">17</span>
+      <span class="t">Case study: maths without a standard library<span class="d">xorshift, why sinf is imported, and steering with no trigonometry</span></span>
+    </a></li>
+  </ul>
+</section>
+
+<section class="part">
+  <h2>Reference</h2>
+  <p>Look-up material, not reading material.</p>
+  <ul class="toc">
+    <li><a href="glossary.html">
+      <span class="n">·</span>
+      <span class="t">Glossary<span class="d">Every term the course uses, defined once</span></span>
+    </a></li>
+    <li><a href="cheatsheet.html">
+      <span class="n">·</span>
+      <span class="t">Instruction cheatsheet<span class="d">The ~60 opcodes you will actually type</span></span>
+    </a></li>
+    <li><a href="further-reading.html">
+      <span class="n">·</span>
+      <span class="t">Further reading<span class="d">Specs, books, papers, tools and talks worth the time</span></span>
+    </a></li>
+  </ul>
+</section>
+
+<h2>Also here</h2>
+<ul>
+  <li><a href="reference/">Original project documents</a> — the Pixel Wave technical reference, roadmap and originality statement, with a note on where they now disagree with the code</li>
+  <li><a href="../games/pixel-wave/">Pixel Wave</a> and <a href="../games/vector-arena/">Vector Arena</a> — the engines this course dissects</li>
+</ul>
+
+<hr>
+<p style="color:var(--muted);font-size:.9rem">
+  Hand-writing an engine in WAT, as this repository does, is <strong>not</strong> the
+  recommended way to build software. It was done to learn the machine without a
+  compiler in the way, and <a href="10-source-languages.html">chapter 10</a> is
+  blunt about what it costs. The documentation is the deliverable; the games are
+  the excuse.
+</p>
+</main>
+</body>
+</html>

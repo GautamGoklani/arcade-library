@@ -1,0 +1,8 @@
+node_modules/
+package-lock.json
+*.log
+.DS_Store
+Thumbs.db
+
+# Build scratch. The committed .wasm files are deliberate — see scripts/build.mjs.
+tmp/

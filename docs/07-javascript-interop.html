@@ -1,0 +1,406 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>07 · The JavaScript boundary</title>
+<meta name="description" content="07 · The JavaScript boundary — part of the WebAssembly course in the arcade-library repository.">
+<link rel="icon" href="../games/pixel-wave/logo.svg">
+<style>
+:root {
+  --bg: #fbfaf7; --panel: #ffffff; --sunk: #f2f0ea;
+  --fg: #14130f; --soft: #4a4842; --muted: #7a776e;
+  --line: rgba(20,19,15,.12); --accent: #b23a18; --accent-wash: rgba(178,58,24,.07);
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121110; --panel: #1a1917; --sunk: #232220;
+    --fg: #f4f2ed; --soft: #b5b1a8; --muted: #86827a;
+    --line: rgba(244,242,237,.14); --accent: #e0714b; --accent-wash: rgba(224,113,75,.12);
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 16px/1.7 var(--sans); -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 52rem; margin: 0 auto; padding: clamp(1.5rem,4vw,3rem) clamp(1.1rem,4vw,2rem) 5rem; }
+.wide { max-width: 64rem; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+h1 { font-size: clamp(1.8rem,4.5vw,2.6rem); line-height: 1.12; letter-spacing: -.025em; margin: 0 0 1.2rem; }
+h2 { font-size: clamp(1.3rem,3vw,1.6rem); letter-spacing: -.015em; margin: 3rem 0 1rem; padding-top: 1.4rem; border-top: 1px solid var(--line); }
+h3 { font-size: 1.12rem; margin: 2rem 0 .7rem; }
+h4 { font-size: 1rem; margin: 1.5rem 0 .5rem; }
+p, ul, ol { margin: 0 0 1.05rem; }
+ul, ol { padding-left: 1.4rem; }
+li { margin-bottom: .4rem; }
+li > ul, li > ol { margin-top: .4rem; }
+strong { font-weight: 650; }
+hr { border: 0; border-top: 1px solid var(--line); margin: 2.5rem 0; }
+blockquote {
+  margin: 0 0 1.05rem; padding: .1rem 0 .1rem 1.1rem;
+  border-left: 3px solid var(--accent); color: var(--soft);
+}
+code {
+  font: .87em/1.5 var(--mono);
+  background: var(--sunk); border: 1px solid var(--line); border-radius: 4px;
+  padding: .1em .35em; overflow-wrap: anywhere;
+}
+pre {
+  background: var(--sunk); border: 1px solid var(--line); border-radius: 10px;
+  padding: 1rem 1.15rem; overflow-x: auto; margin: 0 0 1.4rem;
+}
+pre code { background: none; border: 0; padding: 0; font-size: .84rem; line-height: 1.65; overflow-wrap: normal; }
+/* Wide content scrolls inside its own box; the page body never scrolls sideways. */
+.table-scroll { overflow-x: auto; margin: 0 0 1.4rem; border: 1px solid var(--line); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+th, td { text-align: left; padding: .6rem .85rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { background: var(--sunk); font-weight: 600; white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+img { max-width: 100%; height: auto; }
+
+/* ---- chrome ---- */
+.bar {
+  position: sticky; top: 0; z-index: 5;
+  display: flex; flex-wrap: wrap; align-items: center; gap: .4rem 1rem;
+  padding: .7rem clamp(1.1rem,4vw,2rem);
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(12px); border-bottom: 1px solid var(--line);
+  font-size: .82rem;
+}
+@supports not (background: color-mix(in srgb, red 50%, transparent)) { .bar { background: var(--bg); } }
+.bar a { color: var(--soft); }
+.bar .sep { color: var(--muted); }
+.bar .here { color: var(--fg); font-weight: 600; }
+.eyebrow {
+  font: 500 .7rem/1 var(--mono); letter-spacing: .16em; text-transform: uppercase;
+  color: var(--muted); margin: 0 0 .9rem;
+}
+.pager {
+  display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between;
+  margin-top: 3.5rem; padding-top: 1.5rem; border-top: 1px solid var(--line); font-size: .9rem;
+}
+.pager span { display: block; font: 500 .65rem/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-bottom: .2rem; }
+.pager .next { text-align: right; margin-left: auto; }
+
+/* ---- index ---- */
+.lede { font-size: 1.06rem; color: var(--soft); margin-bottom: 2rem; }
+.part { margin-top: 2.6rem; }
+.part h2 { margin-top: 0; border-top: 0; padding-top: 0; }
+.part > p { color: var(--muted); font-size: .92rem; margin-bottom: 1.1rem; }
+.toc { list-style: none; padding: 0; margin: 0; display: grid; gap: .5rem; }
+.toc a {
+  display: grid; grid-template-columns: 2.4rem 1fr; gap: .8rem; align-items: baseline;
+  padding: .8rem 1rem; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--panel); color: var(--fg);
+}
+.toc a:hover { border-color: var(--accent); text-decoration: none; background: var(--accent-wash); }
+.toc .n { font: 500 .78rem/1.4 var(--mono); color: var(--accent); }
+.toc .t { font-weight: 600; font-size: .97rem; }
+.toc .d { display: block; color: var(--muted); font-size: .85rem; font-weight: 400; margin-top: .15rem; }
+.routes { display: grid; gap: .5rem; grid-template-columns: repeat(auto-fit,minmax(15rem,1fr)); margin-bottom: 2.5rem; }
+.route { padding: .9rem 1rem; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.route strong { display: block; font-size: .93rem; margin-bottom: .2rem; }
+.route span { color: var(--muted); font-size: .85rem; }
+</style>
+</head>
+<body>
+<nav class="bar">
+  <a href="../index.html">Arcade Library</a>
+  <span class="sep">/</span>
+  <a href="index.html">WebAssembly course</a> <span class="sep">/</span> <span class="here">The JavaScript boundary</span>
+</nav>
+<main class="wrap ">
+<h1>07 · The JavaScript boundary</h1>
+<p>Most WebAssembly performance stories are boundary stories. A module that is
+genuinely faster than the JavaScript it replaced, called once per pixel instead
+of once per image, will lose. This chapter is about where the boundary is, what
+crosses it, and what each crossing costs.</p>
+<hr>
+<h2>Loading a module</h2>
+<p>Four APIs, and the differences matter:</p>
+<pre><code class="language-js">// Best: compiles while it downloads. Needs Content-Type: application/wasm.
+const { instance } = await WebAssembly.instantiateStreaming(fetch(&#39;game.wasm&#39;), imports);
+
+// From bytes you already have.
+const { instance } = await WebAssembly.instantiate(bytes, imports);
+
+// Compile once, instantiate many times — each gets its own fresh memory.
+const module = await WebAssembly.compile(bytes);
+const a = await WebAssembly.instantiate(module, imports);
+const b = await WebAssembly.instantiate(module, imports);
+
+// Synchronous. Blocks the thread. Hard-limited to 4 KB on the main thread
+// in Chrome; fine in a worker. Avoid.
+const { instance } = new WebAssembly.Instance(new WebAssembly.Module(bytes), imports);
+</code></pre>
+<p><code>instantiateStreaming</code> is the one to reach for, and its most common failure is
+mundane: a server sending <code>application/octet-stream</code>. Chrome then refuses with
+<code>Incorrect response MIME type</code>. This is the reason
+<a href="../scripts/serve.mjs"><code>scripts/serve.mjs</code></a> exists in this repository, and the
+reason a <code>.wasm</code> fetched from <code>file://</code> never works.</p>
+<p>A <code>WebAssembly.Module</code> is <strong>structured-cloneable</strong> — you can compile once and
+<code>postMessage</code> the module to several workers, each of which instantiates it
+cheaply with its own memory. Compiling in each worker instead is a common and
+expensive mistake.</p>
+<hr>
+<h2>Imports: what the module asks for</h2>
+<p>The import object is nested <code>{ module: { name: value } }</code>, matching the
+two-level names in the <code>(import &quot;env&quot; &quot;sinf&quot; …)</code> declarations:</p>
+<pre><code class="language-js">const imports = {
+  env: {
+    sinf: Math.sin,
+    cosf: Math.cos,
+  },
+};
+</code></pre>
+<p>Every declared import must be present and type-compatible, or instantiation
+fails with a <code>LinkError</code>. This is the module&#39;s entire connection to the outside
+world — no import, no capability. A module you did not give a <code>fetch</code> to cannot
+make a network request, and there is no back door.</p>
+<p>Four kinds can be imported: functions, memories, tables and globals. Importing a
+memory instead of declaring one is how two modules share a heap, and how
+Emscripten&#39;s dynamic linking works.</p>
+<h3>The cost of an imported call</h3>
+<p>A JavaScript function called from wasm has to leave the wasm frame, enter the JS
+frame, and come back. Engines have optimised this hard — modern V8 can inline a
+small JS import into wasm code in some cases — but it is not free, and it is a
+JIT-dependent optimisation, so it is not <em>predictable</em> either.</p>
+<p>Both engines import <code>Math.sin</code> and <code>Math.cos</code> and call them a few dozen times
+per frame. At 60 fps that is a few thousand crossings per second, which is
+nothing. Calling them per <em>bullet</em> per frame — tens of thousands — would start to
+show up. Calling them inside a per-pixel loop would dominate the profile
+entirely.</p>
+<p><strong>The rule: batch at the boundary.</strong> One call that processes 100,000 items beats
+100,000 calls.</p>
+<hr>
+<h2>Exports: what the host may touch</h2>
+<pre><code class="language-js">const { init, step, set_input, get_score, memory } = instance.exports;
+</code></pre>
+<p>Functions come across as ordinary JavaScript functions. Numbers convert
+automatically:</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>wasm</th>
+<th>JavaScript</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>i32</code></td>
+<td><code>number</code> (converted with the <code>ToInt32</code> rules — <code>2**31</code> arrives as <code>-2147483648</code>)</td>
+</tr>
+<tr>
+<td><code>f32</code></td>
+<td><code>number</code>, widened to double; some precision was already lost at the f32 store</td>
+</tr>
+<tr>
+<td><code>f64</code></td>
+<td><code>number</code>, exact</td>
+</tr>
+<tr>
+<td><code>i64</code></td>
+<td><strong><code>BigInt</code></strong> — and passing a plain <code>number</code> throws a <code>TypeError</code></td>
+</tr>
+</tbody></table>
+</div><p>The <code>i64</code> boundary is a real annoyance. <code>BigInt</code> allocates and is slow. If you
+have a 64-bit value crossing per frame, the usual fix is to split it into two
+<code>i32</code>s or write it into memory instead.</p>
+<hr>
+<h2>Reading memory from JavaScript</h2>
+<p>This is the important part, and it is simpler than it sounds: <code>memory.buffer</code>
+is an <code>ArrayBuffer</code>, and you put typed-array views over it.</p>
+<pre><code class="language-js">const f32 = new Float32Array(memory.buffer);
+const i32 = new Int32Array(memory.buffer);
+const u8  = new Uint8Array(memory.buffer);
+</code></pre>
+<p><strong>Views are indexed in elements, not bytes.</strong> A byte address of 1344 is
+<code>f32[336]</code>. Getting this wrong gives you plausible-looking garbage, which is
+worse than a crash.</p>
+<pre><code class="language-js">const BOTS_OFF = 24, BOT_STRIDE = 40;
+
+function readBot(i) {
+  const b = (BOTS_OFF + i * BOT_STRIDE) &gt;&gt; 2;   // byte address → f32 index
+  return { x: f32[b], y: f32[b + 1], heading: f32[b + 4], alive: f32[b + 5] };
+}
+</code></pre>
+<p><code>&gt;&gt; 2</code> is the idiom for &quot;divide by four&quot;, and it is exactly the mirror of the
+<code>$bot_addr</code> helper on the wasm side.</p>
+<p>Reading this way is <strong>free</strong> — no copy, no marshalling, just an indexed read
+into the same bytes the engine wrote. This is why the renderers in this
+repository read entity state directly instead of calling a getter per field.
+Per frame Pixel Wave reads 33 bots × 6 fields, 160 bullets × 6, 20 asteroids × 6
+— about 1,300 array reads, which a JIT compiles to indexed loads and which cost
+nothing measurable.</p>
+<h3>Two ways to get it wrong</h3>
+<p><strong>Detached views.</strong> If the module calls <code>memory.grow</code>, the <code>ArrayBuffer</code> may be
+replaced and every existing view becomes detached — <code>byteLength === 0</code>, reads
+return <code>undefined</code>. Anything that could grow means re-creating the views:</p>
+<pre><code class="language-js">let f32 = new Float32Array(memory.buffer);
+function refresh() {
+  if (f32.buffer !== memory.buffer || f32.byteLength === 0) {
+    f32 = new Float32Array(memory.buffer);
+  }
+}
+</code></pre>
+<p>Both engines declare one page and never grow, so this problem does not exist
+here. That is a design choice with a real payoff — the view is created once at
+mount and held for the lifetime of the instance.</p>
+<p><strong>Duplicated offsets.</strong> The <code>BOTS_OFF = 24, BOT_STRIDE = 40</code> constants above are
+a <strong>copy</strong> of numbers that live in <code>game.wat</code>, and nothing links them. Change the
+layout, forget the renderer, and you get a game that draws enemies at nonsense
+positions and does not fail to build.</p>
+<p>Three mitigations, in increasing order of effort:</p>
+<ol>
+<li>Write the layout comment in the <code>.wat</code> and refer to it from the JS. (What
+these engines do.)</li>
+<li>Export the offsets as wasm globals and read them at startup — the layout then
+has exactly one source of truth.</li>
+<li>Generate both from one description. Worth it above a handful of structs.</li>
+</ol>
+<p>Option 2 is nearly free and underused:</p>
+<pre><code class="language-wat">(global (export &quot;BOTS_OFF&quot;)   i32 (i32.const 24))
+(global (export &quot;BOT_STRIDE&quot;) i32 (i32.const 40))
+</code></pre>
+<pre><code class="language-js">const BOTS_OFF = instance.exports.BOTS_OFF.value;
+</code></pre>
+<hr>
+<h2>Strings</h2>
+<p>There is no string type. A string crossing the boundary is bytes in linear
+memory plus a length, encoded and decoded by hand:</p>
+<pre><code class="language-js">function writeString(str, ptr) {
+  const bytes = new TextEncoder().encode(str);
+  new Uint8Array(memory.buffer, ptr, bytes.length).set(bytes);
+  return bytes.length;
+}
+
+function readString(ptr, len) {
+  return new TextDecoder(&#39;utf-8&#39;).decode(new Uint8Array(memory.buffer, ptr, len));
+}
+</code></pre>
+<p>Note that <code>readString</code> copies. <code>TextDecoder</code> on a subarray of wasm memory is
+fast, but it is still O(n) — string-heavy interop is the single most common
+reason a wasm port ends up slower than the JavaScript it replaced.</p>
+<p>Where does <code>ptr</code> come from? Either a fixed scratch address you agreed on, or an
+allocator export from the module. This is exactly the plumbing that
+<code>wasm-bindgen</code> generates for you, and seeing it written out is a good argument
+for using it.</p>
+<p>Neither engine here has a single string. All communication is numbers, which is
+why the boundary code in <code>pixel-wave.js</code> is about thirty lines.</p>
+<hr>
+<h2>The complete pattern, as these engines use it</h2>
+<pre><code class="language-js">// 1. Instantiate with the host functions the module demands.
+const { instance } = await WebAssembly.instantiate(bytes, {
+  env: { sinf: Math.sin, cosf: Math.cos },
+});
+const { init, set_input, step, get_score, get_lives, is_game_over, memory } =
+  instance.exports;
+
+// 2. One typed-array view over linear memory, created once.
+const mem = new Float32Array(memory.buffer);
+
+// 3. Start the world.
+init();
+
+// 4. Per frame: push input, advance, read out, draw.
+function frame(now) {
+  const dt = Math.min((now - last) / 1000, 0.05);   // clamp — see ch. 15
+  last = now;
+
+  set_input(rotDir, thrustOn, firing);              // 3 numbers in
+  step(dt);                                         // 1 call, all the work
+
+  drawPlayer(mem[0], mem[1], mem[4]);               // x, y, heading
+  for (let i = 0; i &lt; MAX_BOTS; i++) {
+    const b = (BOTS_OFF + i * BOT_STRIDE) &gt;&gt; 2;
+    if (mem[b + 5]) drawBot(mem[b], mem[b + 1], mem[b + 4]);
+  }
+  hud(get_score(), get_lives());
+
+  if (!is_game_over()) requestAnimationFrame(frame);
+}
+</code></pre>
+<p><strong>Four crossings per frame</strong> — <code>set_input</code>, <code>step</code>, <code>get_score</code>, <code>get_lives</code> —
+plus two imported <code>Math</code> calls per entity that turns. Everything else is
+indexed reads into a <code>Float32Array</code>. That ratio is the whole design: the
+boundary carries commands and scalars, never the world.</p>
+<hr>
+<h2>What actually costs what</h2>
+<p>Rough, and worth re-measuring on your own workload, but the ordering is stable:</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Operation</th>
+<th>Cost</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>wasm → wasm call</td>
+<td>~free, often inlined</td>
+</tr>
+<tr>
+<td>Typed-array read of wasm memory from JS</td>
+<td>~free, an indexed load</td>
+</tr>
+<tr>
+<td>JS → wasm call with number args</td>
+<td>tens of nanoseconds</td>
+</tr>
+<tr>
+<td>wasm → JS imported call</td>
+<td>tens of nanoseconds, JIT-dependent</td>
+</tr>
+<tr>
+<td>Anything with <code>BigInt</code> (<code>i64</code>)</td>
+<td>allocates — avoid per-frame</td>
+</tr>
+<tr>
+<td>String encode/decode</td>
+<td>O(length), allocates</td>
+</tr>
+<tr>
+<td>Passing an object or array</td>
+<td>not possible; it is always a serialise</td>
+</tr>
+<tr>
+<td><code>memory.grow</code></td>
+<td>may reallocate and copy the entire memory</td>
+</tr>
+</tbody></table>
+</div><p>The design conclusion is always the same: <strong>make the boundary wide and rare, not
+narrow and frequent.</strong></p>
+<hr>
+<h2>The two integration shapes</h2>
+<p>Worth naming, because the choice recurs and this repository contains one of
+each.</p>
+<p><strong>A bare engine.</strong> Ship the <code>.wasm</code>; the host writes a renderer. Vector Arena
+works this way. Maximum flexibility — the host can render however it likes, add
+waves without recompiling (<a href="06-functions-tables.html">chapter 6</a>) — at the cost of
+duplicating the memory layout into the host&#39;s code, with nothing to keep the two
+in step.</p>
+<p><strong>A self-contained widget.</strong> Ship a <code>.js</code> with the engine embedded as base64 and
+a <code>mount()</code> API. Pixel Wave works this way:</p>
+<pre><code class="language-js">const game = PixelWave.mount(&#39;#container&#39;);
+game.restart();
+game.getState();     // { score, lives, level, enemiesAlive, gameOver }
+game.destroy();
+</code></pre>
+<p>No offsets escape the package, integration is two files and one line, and
+updating means dropping in a new build. The cost is a bigger JS file — base64 is
+33% overhead on top of the binary — and a host that cannot render it its own way.</p>
+<p>Prefer the widget when a title offers one. Nothing outside the package needs to
+know the memory layout, so the entire class of drift described above cannot
+happen.</p>
+
+<nav class="pager">
+  <a href="06-functions-tables.html"><span>Previous</span>Functions, tables and indirect calls</a>
+  <a href="index.html">Contents</a>
+  <a class="next" href="08-globals-and-state.html"><span>Next</span>Globals, mutability and module state</a>
+</nav>
+</main>
+</body>
+</html>

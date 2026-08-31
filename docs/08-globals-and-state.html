@@ -1,0 +1,373 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>08 · Globals, mutability and module state</title>
+<meta name="description" content="08 · Globals, mutability and module state — part of the WebAssembly course in the arcade-library repository.">
+<link rel="icon" href="../games/pixel-wave/logo.svg">
+<style>
+:root {
+  --bg: #fbfaf7; --panel: #ffffff; --sunk: #f2f0ea;
+  --fg: #14130f; --soft: #4a4842; --muted: #7a776e;
+  --line: rgba(20,19,15,.12); --accent: #b23a18; --accent-wash: rgba(178,58,24,.07);
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121110; --panel: #1a1917; --sunk: #232220;
+    --fg: #f4f2ed; --soft: #b5b1a8; --muted: #86827a;
+    --line: rgba(244,242,237,.14); --accent: #e0714b; --accent-wash: rgba(224,113,75,.12);
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 16px/1.7 var(--sans); -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 52rem; margin: 0 auto; padding: clamp(1.5rem,4vw,3rem) clamp(1.1rem,4vw,2rem) 5rem; }
+.wide { max-width: 64rem; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+h1 { font-size: clamp(1.8rem,4.5vw,2.6rem); line-height: 1.12; letter-spacing: -.025em; margin: 0 0 1.2rem; }
+h2 { font-size: clamp(1.3rem,3vw,1.6rem); letter-spacing: -.015em; margin: 3rem 0 1rem; padding-top: 1.4rem; border-top: 1px solid var(--line); }
+h3 { font-size: 1.12rem; margin: 2rem 0 .7rem; }
+h4 { font-size: 1rem; margin: 1.5rem 0 .5rem; }
+p, ul, ol { margin: 0 0 1.05rem; }
+ul, ol { padding-left: 1.4rem; }
+li { margin-bottom: .4rem; }
+li > ul, li > ol { margin-top: .4rem; }
+strong { font-weight: 650; }
+hr { border: 0; border-top: 1px solid var(--line); margin: 2.5rem 0; }
+blockquote {
+  margin: 0 0 1.05rem; padding: .1rem 0 .1rem 1.1rem;
+  border-left: 3px solid var(--accent); color: var(--soft);
+}
+code {
+  font: .87em/1.5 var(--mono);
+  background: var(--sunk); border: 1px solid var(--line); border-radius: 4px;
+  padding: .1em .35em; overflow-wrap: anywhere;
+}
+pre {
+  background: var(--sunk); border: 1px solid var(--line); border-radius: 10px;
+  padding: 1rem 1.15rem; overflow-x: auto; margin: 0 0 1.4rem;
+}
+pre code { background: none; border: 0; padding: 0; font-size: .84rem; line-height: 1.65; overflow-wrap: normal; }
+/* Wide content scrolls inside its own box; the page body never scrolls sideways. */
+.table-scroll { overflow-x: auto; margin: 0 0 1.4rem; border: 1px solid var(--line); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+th, td { text-align: left; padding: .6rem .85rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { background: var(--sunk); font-weight: 600; white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+img { max-width: 100%; height: auto; }
+
+/* ---- chrome ---- */
+.bar {
+  position: sticky; top: 0; z-index: 5;
+  display: flex; flex-wrap: wrap; align-items: center; gap: .4rem 1rem;
+  padding: .7rem clamp(1.1rem,4vw,2rem);
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(12px); border-bottom: 1px solid var(--line);
+  font-size: .82rem;
+}
+@supports not (background: color-mix(in srgb, red 50%, transparent)) { .bar { background: var(--bg); } }
+.bar a { color: var(--soft); }
+.bar .sep { color: var(--muted); }
+.bar .here { color: var(--fg); font-weight: 600; }
+.eyebrow {
+  font: 500 .7rem/1 var(--mono); letter-spacing: .16em; text-transform: uppercase;
+  color: var(--muted); margin: 0 0 .9rem;
+}
+.pager {
+  display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between;
+  margin-top: 3.5rem; padding-top: 1.5rem; border-top: 1px solid var(--line); font-size: .9rem;
+}
+.pager span { display: block; font: 500 .65rem/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-bottom: .2rem; }
+.pager .next { text-align: right; margin-left: auto; }
+
+/* ---- index ---- */
+.lede { font-size: 1.06rem; color: var(--soft); margin-bottom: 2rem; }
+.part { margin-top: 2.6rem; }
+.part h2 { margin-top: 0; border-top: 0; padding-top: 0; }
+.part > p { color: var(--muted); font-size: .92rem; margin-bottom: 1.1rem; }
+.toc { list-style: none; padding: 0; margin: 0; display: grid; gap: .5rem; }
+.toc a {
+  display: grid; grid-template-columns: 2.4rem 1fr; gap: .8rem; align-items: baseline;
+  padding: .8rem 1rem; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--panel); color: var(--fg);
+}
+.toc a:hover { border-color: var(--accent); text-decoration: none; background: var(--accent-wash); }
+.toc .n { font: 500 .78rem/1.4 var(--mono); color: var(--accent); }
+.toc .t { font-weight: 600; font-size: .97rem; }
+.toc .d { display: block; color: var(--muted); font-size: .85rem; font-weight: 400; margin-top: .15rem; }
+.routes { display: grid; gap: .5rem; grid-template-columns: repeat(auto-fit,minmax(15rem,1fr)); margin-bottom: 2.5rem; }
+.route { padding: .9rem 1rem; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.route strong { display: block; font-size: .93rem; margin-bottom: .2rem; }
+.route span { color: var(--muted); font-size: .85rem; }
+</style>
+</head>
+<body>
+<nav class="bar">
+  <a href="../index.html">Arcade Library</a>
+  <span class="sep">/</span>
+  <a href="index.html">WebAssembly course</a> <span class="sep">/</span> <span class="here">Globals, mutability and module state</span>
+</nav>
+<main class="wrap ">
+<h1>08 · Globals, mutability and module state</h1>
+<p>A wasm instance&#39;s state lives in exactly four places:</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Where</th>
+<th>Holds</th>
+<th>Addressable?</th>
+<th>Survives a call?</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Locals</strong></td>
+<td>Function-scoped scalars</td>
+<td>No</td>
+<td>No</td>
+</tr>
+<tr>
+<td><strong>Operand stack</strong></td>
+<td>Intermediate values</td>
+<td>No</td>
+<td>No</td>
+</tr>
+<tr>
+<td><strong>Globals</strong></td>
+<td>Module-scoped scalars</td>
+<td><strong>No</strong></td>
+<td>Yes</td>
+</tr>
+<tr>
+<td><strong>Linear memory</strong></td>
+<td>Everything else</td>
+<td>Yes</td>
+<td>Yes</td>
+</tr>
+</tbody></table>
+</div><p>The row that surprises people is globals: <strong>a global is not memory</strong>. It has no
+address, <code>i32.load</code> cannot reach it, and a pointer to it does not exist. It is a
+named machine word owned by the instance, and the only way to touch it is
+<code>global.get</code> / <code>global.set</code>.</p>
+<p>That is a feature. A global cannot be corrupted by a buffer overflow, which is
+why compilers keep the shadow stack pointer in one.</p>
+<hr>
+<h2>Declaring globals</h2>
+<pre><code class="language-wat">(global $MAX_BOTS i32 (i32.const 8))              ;; immutable
+(global $rng (mut i32) (i32.const 88172645))      ;; mutable
+(global $ROT_SPEED f32 (f32.const 2.8))           ;; immutable
+</code></pre>
+<p>Without <code>(mut …)</code> a global is a <strong>constant</strong>, and <code>global.set</code> on it is a
+validation error — caught before anything runs. The initialiser must be a
+constant expression: a literal, or a <code>global.get</code> of a previously-declared
+<em>immutable</em> imported global. No arithmetic, no function calls.</p>
+<p>That restriction is why <code>pixel-wave</code> writes:</p>
+<pre><code class="language-wat">(global $BULLETS_OFF i32 (i32.const 1344))    ;; 24 + 33*40, computed by hand
+</code></pre>
+<p>rather than the expression. The comment carries the arithmetic; the language
+will not.</p>
+<p>Globals can be <strong>imported</strong> and <strong>exported</strong>:</p>
+<pre><code class="language-wat">(import &quot;env&quot; &quot;gravity&quot; (global $gravity f32))
+(global (export &quot;BOTS_OFF&quot;) i32 (i32.const 24))
+</code></pre>
+<p>Exporting layout constants is the cheapest way to stop a host&#39;s copy of your
+memory offsets from drifting — see <a href="07-javascript-interop.html">chapter 7</a>.</p>
+<p>From JavaScript, an exported global is a <code>WebAssembly.Global</code> object with a
+<code>.value</code> property, settable only if it was declared mutable:</p>
+<pre><code class="language-js">instance.exports.BOTS_OFF.value;   // 24
+</code></pre>
+<hr>
+<h2>Constants vs globals vs literals</h2>
+<p>Three ways to write the number 33, with real differences:</p>
+<pre><code class="language-wat">(global $MAX_BOTS i32 (i32.const 33))    ;; named, one place to change
+(i32.const 33)                            ;; inline literal
+</code></pre>
+<p>Immutable globals are the right default for tuning constants. Engines constant-
+fold <code>global.get</code> of an immutable global, so there is <strong>no runtime cost</strong> — you
+get the readability for free. Both engines use them exhaustively, and it is why
+retuning the difficulty was a matter of editing thirteen lines at the top of a
+file rather than hunting through 700:</p>
+<pre><code class="language-wat">(global $PLAYER_FIRE_CD f32 (f32.const 0.15))   ;; was 0.22
+(global $BOT_MAX_SPEED  f32 (f32.const 145.0))  ;; was 165
+(global $BOT_BULLET_SPEED f32 (f32.const 240.0));; was 300
+(global $ORBIT f32 (f32.const 280.0))           ;; was 220
+(global $FIRE_RANGE f32 (f32.const 360.0))      ;; was 480
+</code></pre>
+<p><strong>Keep the old value in the comment.</strong> A tuning constant without its history is
+a number nobody will dare touch, because there is no way to tell whether 145 was
+reasoned about or typed at random.</p>
+<hr>
+<h2>Mutable globals as engine state</h2>
+<p>Globals are for <strong>scalars the whole module reads</strong>, and memory is for
+<strong>anything with a shape</strong>. The dividing line is whether JavaScript needs to see
+it.</p>
+<p><code>vector-arena</code>&#39;s mutable globals, in full:</p>
+<pre><code class="language-wat">(global $rng            (mut i32) (i32.const 88172645))  ;; RNG state
+(global $numBots        (mut i32) (i32.const 0))
+(global $rotDir         (mut f32) (f32.const 0.0))       ;; input
+(global $thrustOn       (mut i32) (i32.const 0))         ;; input
+(global $firing         (mut i32) (i32.const 0))         ;; input
+(global $playerCooldown (mut f32) (f32.const 0.0))
+(global $gameOver       (mut i32) (i32.const 0))
+(global $prevFiring     (mut i32) (i32.const 0))         ;; burst-fire edge
+(global $burstLeft      (mut i32) (i32.const 0))
+(global $pendingFire    (mut i32) (i32.const 0))
+</code></pre>
+<p>Ten machine words. Meanwhile score and lives — two equally scalar values — live
+in <em>memory</em>, at offsets 2200 and 2204. Why the split?</p>
+<p><strong>Because JavaScript reads score and lives, and does not read the others.</strong> A
+global is reachable from JS only through an accessor or an exported
+<code>WebAssembly.Global</code>; a memory word is reachable through the <code>Float32Array</code> view
+the renderer already holds. Putting them in memory means the HUD can read them
+in the same pass as everything else.</p>
+<p>It is a defensible line: <em>state the host observes goes in memory; state only the
+engine cares about goes in globals</em>. Both engines then also export <code>get_score</code>
+and <code>get_lives</code> accessors, which is belt and braces — the accessor spares the
+host from knowing the offset, and the memory location is there if it wants the
+fast path.</p>
+<hr>
+<h2>Input as globals: the double-buffer that isn&#39;t</h2>
+<pre><code class="language-wat">(func $set_input (export &quot;set_input&quot;) (param $rot f32) (param $thrust i32) (param $fire i32)
+  (global.set $rotDir   (local.get $rot))
+  (global.set $thrustOn (local.get $thrust))
+  (global.set $firing   (local.get $fire)))
+</code></pre>
+<p><code>$rot</code> is an <code>f32</code> rather than a sign flag, which is the small decision that
+makes analogue input possible: a keyboard host passes −1, 0 or 1, and a gamepad
+host passes the stick axis. The engine multiplies it by <code>$ROT_SPEED</code> either way
+and never learns which kind of host it has.</p>
+<p>Input arrives once per frame, is stored in globals, and every subsequent pass in
+<code>step</code> reads the same values. This gives the frame a <strong>consistent view of
+input</strong> — the player-update pass and the firing pass cannot disagree about
+whether Space was held, which they could if each polled the keyboard directly.</p>
+<p>It is the same discipline as double-buffering, achieved by making the host push
+rather than letting the engine pull. The engine has no way to poll anything; it
+has no imports that could tell it. That constraint turned out to be a design
+benefit.</p>
+<hr>
+<h2>Edge detection: state the host cannot provide</h2>
+<p>The most interesting mutable global in either engine is <code>$prevFiring</code>, and it
+exists because of a genuine gap in the interface.</p>
+<p><code>set_input</code> reports the <strong>held state</strong> of the fire key: 1 while Space is down.
+But burst fire needs the <strong>press</strong>, the 0→1 transition. Nothing in the input
+protocol carries that. Options were to change the protocol — add a <code>firePressed</code>
+parameter and make every host compute it — or to have the engine remember last
+frame&#39;s value and derive the edge itself:</p>
+<pre><code class="language-wat">(global $prevFiring (mut i32) (i32.const 0))
+
+;; inside the player update:
+(if (i32.and (global.get $firing) (i32.eqz (global.get $prevFiring)))
+  (then (global.set $pendingFire (i32.const 1))))     ;; a rising edge
+;; … at the end of the pass:
+(global.set $prevFiring (global.get $firing))
+</code></pre>
+<p>The engine version won because it keeps the host dumb. A host that forwards raw
+key state cannot get burst fire wrong, and there is exactly one implementation
+of the edge rule instead of one per integration.</p>
+<p>Three more globals complete the mechanism, and they are a nice illustration of
+how much behaviour lives in a handful of words:</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Global</th>
+<th>Role</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>$burstLeft</code></td>
+<td>Rounds remaining in the current burst (counts 3 → 0)</td>
+</tr>
+<tr>
+<td><code>$pendingFire</code></td>
+<td>A press that arrived mid-burst, held until the gun is ready</td>
+</tr>
+<tr>
+<td><code>$prevFiring</code></td>
+<td>Last frame&#39;s held state, for the edge</td>
+</tr>
+</tbody></table>
+</div><p><code>$pendingFire</code> is there for a reason found by testing: dropping a press that
+lands during the 0.35 s recovery cost anyone tapping at around 2 Hz roughly half
+their inputs, which reads as <em>the key not working</em>. Queueing it costs one word.</p>
+<hr>
+<h2>Initialisation, restart, and the bug that hides there</h2>
+<p>The subtlest thing in this chapter. Globals have declared initialisers, applied
+once at instantiation. <strong>They are not re-applied when you call <code>init()</code>.</strong></p>
+<p>So an <code>init</code> that forgets to reset a global will behave differently on the
+second run than on the first — the classic &quot;only breaks after a restart&quot; bug,
+and one that no amount of testing the happy path will find.</p>
+<p>Both engines reset their mutable globals explicitly. Pixel Wave&#39;s <code>init</code>, with
+the memory-clearing loops elided:</p>
+<pre><code class="language-wat">(func $init (export &quot;init&quot;)
+  (global.set $level (i32.const 1))
+  (global.set $gameOver (i32.const 0))
+  (global.set $playerCooldown (f32.const 0.0))
+  (global.set $thrustOn (i32.const 0))
+  (global.set $firing (i32.const 0))
+  ;; a burst must not survive a restart, and a Space still held from the last
+  ;; run must not count as the press that arms the next one
+  (global.set $prevFiring (i32.const 1))          ;; ← see below
+  (global.set $burstLeft (i32.const 0))
+  (global.set $pendingFire (i32.const 0))
+  (global.set $rotDir (f32.const 0.0))
+  (global.set $astTimer (f32.const 2.5))
+  ;; … player record, score, lives, spawn the wave, clear the pools …
+)
+</code></pre>
+<p><strong><code>$prevFiring</code> is seeded to 1, not 0.</strong> If it were 0 and the player were still
+holding Space from the run that just ended — which, on a death, they invariably
+are — the very next frame would see a 0→1 edge that never happened and auto-fire
+a burst. Seeding it to 1 means the engine believes the key was already down, so
+the player must release and press again. One character, and it is the difference
+between a restart that feels deliberate and one that feels haunted.</p>
+<h3>The global that is deliberately <em>not</em> reset</h3>
+<p><code>$rng</code> does not appear in that list, in either engine. Its declared initialiser
+runs once, at instantiation:</p>
+<pre><code class="language-wat">(global $rng (mut i32) (i32.const 88172645))
+</code></pre>
+<p>so the xorshift stream carries straight on across a restart. The consequence is
+worth stating precisely, because it cuts both ways:</p>
+<ul>
+<li><strong>The first run after a page load is fully deterministic</strong> — same opening wave
+positions, same asteroid timings, every time.</li>
+<li><strong>Every subsequent restart is different</strong>, because the stream is wherever the
+previous run left it.</li>
+</ul>
+<p>For a game that is the behaviour you want: a fresh run should not be a replay of
+the one that just killed you. For <em>debugging</em> it is the awkward half — a bug
+fourteen seconds into your fifth run is not reproducible by restarting. The fix
+when you need it is to reset <code>$rng</code> in <code>init</code> too, or better, take a seed as a
+parameter so the host can choose:</p>
+<pre><code class="language-wat">(func $init (export &quot;init&quot;) (param $seed i32)
+  (global.set $rng (local.get $seed))
+  …)
+</code></pre>
+<p>That is the version to write if you ever want deterministic replay, which
+<a href="13-debugging-and-profiling.html">chapter 13</a> argues is the strongest debugging
+tool available for a simulation. Neither engine here does, and it is the one
+design choice in them I would change.</p>
+<hr>
+<h2>Instance isolation</h2>
+<p>Each <code>WebAssembly.Instance</code> gets its <strong>own</strong> globals and its <strong>own</strong> memory,
+even when instantiated from the same compiled <code>Module</code>. There is no shared
+mutable state between instances unless you explicitly import the same memory or
+the same mutable global into both.</p>
+<p>This is what makes <code>PixelWave.mount()</code> safe to call several times on one page —
+two games on the same page share the compiled code and nothing else. It is also
+the property that makes wasm attractive for plugin systems: per-instance memory
+limits, per-instance state, and a hard wall between tenants.</p>
+
+<nav class="pager">
+  <a href="07-javascript-interop.html"><span>Previous</span>The JavaScript boundary</a>
+  <a href="index.html">Contents</a>
+  <a class="next" href="09-toolchain.html"><span>Next</span>The toolchain</a>
+</nav>
+</main>
+</body>
+</html>

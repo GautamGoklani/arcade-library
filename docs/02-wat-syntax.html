@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>02 · Reading and writing WAT</title>
+<meta name="description" content="02 · Reading and writing WAT — part of the WebAssembly course in the arcade-library repository.">
+<link rel="icon" href="../games/pixel-wave/logo.svg">
+<style>
+:root {
+  --bg: #fbfaf7; --panel: #ffffff; --sunk: #f2f0ea;
+  --fg: #14130f; --soft: #4a4842; --muted: #7a776e;
+  --line: rgba(20,19,15,.12); --accent: #b23a18; --accent-wash: rgba(178,58,24,.07);
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121110; --panel: #1a1917; --sunk: #232220;
+    --fg: #f4f2ed; --soft: #b5b1a8; --muted: #86827a;
+    --line: rgba(244,242,237,.14); --accent: #e0714b; --accent-wash: rgba(224,113,75,.12);
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 16px/1.7 var(--sans); -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 52rem; margin: 0 auto; padding: clamp(1.5rem,4vw,3rem) clamp(1.1rem,4vw,2rem) 5rem; }
+.wide { max-width: 64rem; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+h1 { font-size: clamp(1.8rem,4.5vw,2.6rem); line-height: 1.12; letter-spacing: -.025em; margin: 0 0 1.2rem; }
+h2 { font-size: clamp(1.3rem,3vw,1.6rem); letter-spacing: -.015em; margin: 3rem 0 1rem; padding-top: 1.4rem; border-top: 1px solid var(--line); }
+h3 { font-size: 1.12rem; margin: 2rem 0 .7rem; }
+h4 { font-size: 1rem; margin: 1.5rem 0 .5rem; }
+p, ul, ol { margin: 0 0 1.05rem; }
+ul, ol { padding-left: 1.4rem; }
+li { margin-bottom: .4rem; }
+li > ul, li > ol { margin-top: .4rem; }
+strong { font-weight: 650; }
+hr { border: 0; border-top: 1px solid var(--line); margin: 2.5rem 0; }
+blockquote {
+  margin: 0 0 1.05rem; padding: .1rem 0 .1rem 1.1rem;
+  border-left: 3px solid var(--accent); color: var(--soft);
+}
+code {
+  font: .87em/1.5 var(--mono);
+  background: var(--sunk); border: 1px solid var(--line); border-radius: 4px;
+  padding: .1em .35em; overflow-wrap: anywhere;
+}
+pre {
+  background: var(--sunk); border: 1px solid var(--line); border-radius: 10px;
+  padding: 1rem 1.15rem; overflow-x: auto; margin: 0 0 1.4rem;
+}
+pre code { background: none; border: 0; padding: 0; font-size: .84rem; line-height: 1.65; overflow-wrap: normal; }
+/* Wide content scrolls inside its own box; the page body never scrolls sideways. */
+.table-scroll { overflow-x: auto; margin: 0 0 1.4rem; border: 1px solid var(--line); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+th, td { text-align: left; padding: .6rem .85rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { background: var(--sunk); font-weight: 600; white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+img { max-width: 100%; height: auto; }
+
+/* ---- chrome ---- */
+.bar {
+  position: sticky; top: 0; z-index: 5;
+  display: flex; flex-wrap: wrap; align-items: center; gap: .4rem 1rem;
+  padding: .7rem clamp(1.1rem,4vw,2rem);
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(12px); border-bottom: 1px solid var(--line);
+  font-size: .82rem;
+}
+@supports not (background: color-mix(in srgb, red 50%, transparent)) { .bar { background: var(--bg); } }
+.bar a { color: var(--soft); }
+.bar .sep { color: var(--muted); }
+.bar .here { color: var(--fg); font-weight: 600; }
+.eyebrow {
+  font: 500 .7rem/1 var(--mono); letter-spacing: .16em; text-transform: uppercase;
+  color: var(--muted); margin: 0 0 .9rem;
+}
+.pager {
+  display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between;
+  margin-top: 3.5rem; padding-top: 1.5rem; border-top: 1px solid var(--line); font-size: .9rem;
+}
+.pager span { display: block; font: 500 .65rem/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-bottom: .2rem; }
+.pager .next { text-align: right; margin-left: auto; }
+
+/* ---- index ---- */
+.lede { font-size: 1.06rem; color: var(--soft); margin-bottom: 2rem; }
+.part { margin-top: 2.6rem; }
+.part h2 { margin-top: 0; border-top: 0; padding-top: 0; }
+.part > p { color: var(--muted); font-size: .92rem; margin-bottom: 1.1rem; }
+.toc { list-style: none; padding: 0; margin: 0; display: grid; gap: .5rem; }
+.toc a {
+  display: grid; grid-template-columns: 2.4rem 1fr; gap: .8rem; align-items: baseline;
+  padding: .8rem 1rem; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--panel); color: var(--fg);
+}
+.toc a:hover { border-color: var(--accent); text-decoration: none; background: var(--accent-wash); }
+.toc .n { font: 500 .78rem/1.4 var(--mono); color: var(--accent); }
+.toc .t { font-weight: 600; font-size: .97rem; }
+.toc .d { display: block; color: var(--muted); font-size: .85rem; font-weight: 400; margin-top: .15rem; }
+.routes { display: grid; gap: .5rem; grid-template-columns: repeat(auto-fit,minmax(15rem,1fr)); margin-bottom: 2.5rem; }
+.route { padding: .9rem 1rem; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.route strong { display: block; font-size: .93rem; margin-bottom: .2rem; }
+.route span { color: var(--muted); font-size: .85rem; }
+</style>
+</head>
+<body>
+<nav class="bar">
+  <a href="../index.html">Arcade Library</a>
+  <span class="sep">/</span>
+  <a href="index.html">WebAssembly course</a> <span class="sep">/</span> <span class="here">Reading and writing WAT</span>
+</nav>
+<main class="wrap ">
+<h1>02 · Reading and writing WAT</h1>
+<p>WAT — WebAssembly Text format — is the human-readable projection of the binary.
+It is not a separate language: every WAT construct maps to bytes, and the
+mapping is specified. If you can read WAT you can read any wasm binary, because
+<code>wasm2wat</code> will hand you one.</p>
+<p>Two things make it briefly disorienting: it looks like Lisp, and underneath it
+is a stack machine. Neither is as bad as it first appears.</p>
+<hr>
+<h2>The stack machine</h2>
+<p>Every instruction pops some values off an operand stack and pushes some back.
+There are no registers. There are no expressions — only sequences.</p>
+<pre><code class="language-wat">i32.const 2      ;; stack: [2]
+i32.const 3      ;; stack: [2, 3]
+i32.add          ;; stack: [5]      pops two, pushes one
+</code></pre>
+<p>The signature of <code>i32.add</code> is <code>[i32 i32] → [i32]</code>. Every instruction has one,
+and the validator checks the whole function&#39;s stack shape statically. If a
+branch could leave the stack in two different shapes, the module does not
+validate. This is the entire reason wasm can be trusted without runtime checks.</p>
+<p>That flat listing is the <strong>linear form</strong>. It is exactly what the binary
+encodes, and what a disassembler will show you.</p>
+<h2>Folded form</h2>
+<p>Writing linear form by hand is miserable, so WAT allows a parenthesised
+&quot;folded&quot; form that is purely syntactic sugar:</p>
+<pre><code class="language-wat">(i32.add (i32.const 2) (i32.const 3))
+</code></pre>
+<p>The rule: an instruction&#39;s parenthesised children are emitted <strong>before</strong> it, in
+order. The two forms above compile to identical bytes. You can mix them freely.</p>
+<p>This is why WAT looks like Lisp and is not: the parentheses are not function
+application, they are &quot;emit these operands first&quot;. A folded expression is a
+tree that flattens to a stack sequence.</p>
+<p>The engines here use folded form throughout, which is why they read like this:</p>
+<pre><code class="language-wat">;; heading += rotDir * ROT_SPEED * dt
+(f32.store offset=16 (i32.const 0)
+  (f32.add
+    (f32.load offset=16 (i32.const 0))
+    (f32.mul (global.get $rotDir)
+             (f32.mul (global.get $ROT_SPEED) (local.get $dt)))))
+</code></pre>
+<p>Read it inside-out, like arithmetic. It is <code>player.heading += rotDir * ROT_SPEED * dt</code> written by someone with no infix operators.</p>
+<p><strong>Convention that helps enormously:</strong> put the infix equivalent in a <code>;;</code>
+comment above anything with more than two levels of nesting. Both engines in
+this repository do, and it is the difference between the files being editable in
+six months and not.</p>
+<hr>
+<h2>Comments</h2>
+<pre><code class="language-wat">;; line comment, to end of line
+(; block comment, nestable ;)
+</code></pre>
+<hr>
+<h2>Identifiers and indices</h2>
+<p>Everything in wasm is addressed by a numeric index: function 0, local 3, global
+7. WAT lets you write a <code>$name</code> instead, and the assembler resolves it. The
+names exist only in the text — the binary has indices, plus an optional custom
+&quot;name section&quot; that debuggers read.</p>
+<pre><code class="language-wat">(func $bot_addr (param $i i32) (result i32) …)
+(call $bot_addr (local.get 0))     ;; index
+(call $bot_addr (local.get $i))    ;; name — identical output
+</code></pre>
+<p>Name your things. Index-only WAT is unreadable within about forty lines.</p>
+<p>Names live in <strong>separate index spaces</strong> per kind, so <code>$score</code> as a global and
+<code>$score</code> as a function do not collide. Within a function, parameters and locals
+share one space and are numbered together: parameters first, then declared
+locals.</p>
+<hr>
+<h2>Module structure</h2>
+<p>A module is a sequence of <strong>fields</strong>. Order in the text is mostly free — the
+assembler sorts them into the binary&#39;s required section order — with two
+exceptions worth knowing: imports are numbered before locally-defined items of
+the same kind, and <code>(local …)</code> declarations must come before any instruction in
+a function body.</p>
+<pre><code class="language-wat">(module
+  ;; ---- imports: everything the host must provide ----
+  (import &quot;env&quot; &quot;sinf&quot; (func $sinf (param f32) (result f32)))
+  (import &quot;env&quot; &quot;log&quot;  (func $log  (param i32)))
+
+  ;; ---- state ----
+  (memory (export &quot;memory&quot;) 1)               ;; 1 page = 64 KiB
+  (global $counter (mut i32) (i32.const 0))
+  (global $LIMIT i32 (i32.const 100))        ;; no (mut …) = immutable
+
+  ;; ---- data: bytes written into memory at instantiation ----
+  (data (i32.const 0) &quot;hello&quot;)
+
+  ;; ---- functions ----
+  (func $helper (param $x i32) (result i32)
+    (i32.mul (local.get $x) (i32.const 2)))
+
+  (func (export &quot;run&quot;) (param $n i32) (result i32)
+    (local $acc i32)                          ;; locals first, always
+    (local.set $acc (i32.const 0))
+    (call $helper (local.get $n)))
+
+  ;; ---- start: runs once at instantiation ----
+  (start $init)
+  (func $init …)
+)
+</code></pre>
+<h3>Inline vs standalone export</h3>
+<pre><code class="language-wat">(func $step (export &quot;step&quot;) (param f32) …)   ;; inline — usual
+(func $step (param f32) …)
+(export &quot;step&quot; (func $step))                 ;; standalone — identical
+</code></pre>
+<p>The inline form is what you will see; the standalone form is useful when you
+want to export the same function under two names, or export something declared
+far away.</p>
+<h3>Imports must come first (in the binary)</h3>
+<p>An imported function occupies a lower function index than any defined one. The
+assembler handles this, but it explains a class of confusing disassembly: in
+<code>vector-arena</code>, <code>$sinf</code> is function 0 and <code>$cosf</code> is function 1, so the first
+function <em>you</em> wrote is function 2.</p>
+<hr>
+<h2>Locals and parameters</h2>
+<pre><code class="language-wat">(func $example (param $a i32) (param $b f32) (result i32)
+  (local $tmp i32)
+  (local $flag i32)
+  …)
+</code></pre>
+<ul>
+<li>Parameters are initialised from the call. Locals are <strong>always zero</strong>-initialised
+— there is no uninitialised local in wasm, which removes a whole category of
+bug and is one of the format&#39;s better decisions.</li>
+<li><code>local.get $x</code> pushes; <code>local.set $x</code> pops; <code>local.tee $x</code> pops, stores, and
+pushes the value back — the assignment-as-expression idiom.</li>
+<li>Multiple locals of one type can share a declaration: <code>(local $i $j $k i32)</code>.</li>
+</ul>
+<p><code>local.tee</code> is worth internalising early. This:</p>
+<pre><code class="language-wat">(local.set $a (call $expensive))
+(local.get $a)
+</code></pre>
+<p>is this:</p>
+<pre><code class="language-wat">(local.tee $a (call $expensive))
+</code></pre>
+<hr>
+<h2>Function types</h2>
+<p>A signature can be declared once and referenced, which matters for indirect
+calls (<a href="06-functions-tables.html">chapter 6</a>):</p>
+<pre><code class="language-wat">(type $binop (func (param f32 f32) (result f32)))
+(func $add (type $binop) (param $a f32) (param $b f32) (result f32)
+  (f32.add (local.get $a) (local.get $b)))
+</code></pre>
+<p>In the MVP a function returns <strong>zero or one</strong> value. Multi-value returns are a
+shipped post-MVP feature (<a href="14-post-mvp-features.html">chapter 14</a>) and are widely
+supported now, but hand-written WAT rarely needs them — the usual workaround,
+and what both engines here do, is to write extra outputs into linear memory.</p>
+<hr>
+<h2>A complete, minimal module</h2>
+<p>Small enough to hold in your head, real enough to run:</p>
+<pre><code class="language-wat">(module
+  (memory (export &quot;memory&quot;) 1)
+
+  ;; Sum the first $n f32s in memory starting at byte 0.
+  (func (export &quot;sum&quot;) (param $n i32) (result f32)
+    (local $i i32)
+    (local $acc f32)
+    (block $done
+      (loop $next
+        (br_if $done (i32.ge_u (local.get $i) (local.get $n)))
+        (local.set $acc
+          (f32.add (local.get $acc)
+                   (f32.load (i32.mul (local.get $i) (i32.const 4)))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $next)))
+    (local.get $acc))
+)
+</code></pre>
+<p>Driving it from JavaScript:</p>
+<pre><code class="language-js">const { instance } = await WebAssembly.instantiate(bytes);
+const mem = new Float32Array(instance.exports.memory.buffer);
+mem.set([1.5, 2.5, 3.0]);
+instance.exports.sum(3);   // 7
+</code></pre>
+<p>Everything in the rest of this course is a variation on that shape: put numbers
+in memory, call an export, read numbers back out.</p>
+<hr>
+<h2>Things that will trip you the first day</h2>
+<p><strong><code>(result …)</code> is a promise the validator enforces.</strong> A function declaring
+<code>(result i32)</code> must leave exactly one <code>i32</code> on the stack on every path,
+including the fall-through at the end. &quot;Function body must end with an
+expression of type i32&quot; means you forgot a path.</p>
+<p><strong>A <code>loop</code> label branches to the <em>top</em>, a <code>block</code> label to the <em>bottom</em>.</strong>
+<code>(br $loop)</code> continues; <code>(br $block)</code> breaks. This is the single most common
+source of accidental infinite loops. <a href="04-control-flow.html">Chapter 4</a> is about
+exactly this.</p>
+<p><strong>Unreachable code still has to validate.</strong> Instructions after a <code>br</code> are dead
+but still type-checked, unless the validator has marked the position as
+polymorphic-after-branch. Delete dead code rather than reasoning about it.</p>
+<p><strong>Offsets are unsigned and part of the instruction.</strong> <code>f32.load offset=16</code> is a
+static addend to the dynamic address, encoded in the opcode. It is free — use it
+for struct fields instead of adding constants.</p>
+<p><strong><code>i32</code> is signedness-agnostic.</strong> <code>i32.lt_s</code> and <code>i32.lt_u</code> are different
+instructions over the same bits. Picking the wrong one for a loop counter gives
+you a loop that runs two billion times. See <a href="03-numbers-and-operations.html">chapter 3</a>.</p>
+
+<nav class="pager">
+  <a href="01-what-is-webassembly.html"><span>Previous</span>What WebAssembly actually is</a>
+  <a href="index.html">Contents</a>
+  <a class="next" href="03-numbers-and-operations.html"><span>Next</span>Numbers and operations</a>
+</nav>
+</main>
+</body>
+</html>

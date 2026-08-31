@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>12 · The security model</title>
+<meta name="description" content="12 · The security model — part of the WebAssembly course in the arcade-library repository.">
+<link rel="icon" href="../games/pixel-wave/logo.svg">
+<style>
+:root {
+  --bg: #fbfaf7; --panel: #ffffff; --sunk: #f2f0ea;
+  --fg: #14130f; --soft: #4a4842; --muted: #7a776e;
+  --line: rgba(20,19,15,.12); --accent: #b23a18; --accent-wash: rgba(178,58,24,.07);
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121110; --panel: #1a1917; --sunk: #232220;
+    --fg: #f4f2ed; --soft: #b5b1a8; --muted: #86827a;
+    --line: rgba(244,242,237,.14); --accent: #e0714b; --accent-wash: rgba(224,113,75,.12);
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 16px/1.7 var(--sans); -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 52rem; margin: 0 auto; padding: clamp(1.5rem,4vw,3rem) clamp(1.1rem,4vw,2rem) 5rem; }
+.wide { max-width: 64rem; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+h1 { font-size: clamp(1.8rem,4.5vw,2.6rem); line-height: 1.12; letter-spacing: -.025em; margin: 0 0 1.2rem; }
+h2 { font-size: clamp(1.3rem,3vw,1.6rem); letter-spacing: -.015em; margin: 3rem 0 1rem; padding-top: 1.4rem; border-top: 1px solid var(--line); }
+h3 { font-size: 1.12rem; margin: 2rem 0 .7rem; }
+h4 { font-size: 1rem; margin: 1.5rem 0 .5rem; }
+p, ul, ol { margin: 0 0 1.05rem; }
+ul, ol { padding-left: 1.4rem; }
+li { margin-bottom: .4rem; }
+li > ul, li > ol { margin-top: .4rem; }
+strong { font-weight: 650; }
+hr { border: 0; border-top: 1px solid var(--line); margin: 2.5rem 0; }
+blockquote {
+  margin: 0 0 1.05rem; padding: .1rem 0 .1rem 1.1rem;
+  border-left: 3px solid var(--accent); color: var(--soft);
+}
+code {
+  font: .87em/1.5 var(--mono);
+  background: var(--sunk); border: 1px solid var(--line); border-radius: 4px;
+  padding: .1em .35em; overflow-wrap: anywhere;
+}
+pre {
+  background: var(--sunk); border: 1px solid var(--line); border-radius: 10px;
+  padding: 1rem 1.15rem; overflow-x: auto; margin: 0 0 1.4rem;
+}
+pre code { background: none; border: 0; padding: 0; font-size: .84rem; line-height: 1.65; overflow-wrap: normal; }
+/* Wide content scrolls inside its own box; the page body never scrolls sideways. */
+.table-scroll { overflow-x: auto; margin: 0 0 1.4rem; border: 1px solid var(--line); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+th, td { text-align: left; padding: .6rem .85rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { background: var(--sunk); font-weight: 600; white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+img { max-width: 100%; height: auto; }
+
+/* ---- chrome ---- */
+.bar {
+  position: sticky; top: 0; z-index: 5;
+  display: flex; flex-wrap: wrap; align-items: center; gap: .4rem 1rem;
+  padding: .7rem clamp(1.1rem,4vw,2rem);
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(12px); border-bottom: 1px solid var(--line);
+  font-size: .82rem;
+}
+@supports not (background: color-mix(in srgb, red 50%, transparent)) { .bar { background: var(--bg); } }
+.bar a { color: var(--soft); }
+.bar .sep { color: var(--muted); }
+.bar .here { color: var(--fg); font-weight: 600; }
+.eyebrow {
+  font: 500 .7rem/1 var(--mono); letter-spacing: .16em; text-transform: uppercase;
+  color: var(--muted); margin: 0 0 .9rem;
+}
+.pager {
+  display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between;
+  margin-top: 3.5rem; padding-top: 1.5rem; border-top: 1px solid var(--line); font-size: .9rem;
+}
+.pager span { display: block; font: 500 .65rem/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-bottom: .2rem; }
+.pager .next { text-align: right; margin-left: auto; }
+
+/* ---- index ---- */
+.lede { font-size: 1.06rem; color: var(--soft); margin-bottom: 2rem; }
+.part { margin-top: 2.6rem; }
+.part h2 { margin-top: 0; border-top: 0; padding-top: 0; }
+.part > p { color: var(--muted); font-size: .92rem; margin-bottom: 1.1rem; }
+.toc { list-style: none; padding: 0; margin: 0; display: grid; gap: .5rem; }
+.toc a {
+  display: grid; grid-template-columns: 2.4rem 1fr; gap: .8rem; align-items: baseline;
+  padding: .8rem 1rem; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--panel); color: var(--fg);
+}
+.toc a:hover { border-color: var(--accent); text-decoration: none; background: var(--accent-wash); }
+.toc .n { font: 500 .78rem/1.4 var(--mono); color: var(--accent); }
+.toc .t { font-weight: 600; font-size: .97rem; }
+.toc .d { display: block; color: var(--muted); font-size: .85rem; font-weight: 400; margin-top: .15rem; }
+.routes { display: grid; gap: .5rem; grid-template-columns: repeat(auto-fit,minmax(15rem,1fr)); margin-bottom: 2.5rem; }
+.route { padding: .9rem 1rem; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.route strong { display: block; font-size: .93rem; margin-bottom: .2rem; }
+.route span { color: var(--muted); font-size: .85rem; }
+</style>
+</head>
+<body>
+<nav class="bar">
+  <a href="../index.html">Arcade Library</a>
+  <span class="sep">/</span>
+  <a href="index.html">WebAssembly course</a> <span class="sep">/</span> <span class="here">The security model</span>
+</nav>
+<main class="wrap ">
+<h1>12 · The security model</h1>
+<p>WebAssembly&#39;s sandbox is genuinely strong, and it is routinely described in a
+way that overstates what it does. The precise claim is:</p>
+<blockquote>
+<p><strong>A wasm module cannot affect its host except through the imports the host
+gave it.</strong></p>
+</blockquote>
+<p>That is a statement about the <em>host</em>. It says nothing about the module&#39;s
+integrity with respect to itself, and the gap between those two things is where
+the real vulnerabilities live.</p>
+<hr>
+<h2>What the sandbox actually guarantees</h2>
+<p><strong>Memory isolation.</strong> Linear memory is a bounds-checked byte array. Out of range
+traps. There is no pointer to host memory, no way to construct one, and no
+address space shared with the embedder. A module cannot read the JavaScript
+heap, another instance&#39;s memory, or the process it runs in.</p>
+<p><strong>Control-flow integrity.</strong> Structured control flow (<a href="04-control-flow.html">chapter
+4</a>) means every branch target is statically known. Indirect
+calls go through a table and are signature-checked at runtime (<a href="06-functions-tables.html">chapter
+6</a>). You cannot jump into the middle of a function, and
+you cannot synthesise a code address.</p>
+<p><strong>A protected call stack.</strong> Return addresses live in engine memory the module
+cannot address. <strong>Stack smashing does not work.</strong> Return-oriented programming has
+no gadgets to chain, because it cannot reach the return addresses.</p>
+<p><strong>No ambient authority.</strong> No syscalls. No <code>fetch</code>, no clock, no filesystem, no
+randomness — unless imported. A module you gave nothing to can compute and
+nothing else.</p>
+<p><strong>Type safety before execution.</strong> The whole module is validated up front. There
+is no runtime type confusion, and no way to reinterpret a function as data or
+data as code.</p>
+<p><strong>Code and data are separate.</strong> Instructions are not addressable. You cannot
+write bytes into memory and execute them, which forecloses the entire
+shellcode-injection category.</p>
+<p>That is a stronger position than a native process gets. It is fair to say wasm
+is one of the better-designed sandboxes in wide deployment.</p>
+<hr>
+<h2>What it does not guarantee</h2>
+<h3>Memory safety <em>inside</em> the module</h3>
+<p>This is the important one, and it is consistently undersold.</p>
+<p>Linear memory is a flat byte array with no internal structure. Your allocator&#39;s
+metadata, your arrays, your strings and your compiler&#39;s shadow stack are all in
+it, adjacent, unprotected. So:</p>
+<ul>
+<li><strong>Buffer overflows work.</strong> Writing past the end of one array corrupts the next
+one. Nothing knows they are two arrays.</li>
+<li><strong>Use-after-free works</strong>, and is <em>more</em> exploitable than native, because wasm
+allocators reuse freed blocks eagerly and there are no guard pages, no ASLR
+and no hardened <code>malloc</code>.</li>
+<li><strong>The shadow stack is corruptible.</strong> Locals live in engine memory, but any C or
+Rust variable whose address is taken is spilled to a compiler-managed stack
+<em>inside</em> linear memory. Overflowing a buffer next to it overwrites other
+locals — including, classically, a saved function-pointer value.</li>
+<li><strong>Uninitialised reads work</strong>, returning whatever the last owner left there.</li>
+</ul>
+<p>The research paper &quot;Everything Old is New Again: Binary Security of WebAssembly&quot;
+(USENIX Security 2020) is the canonical treatment, and its finding is
+uncomfortable: several mitigations that native platforms have had for twenty
+years — ASLR, stack canaries, guard pages, W^X within the heap — are <strong>absent</strong>
+in wasm. A heap overflow that would be caught natively can be a reliable
+primitive in wasm.</p>
+<p>The consolation is the blast radius. Corrupting your own linear memory cannot
+reach the host. But if that memory holds another user&#39;s session data in a
+multi-tenant module, &quot;contained to the module&quot; is not much comfort.</p>
+<h3>Side channels</h3>
+<p>Spectre-class attacks are a CPU property, not a wasm one, and wasm gives an
+attacker a convenient way to run timing code in a browser. Mitigations are at
+the platform level: reduced timer resolution, <code>SharedArrayBuffer</code> gated behind
+cross-origin isolation, site isolation. Do not assume the sandbox helps here.</p>
+<h3>Resource exhaustion</h3>
+<p>Nothing in the MVP stops a module from looping forever or calling
+<code>memory.grow</code> until the allocator refuses. In a browser that means a hung tab.
+For untrusted guests you need runtime-level controls: <strong>fuel metering</strong>
+(Wasmtime charges per instruction and traps at a budget), memory limits at
+instantiation, and epoch-based interruption.</p>
+<h3>Supply chain</h3>
+<p>A <code>.wasm</code> is opaque. A malicious dependency compiled into a module is as
+invisible as any minified JavaScript, and rather harder to audit. <code>wasm2wat</code> and
+<code>wasm-decompile</code> help, but nobody is reading 400 KB of decompiled output.
+Reproducible builds and provenance matter more here than usual.</p>
+<hr>
+<h2>The imports are the security boundary</h2>
+<p>Everything a module can do is in its import list. This makes review unusually
+tractable — you can enumerate a module&#39;s entire capability set from its
+<code>(import …)</code> declarations, and you can grep for it.</p>
+<pre><code class="language-bash">wasm-objdump -x module.wasm | grep -A100 &#39;^Import&#39;
+</code></pre>
+<p>Both engines in this repository import exactly two functions:</p>
+<pre><code class="language-wat">(import &quot;env&quot; &quot;sinf&quot; (func $sinf (param f32) (result f32)))
+(import &quot;env&quot; &quot;cosf&quot; (func $cosf (param f32) (result f32)))
+</code></pre>
+<p>The complete list of things they can do to the outside world is <em>ask for a sine
+and a cosine</em>. No network, no storage, no clock, no randomness — the RNG is
+internal and seeded from a constant. Hostile or not, the worst outcome is a
+wrong number on a canvas.</p>
+<p>That is a property you get by <em>design</em>, not by luck, and it generalises:</p>
+<p><strong>Import the narrowest thing that works.</strong> A module that needs one configuration
+value should import a global, not a <code>getConfig()</code> function that could return
+anything. A module that needs to log should import
+<code>log(ptr: i32, len: i32)</code>, not a JavaScript function that receives an object it
+could probe.</p>
+<p><strong>Never import a general-purpose escape hatch.</strong> An import that evaluates a
+string, performs an arbitrary <code>fetch</code>, or exposes <code>postMessage</code> to the module
+hands over the entire sandbox in one line. If the module can reach <code>eval</code>, there
+is no sandbox.</p>
+<p><strong>Validate on the host side of every import.</strong> The module&#39;s own validation says
+nothing about the values it passes you. An imported <code>draw(ptr, len)</code> must
+bounds-check <code>ptr</code> and <code>len</code> against the memory it is reading — the module can
+pass anything, including values that would make your host code read out of the
+<code>ArrayBuffer</code> or allocate gigabytes.</p>
+<pre><code class="language-js">function readBytes(ptr, len) {
+  const buf = memory.buffer;
+  if (ptr &lt; 0 || len &lt; 0 || ptr + len &gt; buf.byteLength) {
+    throw new RangeError(&#39;module passed an out-of-range slice&#39;);
+  }
+  return new Uint8Array(buf, ptr, len);
+}
+</code></pre>
+<p>Without that check the module cannot escape <em>its</em> sandbox — but it can make your
+JavaScript throw, or allocate, or read the wrong region, and in a host with more
+imports it can chain that into something worse.</p>
+<hr>
+<h2>If you are the host, running untrusted modules</h2>
+<p>A checklist, roughly in order of importance:</p>
+<ol>
+<li><strong>Enumerate and minimise imports.</strong> This is the whole capability set. Review it
+like you would review a permissions manifest.</li>
+<li><strong>Cap memory at instantiation.</strong> <code>new WebAssembly.Memory({ initial, maximum })</code>,
+and declare the maximum in the module or refuse to instantiate one without.</li>
+<li><strong>Meter execution.</strong> Wasmtime fuel, epoch interruption, or run it in a Worker
+you can terminate. A browser main thread offers none of this.</li>
+<li><strong>One instance per tenant.</strong> Instances share nothing by default (<a href="08-globals-and-state.html">chapter
+8</a>); do not undermine that by importing a shared
+memory.</li>
+<li><strong>Validate everything crossing inward.</strong> Every pointer, every length, every
+index.</li>
+<li><strong>Do not let module-controlled data reach <code>eval</code>, <code>innerHTML</code>, a SQL string,
+or a filesystem path.</strong> The sandbox is irrelevant if the host is the confused
+deputy.</li>
+<li><strong>Isolate the page.</strong> COOP/COEP if you use threads; a strict CSP regardless.</li>
+</ol>
+<hr>
+<h2>If you are the module author</h2>
+<ol>
+<li><strong>Use a memory-safe source language.</strong> Rust&#39;s guarantees hold inside wasm.
+C&#39;s absence of them holds too.</li>
+<li><strong>Prefer fixed-size pools to a general allocator</strong> where the shape allows.
+No allocator means no allocator metadata to corrupt — which is, incidentally,
+one more reason the entity-pool design in <a href="16-entity-pools.html">chapter 16</a> is
+a reasonable choice beyond performance.</li>
+<li><strong>Bounds-check indices that come from the host.</strong> The engine checks the
+<em>address</em>; it has no idea your array is 33 elements long. An index of 500 into
+a 33-slot pool is a perfectly legal memory access into whatever lives after it.</li>
+<li><strong>Trap rather than continue</strong> when an invariant breaks. <code>unreachable</code> in
+development is worth more than a plausible wrong answer.</li>
+<li><strong>Strip debug info from release builds.</strong> <code>wasm-strip</code>, or
+<code>--strip-debug --strip-producers</code>. Custom sections leak paths, toolchain
+versions and sometimes source.</li>
+</ol>
+<hr>
+<h2>An honest summary</h2>
+<p>WebAssembly&#39;s sandbox is one of the better ones available, and it is a real
+improvement on loading native code into your process. It is not a fix for unsafe
+code. A C program with a heap overflow, compiled to wasm, still has a heap
+overflow — with <strong>fewer</strong> mitigations against exploitation than it would have
+had natively, and a smaller blast radius if it is exploited.</p>
+<p>Both halves of that sentence are true, and most writing on the subject picks
+one.</p>
+
+<nav class="pager">
+  <a href="11-beyond-the-browser.html"><span>Previous</span>Beyond the browser</a>
+  <a href="index.html">Contents</a>
+  <a class="next" href="13-debugging-and-profiling.html"><span>Next</span>Debugging and profiling</a>
+</nav>
+</main>
+</body>
+</html>

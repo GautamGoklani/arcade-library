@@ -1,0 +1,164 @@
+/* Pixel Wave — scoped styles. All rules are namespaced under .ss-root
+   so this can be dropped into any page without clobbering existing CSS. */
+
+.ss-root {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-family: 'Courier New', monospace;
+  color: #33ff66;
+  background: #000;
+  padding: 10px;
+  width: 100%;
+  box-sizing: border-box;
+
+  /* The widget is deliberately **width-driven**: it fills whatever container
+     the host gives it, and the host decides how wide that is. That is the right
+     default for something embedded in a page, where the surrounding layout owns
+     the vertical rhythm.
+
+     It is the wrong default for a page that is nothing *but* the game — the
+     canvas is 1200x750, so at the full 1240px it needs ~775px of height, and on
+     a laptop window the bottom of the arena ends up below the fold.
+
+     `--pw-max-width` is the hook for that case. Set it on `.ss-root` and the
+     host can cap the widget by anything it likes, including available viewport
+     height converted through the aspect ratio — which is exactly what the
+     standalone build in index.html does. Unset, behaviour is unchanged. */
+  max-width: var(--pw-max-width, 1240px);
+}
+
+.ss-stage {
+  position: relative;
+  line-height: 0;
+  width: 100%;
+  touch-action: none;          /* stop the browser scrolling/zooming mid-game */
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.ss-canvas {
+  background: #000;
+  border: 3px solid #222;
+  image-rendering: pixelated;
+  display: block;
+  width: 100%;                 /* scales down responsively; internal res stays 1200x750 */
+  height: auto;
+  /* Reserves the correct box before the canvas has been sized, so the page does
+     not reflow once the engine starts drawing. 1200/750 = 8/5. */
+  aspect-ratio: 8 / 5;
+  box-sizing: border-box;
+}
+
+/* ---------------- touch controls (shown only on coarse-pointer devices) ---------------- */
+
+.ss-touch {
+  position: absolute;
+  inset: 0;
+  display: none;               /* JS flips this on for touch devices */
+  pointer-events: none;        /* individual buttons re-enable */
+}
+.ss-root.ss-is-touch .ss-touch { display: block; }
+
+.ss-btn {
+  position: absolute;
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid rgba(51, 255, 102, 0.7);
+  background: rgba(0, 20, 5, 0.45);
+  color: #33ff66;
+  font-family: 'Courier New', monospace;
+  font-weight: bold;
+  text-shadow: 0 0 6px #33ff66;
+  border-radius: 10px;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.ss-btn.ss-active {
+  background: rgba(51, 255, 102, 0.28);
+}
+
+.ss-btn-left  { left: 3%;  bottom: 6%;  width: 15%; height: 16%; font-size: 5vw; }
+.ss-btn-right { left: 20%; bottom: 6%;  width: 15%; height: 16%; font-size: 5vw; }
+.ss-btn-thrust{ left: 11%; bottom: 25%; width: 16%; height: 15%; font-size: 3.4vw; }
+.ss-btn-fire {
+  right: 4%; bottom: 6%; width: 22%; height: 24%;
+  border-color: rgba(255, 51, 85, 0.75);
+  color: #ff3355;
+  text-shadow: 0 0 6px #ff3355;
+  font-size: 4.2vw;
+  border-radius: 50%;
+}
+.ss-btn-fire.ss-active { background: rgba(255, 51, 85, 0.28); }
+
+@media (min-width: 800px) {
+  .ss-btn-left, .ss-btn-right { font-size: 34px; }
+  .ss-btn-thrust { font-size: 22px; }
+  .ss-btn-fire { font-size: 28px; }
+}
+
+.ss-hud {
+  display: flex;
+  gap: 40px;
+  padding: 6px 24px;
+  margin-bottom: 4px;
+  background: #000;
+  border: 2px solid #33ff66;
+  font-size: 16px;
+  letter-spacing: 2px;
+  text-shadow: 0 0 6px #33ff66;
+  font-weight: bold;
+}
+.ss-hud .ss-r { color: #ff3355; text-shadow: 0 0 6px #ff3355; }
+.ss-hud .ss-y { color: #ffdd33; text-shadow: 0 0 6px #ffdd33; }
+.ss-hud .ss-c { color: #33ddff; text-shadow: 0 0 6px #33ddff; }
+
+.ss-overlay {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  pointer-events: none;
+  font-weight: bold;
+}
+
+.ss-msg {
+  font-size: 44px;
+  color: #ff3355;
+  text-shadow: 0 0 18px #ff3355, 3px 3px 0 #550011;
+  display: none;
+  letter-spacing: 6px;
+  pointer-events: auto;   /* tappable on mobile to restart */
+  cursor: pointer;
+}
+@media (max-width: 700px) {
+  .ss-msg { font-size: 7vw; }
+  .ss-levelbanner { font-size: 6.5vw; }
+  .ss-hud { gap: 4vw; font-size: 3vw; padding: 4px 10px; }
+}
+.ss-msg small {
+  display: block;
+  font-size: 16px;
+  color: #33ff66;
+  margin-top: 14px;
+  letter-spacing: 3px;
+}
+
+.ss-levelbanner {
+  font-size: 40px;
+  color: #ffdd33;
+  text-shadow: 0 0 18px #ffdd33, 3px 3px 0 #664400;
+  opacity: 0;
+  letter-spacing: 8px;
+  transition: opacity 0.2s;
+}
+
+.ss-help {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #1a8833;
+  letter-spacing: 1px;
+}

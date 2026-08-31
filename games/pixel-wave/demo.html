@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <!-- REQUIRED for mobile: prevents pinch-zoom fighting the touch controls -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <title>Pixel Wave — Demo Integration</title>
+  <link rel="stylesheet" href="pixel-wave.css">
+  <style>
+    /* This is YOUR site's styling — the game doesn't touch it */
+    body { margin: 0; background: #111; font-family: sans-serif; color: #eee; }
+    header { padding: 16px 24px; background: #1a1a1a; }
+    main { display: flex; justify-content: center; padding: 24px 8px; }
+  </style>
+</head>
+<body>
+  <header><h1>My Website</h1></header>
+  <main>
+    <!-- 1. an empty container anywhere on your page -->
+    <div id="game-container" style="width:100%; max-width:1240px;"></div>
+  </main>
+
+  <!-- 2. load the widget script -->
+  <script src="pixel-wave.js"></script>
+
+  <!-- 3. mount it -->
+  <script>
+    const game = PixelWave.mount('#game-container');
+
+    // Optional API:
+    // game.restart();                 // restart the run
+    // console.log(game.getState());   // {score, lives, level, enemiesAlive, gameOver}
+    // game.destroy();                 // remove the game and all listeners
+  </script>
+</body>
+</html>

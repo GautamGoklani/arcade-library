@@ -1,0 +1,330 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>03 · Numbers and operations</title>
+<meta name="description" content="03 · Numbers and operations — part of the WebAssembly course in the arcade-library repository.">
+<link rel="icon" href="../games/pixel-wave/logo.svg">
+<style>
+:root {
+  --bg: #fbfaf7; --panel: #ffffff; --sunk: #f2f0ea;
+  --fg: #14130f; --soft: #4a4842; --muted: #7a776e;
+  --line: rgba(20,19,15,.12); --accent: #b23a18; --accent-wash: rgba(178,58,24,.07);
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121110; --panel: #1a1917; --sunk: #232220;
+    --fg: #f4f2ed; --soft: #b5b1a8; --muted: #86827a;
+    --line: rgba(244,242,237,.14); --accent: #e0714b; --accent-wash: rgba(224,113,75,.12);
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 16px/1.7 var(--sans); -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 52rem; margin: 0 auto; padding: clamp(1.5rem,4vw,3rem) clamp(1.1rem,4vw,2rem) 5rem; }
+.wide { max-width: 64rem; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+h1 { font-size: clamp(1.8rem,4.5vw,2.6rem); line-height: 1.12; letter-spacing: -.025em; margin: 0 0 1.2rem; }
+h2 { font-size: clamp(1.3rem,3vw,1.6rem); letter-spacing: -.015em; margin: 3rem 0 1rem; padding-top: 1.4rem; border-top: 1px solid var(--line); }
+h3 { font-size: 1.12rem; margin: 2rem 0 .7rem; }
+h4 { font-size: 1rem; margin: 1.5rem 0 .5rem; }
+p, ul, ol { margin: 0 0 1.05rem; }
+ul, ol { padding-left: 1.4rem; }
+li { margin-bottom: .4rem; }
+li > ul, li > ol { margin-top: .4rem; }
+strong { font-weight: 650; }
+hr { border: 0; border-top: 1px solid var(--line); margin: 2.5rem 0; }
+blockquote {
+  margin: 0 0 1.05rem; padding: .1rem 0 .1rem 1.1rem;
+  border-left: 3px solid var(--accent); color: var(--soft);
+}
+code {
+  font: .87em/1.5 var(--mono);
+  background: var(--sunk); border: 1px solid var(--line); border-radius: 4px;
+  padding: .1em .35em; overflow-wrap: anywhere;
+}
+pre {
+  background: var(--sunk); border: 1px solid var(--line); border-radius: 10px;
+  padding: 1rem 1.15rem; overflow-x: auto; margin: 0 0 1.4rem;
+}
+pre code { background: none; border: 0; padding: 0; font-size: .84rem; line-height: 1.65; overflow-wrap: normal; }
+/* Wide content scrolls inside its own box; the page body never scrolls sideways. */
+.table-scroll { overflow-x: auto; margin: 0 0 1.4rem; border: 1px solid var(--line); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+th, td { text-align: left; padding: .6rem .85rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { background: var(--sunk); font-weight: 600; white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+img { max-width: 100%; height: auto; }
+
+/* ---- chrome ---- */
+.bar {
+  position: sticky; top: 0; z-index: 5;
+  display: flex; flex-wrap: wrap; align-items: center; gap: .4rem 1rem;
+  padding: .7rem clamp(1.1rem,4vw,2rem);
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(12px); border-bottom: 1px solid var(--line);
+  font-size: .82rem;
+}
+@supports not (background: color-mix(in srgb, red 50%, transparent)) { .bar { background: var(--bg); } }
+.bar a { color: var(--soft); }
+.bar .sep { color: var(--muted); }
+.bar .here { color: var(--fg); font-weight: 600; }
+.eyebrow {
+  font: 500 .7rem/1 var(--mono); letter-spacing: .16em; text-transform: uppercase;
+  color: var(--muted); margin: 0 0 .9rem;
+}
+.pager {
+  display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between;
+  margin-top: 3.5rem; padding-top: 1.5rem; border-top: 1px solid var(--line); font-size: .9rem;
+}
+.pager span { display: block; font: 500 .65rem/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-bottom: .2rem; }
+.pager .next { text-align: right; margin-left: auto; }
+
+/* ---- index ---- */
+.lede { font-size: 1.06rem; color: var(--soft); margin-bottom: 2rem; }
+.part { margin-top: 2.6rem; }
+.part h2 { margin-top: 0; border-top: 0; padding-top: 0; }
+.part > p { color: var(--muted); font-size: .92rem; margin-bottom: 1.1rem; }
+.toc { list-style: none; padding: 0; margin: 0; display: grid; gap: .5rem; }
+.toc a {
+  display: grid; grid-template-columns: 2.4rem 1fr; gap: .8rem; align-items: baseline;
+  padding: .8rem 1rem; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--panel); color: var(--fg);
+}
+.toc a:hover { border-color: var(--accent); text-decoration: none; background: var(--accent-wash); }
+.toc .n { font: 500 .78rem/1.4 var(--mono); color: var(--accent); }
+.toc .t { font-weight: 600; font-size: .97rem; }
+.toc .d { display: block; color: var(--muted); font-size: .85rem; font-weight: 400; margin-top: .15rem; }
+.routes { display: grid; gap: .5rem; grid-template-columns: repeat(auto-fit,minmax(15rem,1fr)); margin-bottom: 2.5rem; }
+.route { padding: .9rem 1rem; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.route strong { display: block; font-size: .93rem; margin-bottom: .2rem; }
+.route span { color: var(--muted); font-size: .85rem; }
+</style>
+</head>
+<body>
+<nav class="bar">
+  <a href="../index.html">Arcade Library</a>
+  <span class="sep">/</span>
+  <a href="index.html">WebAssembly course</a> <span class="sep">/</span> <span class="here">Numbers and operations</span>
+</nav>
+<main class="wrap ">
+<h1>03 · Numbers and operations</h1>
+<p>The MVP has <strong>four value types</strong>:</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Type</th>
+<th>Is</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>i32</code></td>
+<td>32 bits, no sign</td>
+<td>Also the type of every pointer, every boolean, every index</td>
+</tr>
+<tr>
+<td><code>i64</code></td>
+<td>64 bits, no sign</td>
+<td>Crosses to JavaScript as <code>BigInt</code></td>
+</tr>
+<tr>
+<td><code>f32</code></td>
+<td>IEEE-754 single</td>
+<td></td>
+</tr>
+<tr>
+<td><code>f64</code></td>
+<td>IEEE-754 double</td>
+<td>The type a JavaScript <code>number</code> actually is</td>
+</tr>
+</tbody></table>
+</div><p>There is no <code>bool</code>, no <code>char</code>, no <code>string</code>, no struct, no array, no pointer
+type, no unsigned type. Post-MVP adds <code>v128</code> (SIMD) and opaque reference types
+<code>funcref</code> / <code>externref</code>; <a href="14-post-mvp-features.html">chapter 14</a> covers those.</p>
+<p>Everything else — a string, a linked list, a sprite, an enemy — is bytes in
+<a href="05-linear-memory.html">linear memory</a> that you interpret by convention.</p>
+<hr>
+<h2>Signedness lives in the operator</h2>
+<p>This is the idea that most often catches people, and it is genuinely elegant
+once it clicks.</p>
+<p>An <code>i32</code> is 32 bits. Whether those bits mean −5 or 4294967291 is <strong>not a
+property of the value</strong> — it is a property of the operation you apply. So
+operations where the answer differs come in two flavours, suffixed <code>_s</code> and
+<code>_u</code>:</p>
+<pre><code class="language-wat">i32.div_s   i32.div_u        ;; division
+i32.rem_s   i32.rem_u        ;; remainder
+i32.lt_s    i32.lt_u         ;; less-than (and le/gt/ge)
+i32.shr_s   i32.shr_u        ;; right shift: arithmetic vs logical
+i32.trunc_f32_s  …_u         ;; float → int conversion
+i32.load8_s  i32.load8_u     ;; sub-width loads: sign-extend or zero-extend
+</code></pre>
+<p>Operations where the bit pattern makes the answer identical have <strong>one</strong> form:</p>
+<pre><code class="language-wat">i32.add   i32.sub   i32.mul
+i32.and   i32.or    i32.xor   i32.shl
+i32.eq    i32.ne
+</code></pre>
+<p>Two&#39;s complement is why: addition, subtraction and multiplication produce the
+same bits either way. Division does not, and neither does ordering.</p>
+<h3>The bug this causes</h3>
+<pre><code class="language-wat">;; WRONG if $count could ever be negative or if $i wraps
+(br_if $done (i32.ge_u (local.get $i) (local.get $count)))
+</code></pre>
+<p>With <code>_u</code>, <code>-1</code> compares as 4294967295 — greater than everything. With <code>_s</code> it
+compares as less than zero. A loop counter that decrements past zero will
+either exit immediately or run essentially forever, depending purely on which
+suffix you typed. Both engines here use <code>_s</code> for loop bounds:</p>
+<pre><code class="language-wat">(br_if $done (i32.ge_s (local.get $i) (global.get $MAX_BULLETS)))
+</code></pre>
+<p>Pick a rule and hold it: <strong><code>_s</code> for indices and counts, <code>_u</code> for addresses and
+bit manipulation.</strong></p>
+<hr>
+<h2>Booleans are <code>i32</code></h2>
+<p>There is no boolean type. Comparisons push <code>1</code> or <code>0</code> as an <code>i32</code>, and every
+conditional treats &quot;nonzero&quot; as true.</p>
+<pre><code class="language-wat">(if (i32.lt_s (local.get $a) (local.get $b))
+  (then …))
+</code></pre>
+<p><code>i32.eqz</code> tests for zero and doubles as logical NOT. There is no <code>!=</code> against
+zero — the idiom is just to use the value directly.</p>
+<p>Both engines store booleans in linear memory as <strong><code>f32</code> 0.0 / 1.0</strong> — the
+<code>alive</code> and <code>active</code> fields of every entity. That is unusual and deliberate: the
+entity records are otherwise all <code>f32</code>, and keeping one uniform type means the
+whole record can be read as a single <code>Float32Array</code> from JavaScript without a
+second typed-array view or any offset arithmetic on the JS side. The cost is a
+float comparison instead of an integer one:</p>
+<pre><code class="language-wat">(if (f32.eq (f32.load offset=20 (local.get $a)) (f32.const 0.0))
+  (then …))                     ;; slot is free
+</code></pre>
+<hr>
+<h2>Integer operations worth knowing</h2>
+<pre><code class="language-wat">i32.clz      ;; count leading zeros
+i32.ctz      ;; count trailing zeros
+i32.popcnt   ;; population count — set bits
+i32.rotl     ;; rotate left
+i32.rotr     ;; rotate right
+i32.wrap_i64 ;; i64 → i32, discarding the top bits
+i64.extend_i32_s / _u
+</code></pre>
+<p><code>clz</code> gives you an integer log2 in one instruction, which is how you find the
+enclosing power of two for a bucket index or an allocator size class:</p>
+<pre><code class="language-wat">;; 31 - clz(x) == floor(log2(x)) for x &gt; 0
+(i32.sub (i32.const 31) (i32.clz (local.get $x)))
+</code></pre>
+<h3>Traps</h3>
+<p>Two integer operations can <strong>trap</strong> — abort the whole call with a
+<code>RuntimeError</code>, unwinding to the host:</p>
+<ul>
+<li><code>i32.div_s</code>, <code>i32.div_u</code>, <code>i32.rem_s</code>, <code>i32.rem_u</code> with a zero divisor</li>
+<li><code>i32.div_s</code> of <code>INT_MIN / -1</code>, whose true result is not representable</li>
+</ul>
+<p>There is no exception to catch. Guard the divisor yourself if it can be zero.</p>
+<p><code>i32.trunc_f32_s</code> also traps on NaN or out-of-range input — a real hazard when
+converting computed floats to indices. The saturating variants
+<code>i32.trunc_sat_f32_s</code> / <code>_u</code> clamp instead of trapping and are the safer default
+where they are available (they are, everywhere, since 2020).</p>
+<hr>
+<h2>Floats</h2>
+<p><code>f32</code> and <code>f64</code> are IEEE-754, and wasm&#39;s float semantics are <strong>fully
+deterministic</strong> — the same operations on the same inputs give bit-identical
+results on every conforming engine and every CPU. This was hard-won and is one
+of the format&#39;s most valuable properties: a physics simulation, a checksum over
+float output, or a replay recorded on one machine reproduces exactly on another.</p>
+<p>The one deliberate exception is the <strong>NaN payload</strong>: which of the many NaN bit
+patterns you get from an operation that produces NaN is not specified. If you
+are hashing raw float bytes, canonicalise NaNs first.</p>
+<p>Available on both float types:</p>
+<pre><code class="language-wat">f32.add  f32.sub  f32.mul  f32.div
+f32.sqrt  f32.abs  f32.neg
+f32.min  f32.max          ;; NaN-propagating, unlike C&#39;s fmin/fmax
+f32.ceil  f32.floor  f32.trunc  f32.nearest
+f32.copysign
+f32.eq  f32.ne  f32.lt  f32.le  f32.gt  f32.ge    ;; no _s/_u — sign is in the type
+</code></pre>
+<p><strong><code>f32.nearest</code> is round-half-to-even</strong>, not round-half-up. <code>2.5 → 2.0</code>,
+<code>3.5 → 4.0</code>. If you want the C <code>round()</code> behaviour you have to build it.</p>
+<p><strong><code>f32.min</code> propagates NaN</strong>, unlike <code>Math.min</code> and unlike C&#39;s <code>fminf</code>. If
+either operand is NaN the result is NaN. This is usually what you want and
+occasionally a surprise.</p>
+<h3>What is missing</h3>
+<p>There is <strong>no <code>sin</code>, <code>cos</code>, <code>tan</code>, <code>exp</code>, <code>log</code>, <code>pow</code>, or <code>atan2</code></strong> in
+WebAssembly. <code>sqrt</code> is the only transcendental-adjacent instruction, because it
+is the only one IEEE-754 requires to be correctly rounded — and therefore the
+only one that could be specified deterministically.</p>
+<p>Everything else is either imported from the host or implemented in the module.
+Both engines here import two functions and no more:</p>
+<pre><code class="language-wat">(import &quot;env&quot; &quot;sinf&quot; (func $sinf (param f32) (result f32)))
+(import &quot;env&quot; &quot;cosf&quot; (func $cosf (param f32) (result f32)))
+</code></pre>
+<p>...supplied from JavaScript as <code>Math.sin</code> / <code>Math.cos</code>. <a href="17-math-without-a-stdlib.html">Chapter
+17</a> covers the trade-off — importing costs a
+boundary crossing per call and forfeits determinism, since <code>Math.sin</code> is <em>not</em>
+specified to the last bit across engines; a polynomial approximation in-module
+costs code and accuracy. For a game the crossing is cheap and the determinism
+does not matter, so importing wins. For a physics engine that needs replay
+determinism, it does not.</p>
+<p>This is also why a C program compiled to wasm carries a maths library with it.
+<code>libm</code> is not free; you can see it in the binary size.</p>
+<hr>
+<h2>Conversions</h2>
+<pre><code class="language-wat">i32.wrap_i64                   ;; truncating narrow
+i64.extend_i32_s / _u
+
+i32.trunc_f32_s / _u           ;; float → int, toward zero, TRAPS out of range
+i32.trunc_sat_f32_s / _u       ;; same, saturating — prefer this
+f32.convert_i32_s / _u         ;; int → float
+f32.demote_f64
+f64.promote_f32
+
+i32.reinterpret_f32            ;; same bits, different type — no conversion
+f32.reinterpret_i32
+</code></pre>
+<p>The <code>reinterpret</code> pair is a free bit-cast. It is how you inspect a float&#39;s bit
+pattern, and how the RNG in both engines converts a random <code>i32</code> into a float —
+though there it does the honest arithmetic conversion instead:</p>
+<pre><code class="language-wat">;; xorshift32, then scale the full unsigned range into [0, 1)
+(f32.div (f32.convert_i32_u (local.get $x)) (f32.const 4294967296.0))
+</code></pre>
+<p>Note <code>convert_i32_u</code>. With <code>_s</code> half the RNG&#39;s outputs would come out negative,
+and every <code>frand(lo, hi)</code> built on it would return values below <code>lo</code> half the
+time — the kind of bug that produces enemies spawning off-screen and takes an
+hour to find.</p>
+<hr>
+<h2><code>select</code></h2>
+<p>A branchless ternary:</p>
+<pre><code class="language-wat">(select (local.get $a) (local.get $b) (local.get $cond))   ;; cond ? a : b
+</code></pre>
+<p>Both arms are evaluated, so it is only valid when both are side-effect-free and
+cheap. When they are, it avoids a branch — useful in a tight loop.</p>
+<hr>
+<h2>Sizes and the case for <code>f32</code></h2>
+<p>Both engines use <code>f32</code> throughout, never <code>f64</code>, and it is a considered choice:</p>
+<ul>
+<li><strong>Half the memory.</strong> An entity record of 10 fields is 40 bytes instead of 80.
+Pixel Wave&#39;s 33 enemies, 160 bullets and 20 asteroids fit in 5.7 KB — under a
+tenth of one 64 KiB page.</li>
+<li><strong>Half the traffic across the boundary.</strong> JavaScript reads the whole entity
+region as a <code>Float32Array</code> each frame. Doubling that doubles the copy.</li>
+<li><strong>Precision is irrelevant here.</strong> <code>f32</code> gives ~7 significant decimal digits.
+A coordinate in a 1200×750 arena needs four. The error per frame is far below
+a pixel.</li>
+</ul>
+<p><code>f64</code> is the right default for anything accumulating over long runs — money,
+integrators, statistics — because <code>f32</code>&#39;s error compounds fast. For per-frame
+positional state that is overwritten every tick, it is waste.</p>
+
+<nav class="pager">
+  <a href="02-wat-syntax.html"><span>Previous</span>Reading and writing WAT</a>
+  <a href="index.html">Contents</a>
+  <a class="next" href="04-control-flow.html"><span>Next</span>Control flow</a>
+</nav>
+</main>
+</body>
+</html>

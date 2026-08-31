@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>06 · Functions, tables and indirect calls</title>
+<meta name="description" content="06 · Functions, tables and indirect calls — part of the WebAssembly course in the arcade-library repository.">
+<link rel="icon" href="../games/pixel-wave/logo.svg">
+<style>
+:root {
+  --bg: #fbfaf7; --panel: #ffffff; --sunk: #f2f0ea;
+  --fg: #14130f; --soft: #4a4842; --muted: #7a776e;
+  --line: rgba(20,19,15,.12); --accent: #b23a18; --accent-wash: rgba(178,58,24,.07);
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121110; --panel: #1a1917; --sunk: #232220;
+    --fg: #f4f2ed; --soft: #b5b1a8; --muted: #86827a;
+    --line: rgba(244,242,237,.14); --accent: #e0714b; --accent-wash: rgba(224,113,75,.12);
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 16px/1.7 var(--sans); -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 52rem; margin: 0 auto; padding: clamp(1.5rem,4vw,3rem) clamp(1.1rem,4vw,2rem) 5rem; }
+.wide { max-width: 64rem; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+h1 { font-size: clamp(1.8rem,4.5vw,2.6rem); line-height: 1.12; letter-spacing: -.025em; margin: 0 0 1.2rem; }
+h2 { font-size: clamp(1.3rem,3vw,1.6rem); letter-spacing: -.015em; margin: 3rem 0 1rem; padding-top: 1.4rem; border-top: 1px solid var(--line); }
+h3 { font-size: 1.12rem; margin: 2rem 0 .7rem; }
+h4 { font-size: 1rem; margin: 1.5rem 0 .5rem; }
+p, ul, ol { margin: 0 0 1.05rem; }
+ul, ol { padding-left: 1.4rem; }
+li { margin-bottom: .4rem; }
+li > ul, li > ol { margin-top: .4rem; }
+strong { font-weight: 650; }
+hr { border: 0; border-top: 1px solid var(--line); margin: 2.5rem 0; }
+blockquote {
+  margin: 0 0 1.05rem; padding: .1rem 0 .1rem 1.1rem;
+  border-left: 3px solid var(--accent); color: var(--soft);
+}
+code {
+  font: .87em/1.5 var(--mono);
+  background: var(--sunk); border: 1px solid var(--line); border-radius: 4px;
+  padding: .1em .35em; overflow-wrap: anywhere;
+}
+pre {
+  background: var(--sunk); border: 1px solid var(--line); border-radius: 10px;
+  padding: 1rem 1.15rem; overflow-x: auto; margin: 0 0 1.4rem;
+}
+pre code { background: none; border: 0; padding: 0; font-size: .84rem; line-height: 1.65; overflow-wrap: normal; }
+/* Wide content scrolls inside its own box; the page body never scrolls sideways. */
+.table-scroll { overflow-x: auto; margin: 0 0 1.4rem; border: 1px solid var(--line); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+th, td { text-align: left; padding: .6rem .85rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { background: var(--sunk); font-weight: 600; white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+img { max-width: 100%; height: auto; }
+
+/* ---- chrome ---- */
+.bar {
+  position: sticky; top: 0; z-index: 5;
+  display: flex; flex-wrap: wrap; align-items: center; gap: .4rem 1rem;
+  padding: .7rem clamp(1.1rem,4vw,2rem);
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(12px); border-bottom: 1px solid var(--line);
+  font-size: .82rem;
+}
+@supports not (background: color-mix(in srgb, red 50%, transparent)) { .bar { background: var(--bg); } }
+.bar a { color: var(--soft); }
+.bar .sep { color: var(--muted); }
+.bar .here { color: var(--fg); font-weight: 600; }
+.eyebrow {
+  font: 500 .7rem/1 var(--mono); letter-spacing: .16em; text-transform: uppercase;
+  color: var(--muted); margin: 0 0 .9rem;
+}
+.pager {
+  display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between;
+  margin-top: 3.5rem; padding-top: 1.5rem; border-top: 1px solid var(--line); font-size: .9rem;
+}
+.pager span { display: block; font: 500 .65rem/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-bottom: .2rem; }
+.pager .next { text-align: right; margin-left: auto; }
+
+/* ---- index ---- */
+.lede { font-size: 1.06rem; color: var(--soft); margin-bottom: 2rem; }
+.part { margin-top: 2.6rem; }
+.part h2 { margin-top: 0; border-top: 0; padding-top: 0; }
+.part > p { color: var(--muted); font-size: .92rem; margin-bottom: 1.1rem; }
+.toc { list-style: none; padding: 0; margin: 0; display: grid; gap: .5rem; }
+.toc a {
+  display: grid; grid-template-columns: 2.4rem 1fr; gap: .8rem; align-items: baseline;
+  padding: .8rem 1rem; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--panel); color: var(--fg);
+}
+.toc a:hover { border-color: var(--accent); text-decoration: none; background: var(--accent-wash); }
+.toc .n { font: 500 .78rem/1.4 var(--mono); color: var(--accent); }
+.toc .t { font-weight: 600; font-size: .97rem; }
+.toc .d { display: block; color: var(--muted); font-size: .85rem; font-weight: 400; margin-top: .15rem; }
+.routes { display: grid; gap: .5rem; grid-template-columns: repeat(auto-fit,minmax(15rem,1fr)); margin-bottom: 2.5rem; }
+.route { padding: .9rem 1rem; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.route strong { display: block; font-size: .93rem; margin-bottom: .2rem; }
+.route span { color: var(--muted); font-size: .85rem; }
+</style>
+</head>
+<body>
+<nav class="bar">
+  <a href="../index.html">Arcade Library</a>
+  <span class="sep">/</span>
+  <a href="index.html">WebAssembly course</a> <span class="sep">/</span> <span class="here">Functions, tables and indirect calls</span>
+</nav>
+<main class="wrap ">
+<h1>06 · Functions, tables and indirect calls</h1>
+<h2>The call stack you cannot see</h2>
+<p>WebAssembly has two stacks and you can only touch one.</p>
+<p>The <strong>operand stack</strong> is the one from <a href="02-wat-syntax.html">chapter 2</a> — values
+flowing between instructions, its shape known statically at every point.</p>
+<p>The <strong>call stack</strong> holds return addresses, and parameters and locals for each
+frame. It is entirely managed by the engine, in memory the module cannot
+address. You cannot take the address of a local. You cannot smash the return
+address. You cannot read another frame&#39;s locals.</p>
+<p>This is a real and underrated security property: <strong>stack-smashing attacks do
+not work against WebAssembly</strong>, because the return address is not in a place
+the module can write. Return-oriented programming has nothing to build on.</p>
+<p>The catch — and it is a significant one for compiled C and Rust — is that
+anything needing an <em>address</em> cannot live in a local. <code>&amp;x</code> on a stack variable
+forces the compiler to keep <code>x</code> in a &quot;shadow stack&quot; carved out of linear
+memory, managed by an ordinary mutable global as the stack pointer. That shadow
+stack is inside your addressable memory, so it <em>can</em> be corrupted by an
+overflow of an adjacent buffer. The engine&#39;s real stack is safe; the compiler&#39;s
+emulated one is not.</p>
+<p>Stack depth is bounded and exhausting it traps (<code>RuntimeError: call stack exhausted</code>). The limit is engine-specific — usually a few tens of thousands of
+frames. There is no tail-call elimination in the MVP; the tail-call proposal has
+shipped in most engines and fixes this for functional-style code
+(<a href="14-post-mvp-features.html">chapter 14</a>).</p>
+<hr>
+<h2>Direct calls</h2>
+<pre><code class="language-wat">(func $bot_addr (param $i i32) (result i32) …)
+
+(call $bot_addr (local.get $i))
+</code></pre>
+<p>Arguments are pushed in order, the result comes back on the stack. Signature
+matching is checked at <strong>validation</strong> time, so a direct call can never fail for
+type reasons at runtime.</p>
+<p>Calls are cheap — a wasm-to-wasm call is roughly a native call. In hot loops,
+engines routinely inline small functions like <code>$bot_addr</code>. Do not hand-inline
+for performance without measuring; you will lose readability and probably gain
+nothing.</p>
+<p>Note the index space: <strong>imported functions come first</strong>. In <code>vector-arena</code>,
+<code>$sinf</code> is function 0 and <code>$cosf</code> is function 1, so your first defined function
+is index 2. This only matters when reading a disassembly or a stack trace.</p>
+<hr>
+<h2>Tables and indirect calls</h2>
+<p>A <strong>table</strong> is an array of references. In the MVP it holds <code>funcref</code> and it is
+the only way to call a function you do not know statically — a function pointer,
+a vtable, a callback, a dispatch table.</p>
+<pre><code class="language-wat">(type $step_fn (func (param f32)))
+
+(table 4 funcref)
+(elem (i32.const 0) $wander $orbit $charge $flee)   ;; fill slots 0..3
+
+(func $update (param $behaviour i32) (param $dt f32)
+  (call_indirect (type $step_fn) (local.get $dt) (local.get $behaviour)))
+</code></pre>
+<p><code>call_indirect</code> pops the <strong>table index last</strong>, after the arguments. It then does
+two runtime checks:</p>
+<ol>
+<li>Is the index within the table, and is that slot non-null? If not, it traps.</li>
+<li>Does the function&#39;s actual type <strong>exactly</strong> match the declared <code>(type …)</code>?
+If not, it traps.</li>
+</ol>
+<p>That second check is what makes indirect calls safe. In native code a function
+pointer with a mismatched signature is undefined behaviour and a common exploit
+primitive; in wasm it is a clean trap. The check is a single integer comparison
+against a canonicalised type index, so the cost is small but not zero — an
+indirect call is measurably more expensive than a direct one.</p>
+<p>This is also the enforcement point for <strong>control-flow integrity</strong>. A module can
+only ever jump to a function that was explicitly placed in its table, with a
+matching signature. An attacker who can corrupt a &quot;function pointer&quot; in linear
+memory can only redirect it to another entry in the same table — a real
+constraint, though not a complete defence. See <a href="12-security-model.html">chapter
+12</a>.</p>
+<p>Tables can be exported, imported, grown (<code>table.grow</code>), read (<code>table.get</code>) and
+written (<code>table.set</code>) with the reference-types proposal. This is how dynamic
+linking between wasm modules works, and how a host can hand a module a callback
+without going through JavaScript.</p>
+<hr>
+<h2>When you actually need a table</h2>
+<p>Hand-written WAT usually does not. Both engines here have zero tables, because
+their dispatch is a small fixed set best written as an <code>if</code> chain:</p>
+<pre><code class="language-wat">;; enemy species: 0 crab, 1 hornet, 2 skull — behaviour differs only in
+;; constants, so there is nothing to dispatch to
+</code></pre>
+<p>Reach for a table when you have <strong>open-ended</strong> dispatch: a plugin registry,
+user-supplied callbacks, a large <code>switch</code> over function bodies rather than
+constants, or a compiled language&#39;s virtual methods. For a closed set of three,
+branches are faster and clearer.</p>
+<p>The place you <em>will</em> meet tables is reading compiler output. Every C++ class
+with virtual methods, every Rust trait object, every Go interface becomes table
+entries.</p>
+<hr>
+<h2>Multiple results</h2>
+<p>Post-MVP, and widely supported:</p>
+<pre><code class="language-wat">(func $divmod (param $a i32) (param $b i32) (result i32 i32)
+  (i32.div_s (local.get $a) (local.get $b))
+  (i32.rem_s (local.get $a) (local.get $b)))
+</code></pre>
+<p>Both values land on the operand stack, in order. Useful, but hand-written WAT
+usually finds it simpler to write extra outputs to a known address in linear
+memory — which is what both engines do for everything JavaScript needs to read.</p>
+<hr>
+<h2>The start function</h2>
+<pre><code class="language-wat">(start $init)
+(func $init … )
+</code></pre>
+<p>Runs once at instantiation, after imports are wired and data segments applied,
+before any export can be called. It cannot take parameters or return anything.</p>
+<p>Neither engine uses it — both export an explicit <code>init()</code> that JavaScript calls,
+which is the better choice here for one specific reason: <strong>restart</strong>. <code>R</code>
+restarts a run by calling <code>init()</code> again, re-seeding the RNG and clearing the
+pools. A <code>start</code> function can only ever fire once per instance, so the restart
+path would have to be a separate export anyway. Having one function that both
+paths use means the first run and the fiftieth run go through identical code —
+and that is exactly the kind of asymmetry that produces &quot;it only breaks after a
+restart&quot; bugs.</p>
+<hr>
+<h2>Designing the export surface</h2>
+<p>The exports <strong>are</strong> the API, and this is worth more thought than it usually
+gets. Vector Arena exports eight things and no more:</p>
+<pre><code class="language-wat">(memory (export &quot;memory&quot;) 1)
+(func $init      (export &quot;init&quot;) (param $n i32))                  ;; n = wave size
+(func $set_input (export &quot;set_input&quot;) (param f32) (param i32) (param i32))
+(func $step      (export &quot;step&quot;) (param $dt f32))
+(func $get_score (export &quot;get_score&quot;) (result f32))
+(func $get_lives (export &quot;get_lives&quot;) (result f32))
+(func $is_game_over     (export &quot;is_game_over&quot;)     (result i32))
+(func $bots_alive_count (export &quot;bots_alive_count&quot;) (result i32))
+</code></pre>
+<p>Pixel Wave adds exactly one, <code>get_level</code>, because it has levels and Vector
+Arena does not.</p>
+<p>Three principles hold this together, and all three are about keeping the
+boundary narrow.</p>
+<p><strong>Commands take scalars; state comes back through memory.</strong> <code>set_input</code> takes
+three numbers because that is all input is. But the <em>world</em> — 33 enemies, 160
+bullets — is never returned; JavaScript reads it directly out of the exported
+memory as a <code>Float32Array</code>. Returning it would mean copying it, per frame,
+forever.</p>
+<p><strong>The scalars that are read once per frame get accessors anyway.</strong> <code>get_score</code>
+is literally <code>(f32.load (global.get $SCORE_OFF))</code> — a memory read the host could
+perform itself, at an offset the memory-map comment already documents. Exporting
+it as a function means the renderer does not need that constant, which is one
+fewer thing to keep in sync. Four scalars, four calls, once per frame: not
+measurable.</p>
+<p><strong>Nothing is exported that JavaScript does not need.</strong> <code>$spawn_bullet</code>,
+<code>$bot_addr</code>, <code>$rand_f32</code>, <code>$wrap</code> — all internal. Every export is a
+compatibility surface you have promised to keep.</p>
+<p>The parameter on <code>init</code> is where the policy line sits, and it is worth noticing.
+Vector Arena&#39;s engine has <strong>no concept of waves</strong> — <code>init(n)</code> spawns <code>n</code> bots
+and that is the end of the engine&#39;s opinion. Wave progression was added later,
+entirely in JavaScript: watch <code>bots_alive_count()</code>, and when it reaches zero,
+call <code>init(n + 1)</code>. The binary was never recompiled.</p>
+<p>Pixel Wave takes the other side of the same choice: <code>init()</code> takes nothing, and
+<code>$wave_size</code> — <code>1 + level</code>, capped at 24 — lives <em>inside</em> the engine, with
+<code>get_level</code> exported so the HUD can display it. Neither is wrong. The first
+exposes mechanism and lets the host set policy; the second guarantees every host
+plays the same game. Decide which you want before you write the signature,
+because changing it later breaks every integration.</p>
+<hr>
+<h2>Function references and the GC proposal</h2>
+<p>Newer proposals add typed function references (<code>(ref $type)</code>) and, with the GC
+proposal, actual struct and array types with a garbage collector. These change
+the picture substantially for languages like Java, Kotlin, Dart and OCaml, which
+previously had to ship their own GC compiled into the binary.</p>
+<p>They do not much change hand-written WAT, and they are covered in <a href="14-post-mvp-features.html">chapter
+14</a>.</p>
+
+<nav class="pager">
+  <a href="05-linear-memory.html"><span>Previous</span>Linear memory</a>
+  <a href="index.html">Contents</a>
+  <a class="next" href="07-javascript-interop.html"><span>Next</span>The JavaScript boundary</a>
+</nav>
+</main>
+</body>
+</html>

@@ -1,0 +1,363 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>10 · Source languages</title>
+<meta name="description" content="10 · Source languages — part of the WebAssembly course in the arcade-library repository.">
+<link rel="icon" href="../games/pixel-wave/logo.svg">
+<style>
+:root {
+  --bg: #fbfaf7; --panel: #ffffff; --sunk: #f2f0ea;
+  --fg: #14130f; --soft: #4a4842; --muted: #7a776e;
+  --line: rgba(20,19,15,.12); --accent: #b23a18; --accent-wash: rgba(178,58,24,.07);
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121110; --panel: #1a1917; --sunk: #232220;
+    --fg: #f4f2ed; --soft: #b5b1a8; --muted: #86827a;
+    --line: rgba(244,242,237,.14); --accent: #e0714b; --accent-wash: rgba(224,113,75,.12);
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 16px/1.7 var(--sans); -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 52rem; margin: 0 auto; padding: clamp(1.5rem,4vw,3rem) clamp(1.1rem,4vw,2rem) 5rem; }
+.wide { max-width: 64rem; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+h1 { font-size: clamp(1.8rem,4.5vw,2.6rem); line-height: 1.12; letter-spacing: -.025em; margin: 0 0 1.2rem; }
+h2 { font-size: clamp(1.3rem,3vw,1.6rem); letter-spacing: -.015em; margin: 3rem 0 1rem; padding-top: 1.4rem; border-top: 1px solid var(--line); }
+h3 { font-size: 1.12rem; margin: 2rem 0 .7rem; }
+h4 { font-size: 1rem; margin: 1.5rem 0 .5rem; }
+p, ul, ol { margin: 0 0 1.05rem; }
+ul, ol { padding-left: 1.4rem; }
+li { margin-bottom: .4rem; }
+li > ul, li > ol { margin-top: .4rem; }
+strong { font-weight: 650; }
+hr { border: 0; border-top: 1px solid var(--line); margin: 2.5rem 0; }
+blockquote {
+  margin: 0 0 1.05rem; padding: .1rem 0 .1rem 1.1rem;
+  border-left: 3px solid var(--accent); color: var(--soft);
+}
+code {
+  font: .87em/1.5 var(--mono);
+  background: var(--sunk); border: 1px solid var(--line); border-radius: 4px;
+  padding: .1em .35em; overflow-wrap: anywhere;
+}
+pre {
+  background: var(--sunk); border: 1px solid var(--line); border-radius: 10px;
+  padding: 1rem 1.15rem; overflow-x: auto; margin: 0 0 1.4rem;
+}
+pre code { background: none; border: 0; padding: 0; font-size: .84rem; line-height: 1.65; overflow-wrap: normal; }
+/* Wide content scrolls inside its own box; the page body never scrolls sideways. */
+.table-scroll { overflow-x: auto; margin: 0 0 1.4rem; border: 1px solid var(--line); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+th, td { text-align: left; padding: .6rem .85rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { background: var(--sunk); font-weight: 600; white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+img { max-width: 100%; height: auto; }
+
+/* ---- chrome ---- */
+.bar {
+  position: sticky; top: 0; z-index: 5;
+  display: flex; flex-wrap: wrap; align-items: center; gap: .4rem 1rem;
+  padding: .7rem clamp(1.1rem,4vw,2rem);
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(12px); border-bottom: 1px solid var(--line);
+  font-size: .82rem;
+}
+@supports not (background: color-mix(in srgb, red 50%, transparent)) { .bar { background: var(--bg); } }
+.bar a { color: var(--soft); }
+.bar .sep { color: var(--muted); }
+.bar .here { color: var(--fg); font-weight: 600; }
+.eyebrow {
+  font: 500 .7rem/1 var(--mono); letter-spacing: .16em; text-transform: uppercase;
+  color: var(--muted); margin: 0 0 .9rem;
+}
+.pager {
+  display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between;
+  margin-top: 3.5rem; padding-top: 1.5rem; border-top: 1px solid var(--line); font-size: .9rem;
+}
+.pager span { display: block; font: 500 .65rem/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-bottom: .2rem; }
+.pager .next { text-align: right; margin-left: auto; }
+
+/* ---- index ---- */
+.lede { font-size: 1.06rem; color: var(--soft); margin-bottom: 2rem; }
+.part { margin-top: 2.6rem; }
+.part h2 { margin-top: 0; border-top: 0; padding-top: 0; }
+.part > p { color: var(--muted); font-size: .92rem; margin-bottom: 1.1rem; }
+.toc { list-style: none; padding: 0; margin: 0; display: grid; gap: .5rem; }
+.toc a {
+  display: grid; grid-template-columns: 2.4rem 1fr; gap: .8rem; align-items: baseline;
+  padding: .8rem 1rem; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--panel); color: var(--fg);
+}
+.toc a:hover { border-color: var(--accent); text-decoration: none; background: var(--accent-wash); }
+.toc .n { font: 500 .78rem/1.4 var(--mono); color: var(--accent); }
+.toc .t { font-weight: 600; font-size: .97rem; }
+.toc .d { display: block; color: var(--muted); font-size: .85rem; font-weight: 400; margin-top: .15rem; }
+.routes { display: grid; gap: .5rem; grid-template-columns: repeat(auto-fit,minmax(15rem,1fr)); margin-bottom: 2.5rem; }
+.route { padding: .9rem 1rem; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.route strong { display: block; font-size: .93rem; margin-bottom: .2rem; }
+.route span { color: var(--muted); font-size: .85rem; }
+</style>
+</head>
+<body>
+<nav class="bar">
+  <a href="../index.html">Arcade Library</a>
+  <span class="sep">/</span>
+  <a href="index.html">WebAssembly course</a> <span class="sep">/</span> <span class="here">Source languages</span>
+</nav>
+<main class="wrap ">
+<h1>10 · Source languages</h1>
+<p>Almost nobody should hand-write WAT. This chapter is about what to write
+instead, and the honest cost of each option.</p>
+<p>The decision comes down to four axes, and they trade against each other:</p>
+<ol>
+<li><strong>Binary size</strong> — how much runtime the language drags along</li>
+<li><strong>Interop ergonomics</strong> — how much glue you write to move a string across</li>
+<li><strong>Ecosystem</strong> — whether the libraries you need already compile</li>
+<li><strong>Familiarity</strong> — the one people undervalue, and shouldn&#39;t</li>
+</ol>
+<hr>
+<h2>The comparison</h2>
+<p>Sizes are for a <em>non-trivial</em> module — a few thousand lines doing real work,
+optimised and stripped, before compression. Hello-world numbers are misleading
+in both directions.</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Language</th>
+<th>Realistic size</th>
+<th>GC shipped</th>
+<th>Interop</th>
+<th>Best for</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Rust</strong></td>
+<td>20–100 KB</td>
+<td>No</td>
+<td>Excellent (<code>wasm-bindgen</code>)</td>
+<td>The default answer for new work</td>
+</tr>
+<tr>
+<td><strong>Zig</strong></td>
+<td>5–30 KB</td>
+<td>No</td>
+<td>Manual, clean</td>
+<td>Smallest sensible output; systems work</td>
+</tr>
+<tr>
+<td><strong>C (bare clang)</strong></td>
+<td>3–20 KB</td>
+<td>No</td>
+<td>Manual</td>
+<td>Porting existing C with no libc need</td>
+</tr>
+<tr>
+<td><strong>C/C++ (Emscripten)</strong></td>
+<td>50 KB – several MB</td>
+<td>No</td>
+<td>Excellent, heavy</td>
+<td>Porting anything that expects POSIX</td>
+</tr>
+<tr>
+<td><strong>AssemblyScript</strong></td>
+<td>5–50 KB</td>
+<td>Yes, small</td>
+<td>Good</td>
+<td>JS/TS teams; small numeric modules</td>
+</tr>
+<tr>
+<td><strong>TinyGo</strong></td>
+<td>30–300 KB</td>
+<td>Yes</td>
+<td>Fair</td>
+<td>Go, when size matters</td>
+</tr>
+<tr>
+<td><strong>Go</strong></td>
+<td>2 MB+</td>
+<td>Yes</td>
+<td>Fair (<code>syscall/js</code>)</td>
+<td>Go, when it doesn&#39;t</td>
+</tr>
+<tr>
+<td><strong>Hand-written WAT</strong></td>
+<td>Exactly what you wrote</td>
+<td>No</td>
+<td>Manual, total control</td>
+<td>Learning. Tiny kernels. Little else</td>
+</tr>
+</tbody></table>
+</div><hr>
+<h2>Rust</h2>
+<p>The best-supported path, and the one to pick if nothing else decides it for you.</p>
+<pre><code class="language-bash">rustup target add wasm32-unknown-unknown
+cargo install wasm-pack
+wasm-pack build --target web
+</code></pre>
+<pre><code class="language-rust">use wasm_bindgen::prelude::*;
+
+#[wasm_bindgen]
+pub fn step(dt: f32) -&gt; f32 { dt * 2.0 }
+
+#[wasm_bindgen]
+pub fn greet(name: &amp;str) -&gt; String {
+    format!(&quot;hello, {name}&quot;)
+}
+</code></pre>
+<p><code>wasm-bindgen</code> generates the JavaScript glue for that second function — the
+allocation, the UTF-8 encode, the pointer-and-length handoff, the free. Written
+by hand it is the thirty lines from <a href="07-javascript-interop.html">chapter 7</a>, and
+getting the ownership wrong leaks memory on every call. This is the single
+strongest argument for Rust here: the boundary is the hard part, and it is
+generated.</p>
+<p><strong>What makes it big:</strong> panic machinery and formatting. <code>format!</code> and friends
+pull in a surprising amount. Mitigations that actually work:</p>
+<pre><code class="language-toml">[profile.release]
+opt-level = &quot;z&quot;
+lto = true
+codegen-units = 1
+panic = &quot;abort&quot;      # removes unwinding — usually the single biggest win
+strip = true
+</code></pre>
+<p>Then <code>wasm-opt -Oz</code>. A numeric module can land under 20 KB this way.</p>
+<p><strong>Ecosystem note:</strong> a large share of crates.io compiles to
+<code>wasm32-unknown-unknown</code> unchanged. Anything touching the filesystem, threads or
+sockets does not, unless you target WASI.</p>
+<hr>
+<h2>Zig</h2>
+<p>The size champion among languages people would actually use, and it has no
+hidden runtime at all.</p>
+<pre><code class="language-zig">export fn step(dt: f32) f32 {
+    return dt * 2.0;
+}
+</code></pre>
+<pre><code class="language-bash">zig build-lib src/main.zig -target wasm32-freestanding \
+    -dynamic -O ReleaseSmall -rdynamic
+</code></pre>
+<p><code>wasm32-freestanding</code> means no libc, no allocator you did not ask for, no
+initialisation. What lands in the binary is what you wrote plus what you called.
+Explicit allocators are a language-level feature, which fits wasm&#39;s model
+unusually well.</p>
+<p>The cost is a smaller ecosystem and no <code>wasm-bindgen</code> equivalent — you write the
+boundary by hand. For a numeric kernel that is a few lines; for a
+string-and-object-heavy API it is real work.</p>
+<p>Zig is also an excellent C cross-compiler (<code>zig cc</code>), which makes it a
+convenient way to build C to wasm without installing Emscripten.</p>
+<hr>
+<h2>C and C++</h2>
+<p>Two quite different paths, and picking the wrong one costs you a megabyte.</p>
+<p><strong>Bare clang</strong> — no runtime, no libc, no assumptions:</p>
+<pre><code class="language-bash">clang --target=wasm32 -nostdlib -O3 \
+      -Wl,--no-entry -Wl,--export-all -Wl,--allow-undefined \
+      -o out.wasm in.c
+</code></pre>
+<p>Output is tiny. You have no <code>malloc</code>, no <code>printf</code>, no <code>memcpy</code> unless you write
+them. Appropriate for a self-contained algorithm.</p>
+<p><strong>Emscripten</strong> — a POSIX emulation layer for the web:</p>
+<pre><code class="language-bash">emcc in.c -O3 -s EXPORTED_FUNCTIONS=&#39;[&quot;_step&quot;]&#39; \
+     -s MODULARIZE=1 -o out.js
+</code></pre>
+<p>Emscripten gives you a filesystem, <code>SDL</code>, <code>OpenGL</code> mapped onto WebGL, pthreads
+mapped onto Web Workers, and <code>main()</code> semantics. It is how FFmpeg, SQLite,
+Blender, Doom and Photoshop reached the browser, and for porting an existing
+codebase it is close to magic.</p>
+<p>It is also why some wasm bundles are 5 MB. Emscripten&#39;s job is to make
+<code>fopen(&quot;data.bin&quot;)</code> work in a browser, and the machinery for that is not free.
+If your C does not need POSIX, do not use Emscripten.</p>
+<hr>
+<h2>AssemblyScript</h2>
+<p>TypeScript-shaped syntax, compiled directly to wasm. Not TypeScript — a strict
+subset with wasm&#39;s type system exposed.</p>
+<pre><code class="language-ts">export function step(dt: f32): f32 {
+  return dt * 2.0;
+}
+
+export function sum(ptr: usize, n: i32): f32 {
+  let acc: f32 = 0;
+  for (let i = 0; i &lt; n; i++) acc += load&lt;f32&gt;(ptr + i * 4);
+  return acc;
+}
+</code></pre>
+<p>Note <code>f32</code>, <code>usize</code>, and <code>load&lt;f32&gt;</code> — it is wasm&#39;s model with familiar syntax
+over the top. Output is small, the compiler is fast, and the mental distance
+from the machine stays short.</p>
+<p>The trade is that it is <strong>not</strong> TypeScript: no <code>any</code>, no closures over mutable
+captures in older versions, no union types, no npm ecosystem. Code that looks
+like TS but rejects half of it is its own kind of friction.</p>
+<p>Best fit: a JS/TS team that wants a numeric hot path in wasm without learning
+Rust. It is a genuinely good on-ramp, and it is the closest thing to &quot;write WAT
+but pleasantly&quot;.</p>
+<hr>
+<h2>Go and TinyGo</h2>
+<p>Standard Go ships its scheduler and garbage collector in the binary. The floor
+is around 2 MB, and there is no flag that removes it — it is not bloat, it is the
+language&#39;s runtime.</p>
+<pre><code class="language-bash">GOOS=js GOARCH=wasm go build -o main.wasm    # browser, needs wasm_exec.js
+GOOS=wasip1 GOARCH=wasm go build -o main.wasm # WASI, Go 1.21+
+</code></pre>
+<p><strong>TinyGo</strong> recompiles Go with a different runtime and a much smaller GC:</p>
+<pre><code class="language-bash">tinygo build -o main.wasm -target wasm ./main.go
+</code></pre>
+<p>30–300 KB, at the cost of a standard-library subset and no <code>reflect</code>-heavy
+packages. For Go on the edge or in a plugin, TinyGo is the answer; for a
+browser SPA, reconsider the premise.</p>
+<hr>
+<h2>Managed languages and the GC proposal</h2>
+<p>Java, Kotlin, C#, Dart, Scala, OCaml and Python all have wasm stories, and until
+recently they all involved compiling a garbage collector into the binary —
+which is why early Blazor payloads were measured in megabytes.</p>
+<p>The <strong>GC proposal</strong> (<a href="14-post-mvp-features.html">chapter 14</a>) added struct and
+array types managed by the <em>host&#39;s</em> collector. Kotlin/Wasm and Dart&#39;s <code>dart compile wasm</code> target it directly, and output shrank by an order of magnitude.
+This is the most consequential recent change in the ecosystem for these
+languages, and it is shipped in Chrome, Firefox and Safari.</p>
+<p><strong>Python</strong> remains a special case. Pyodide is CPython compiled with Emscripten
+plus a scientific stack: about 6 MB before you import anything. It is
+extraordinary engineering and completely unsuitable as a way to make a web page
+a bit faster. Use it when you need CPython semantics — notebooks, teaching,
+running real scientific packages in a browser — and never as a performance play.</p>
+<hr>
+<h2>So: hand-written WAT?</h2>
+<p>For learning, yes, and it is worth doing once. Writing an entity pool by hand
+teaches you what <code>bots[i].x</code> compiles to in a way that reading about it does
+not, and the engines in this repository exist for that reason.</p>
+<p>For production, the honest list of cases:</p>
+<ul>
+<li>A kernel of a few hundred instructions where you want to control every one</li>
+<li>A build step that generates WAT programmatically</li>
+<li>Patching or instrumenting an existing binary</li>
+<li>A polyfill for a proposal an engine has not shipped</li>
+</ul>
+<p>Everything else: use Rust, or Zig, or AssemblyScript. The cost of WAT is not the
+writing — it is that there is no type checker above the machine level, no
+refactoring tool, no test framework, and the memory layout lives in a comment
+where nothing can verify it. <code>games/pixel-wave/game.wat</code> is 700 lines and about
+as far as that approach comfortably goes.</p>
+<hr>
+<h2>Choosing, in three questions</h2>
+<p><strong>Do you have existing code?</strong> Port it with its native toolchain. Emscripten for
+C/C++, <code>wasm32-unknown-unknown</code> for Rust. Do not rewrite.</p>
+<p><strong>Is binary size a hard constraint?</strong> (An edge function, a plugin, a widget on a
+marketing page.) Zig, bare C, or AssemblyScript. Not Go, not Emscripten,
+not Pyodide.</p>
+<p><strong>Otherwise?</strong> Rust. The tooling is the best in the ecosystem, <code>wasm-bindgen</code>
+removes the part that is genuinely hard, and the output size is fine once you
+have set <code>panic = &quot;abort&quot;</code>.</p>
+
+<nav class="pager">
+  <a href="09-toolchain.html"><span>Previous</span>The toolchain</a>
+  <a href="index.html">Contents</a>
+  <a class="next" href="11-beyond-the-browser.html"><span>Next</span>Beyond the browser</a>
+</nav>
+</main>
+</body>
+</html>

@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>15 · Architecture of a wasm game loop</title>
+<meta name="description" content="15 · Architecture of a wasm game loop — part of the WebAssembly course in the arcade-library repository.">
+<link rel="icon" href="../games/pixel-wave/logo.svg">
+<style>
+:root {
+  --bg: #fbfaf7; --panel: #ffffff; --sunk: #f2f0ea;
+  --fg: #14130f; --soft: #4a4842; --muted: #7a776e;
+  --line: rgba(20,19,15,.12); --accent: #b23a18; --accent-wash: rgba(178,58,24,.07);
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121110; --panel: #1a1917; --sunk: #232220;
+    --fg: #f4f2ed; --soft: #b5b1a8; --muted: #86827a;
+    --line: rgba(244,242,237,.14); --accent: #e0714b; --accent-wash: rgba(224,113,75,.12);
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 16px/1.7 var(--sans); -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 52rem; margin: 0 auto; padding: clamp(1.5rem,4vw,3rem) clamp(1.1rem,4vw,2rem) 5rem; }
+.wide { max-width: 64rem; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+h1 { font-size: clamp(1.8rem,4.5vw,2.6rem); line-height: 1.12; letter-spacing: -.025em; margin: 0 0 1.2rem; }
+h2 { font-size: clamp(1.3rem,3vw,1.6rem); letter-spacing: -.015em; margin: 3rem 0 1rem; padding-top: 1.4rem; border-top: 1px solid var(--line); }
+h3 { font-size: 1.12rem; margin: 2rem 0 .7rem; }
+h4 { font-size: 1rem; margin: 1.5rem 0 .5rem; }
+p, ul, ol { margin: 0 0 1.05rem; }
+ul, ol { padding-left: 1.4rem; }
+li { margin-bottom: .4rem; }
+li > ul, li > ol { margin-top: .4rem; }
+strong { font-weight: 650; }
+hr { border: 0; border-top: 1px solid var(--line); margin: 2.5rem 0; }
+blockquote {
+  margin: 0 0 1.05rem; padding: .1rem 0 .1rem 1.1rem;
+  border-left: 3px solid var(--accent); color: var(--soft);
+}
+code {
+  font: .87em/1.5 var(--mono);
+  background: var(--sunk); border: 1px solid var(--line); border-radius: 4px;
+  padding: .1em .35em; overflow-wrap: anywhere;
+}
+pre {
+  background: var(--sunk); border: 1px solid var(--line); border-radius: 10px;
+  padding: 1rem 1.15rem; overflow-x: auto; margin: 0 0 1.4rem;
+}
+pre code { background: none; border: 0; padding: 0; font-size: .84rem; line-height: 1.65; overflow-wrap: normal; }
+/* Wide content scrolls inside its own box; the page body never scrolls sideways. */
+.table-scroll { overflow-x: auto; margin: 0 0 1.4rem; border: 1px solid var(--line); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+th, td { text-align: left; padding: .6rem .85rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { background: var(--sunk); font-weight: 600; white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+img { max-width: 100%; height: auto; }
+
+/* ---- chrome ---- */
+.bar {
+  position: sticky; top: 0; z-index: 5;
+  display: flex; flex-wrap: wrap; align-items: center; gap: .4rem 1rem;
+  padding: .7rem clamp(1.1rem,4vw,2rem);
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(12px); border-bottom: 1px solid var(--line);
+  font-size: .82rem;
+}
+@supports not (background: color-mix(in srgb, red 50%, transparent)) { .bar { background: var(--bg); } }
+.bar a { color: var(--soft); }
+.bar .sep { color: var(--muted); }
+.bar .here { color: var(--fg); font-weight: 600; }
+.eyebrow {
+  font: 500 .7rem/1 var(--mono); letter-spacing: .16em; text-transform: uppercase;
+  color: var(--muted); margin: 0 0 .9rem;
+}
+.pager {
+  display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between;
+  margin-top: 3.5rem; padding-top: 1.5rem; border-top: 1px solid var(--line); font-size: .9rem;
+}
+.pager span { display: block; font: 500 .65rem/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-bottom: .2rem; }
+.pager .next { text-align: right; margin-left: auto; }
+
+/* ---- index ---- */
+.lede { font-size: 1.06rem; color: var(--soft); margin-bottom: 2rem; }
+.part { margin-top: 2.6rem; }
+.part h2 { margin-top: 0; border-top: 0; padding-top: 0; }
+.part > p { color: var(--muted); font-size: .92rem; margin-bottom: 1.1rem; }
+.toc { list-style: none; padding: 0; margin: 0; display: grid; gap: .5rem; }
+.toc a {
+  display: grid; grid-template-columns: 2.4rem 1fr; gap: .8rem; align-items: baseline;
+  padding: .8rem 1rem; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--panel); color: var(--fg);
+}
+.toc a:hover { border-color: var(--accent); text-decoration: none; background: var(--accent-wash); }
+.toc .n { font: 500 .78rem/1.4 var(--mono); color: var(--accent); }
+.toc .t { font-weight: 600; font-size: .97rem; }
+.toc .d { display: block; color: var(--muted); font-size: .85rem; font-weight: 400; margin-top: .15rem; }
+.routes { display: grid; gap: .5rem; grid-template-columns: repeat(auto-fit,minmax(15rem,1fr)); margin-bottom: 2.5rem; }
+.route { padding: .9rem 1rem; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.route strong { display: block; font-size: .93rem; margin-bottom: .2rem; }
+.route span { color: var(--muted); font-size: .85rem; }
+</style>
+</head>
+<body>
+<nav class="bar">
+  <a href="../index.html">Arcade Library</a>
+  <span class="sep">/</span>
+  <a href="index.html">WebAssembly course</a> <span class="sep">/</span> <span class="here">Architecture of a wasm game loop</span>
+</nav>
+<main class="wrap ">
+<h1>15 · Architecture of a wasm game loop</h1>
+<p>Part I was the language. This chapter and the two after it are one worked
+example: how <code>games/vector-arena/game.wat</code> and <code>games/pixel-wave/game.wat</code> are
+put together, and which of those decisions generalise.</p>
+<p>The architecture in one sentence: <strong>the host owns time and pixels, the module
+owns state and rules, and the only thing crossing between them is three
+numbers in and a <code>Float32Array</code> out.</strong></p>
+<hr>
+<h2>The split</h2>
+<pre><code>┌─ JavaScript ──────────────────────────────────────────────┐
+│  requestAnimationFrame  → compute dt                      │
+│  keyboard / touch       → rotate, thrust, fire            │
+│                                                            │
+│      set_input(rot, thrust, fire)   ──────────────┐       │
+│      step(dt)                       ──────────────┤       │
+│      get_score() get_lives()        ◀─────────────┤       │
+│                                                    │       │
+│  read memory as Float32Array        ◀──────────────┤       │
+│  draw sprites to &lt;canvas&gt;                          │       │
+│  play sound                                        │       │
+└────────────────────────────────────────────────────┼───────┘
+                                                     │
+┌─ game.wasm ─────────────────────────────────────────┴──────┐
+│  player physics · enemy AI · bullet pool · asteroids       │
+│  collisions · score, lives, level                           │
+│  all of it in one 64 KiB linear memory                      │
+└─────────────────────────────────────────────────────────────┘
+</code></pre>
+<p>Four ideas hold it up, and each is a choice that could have gone the other way.</p>
+<h3>1. The engine has no clock</h3>
+<p><code>step(dt)</code> takes the elapsed time as a parameter. The module imports nothing
+that could tell it what time it is.</p>
+<p>This falls out of the sandbox — there is no clock unless you import one — but
+it is worth <em>keeping</em> even where a clock is available:</p>
+<ul>
+<li><strong>Testability.</strong> Three simulated seconds run in microseconds. You can assert on
+exact state at frame 180 (<a href="09-toolchain.html">chapter 9</a> has the tests).</li>
+<li><strong>Replay.</strong> A run is a function of the inputs and the <code>dt</code> sequence.</li>
+<li><strong>Slow motion, fast-forward, pause</strong> are all &quot;pass a different <code>dt</code>&quot;, or none.
+Pixel Wave&#39;s pause is <code>return</code> before <code>step</code>, and there is no pause code in the
+engine at all.</li>
+<li><strong>Portability.</strong> The engine does not care whether it is driven by
+<code>requestAnimationFrame</code>, a fixed-rate worker, or a headless test loop.</li>
+</ul>
+<p>The host&#39;s side of the bargain is to clamp <code>dt</code>:</p>
+<pre><code class="language-js">const dt = Math.min((now - last) / 1000, 0.05);   // never more than 50 ms
+last = now;
+</code></pre>
+<p>Without the clamp, a backgrounded tab returning after thirty seconds delivers
+<code>dt = 30</code>, and every entity moves thirty seconds&#39; worth in one integration
+step — straight through walls, past every collision test, out of the arena. This
+is the single most common bug in variable-timestep loops, and one line fixes it.</p>
+<h3>2. The engine owns all state; the host renders a snapshot</h3>
+<p>JavaScript holds no game state. Not a position, not a score, not a &quot;which
+enemies are alive&quot; array. Everything is in linear memory, and the renderer reads
+it fresh each frame:</p>
+<pre><code class="language-js">const mem = new Float32Array(memory.buffer);
+
+for (let i = 0; i &lt; MAX_BOTS; i++) {
+  const b = (BOTS_OFF + i * BOT_STRIDE) &gt;&gt; 2;
+  if (mem[b + 5] &gt; 0) drawBot(mem[b], mem[b + 1], mem[b + 4]);   // x, y, heading
+}
+</code></pre>
+<p>There is exactly one source of truth, so the two halves cannot disagree. The
+renderer is a <strong>pure function of memory</strong> — which is why you can pause the game
+and still redraw on a resize, and why the same memory can be drawn by a canvas
+renderer, a WebGL renderer, or a test harness that just counts sprites.</p>
+<h3>3. Commands cross the boundary; the world does not</h3>
+<p>Per frame: <code>set_input</code> (three numbers), <code>step</code> (one number), <code>get_score</code>,
+<code>get_lives</code>. Four calls. The world — up to 213 live entities in Pixel Wave — is
+never passed anywhere. It is read in place.</p>
+<p>This is <a href="07-javascript-interop.html">chapter 7</a>&#39;s rule applied: make the boundary
+wide and rare. A design that returned an array of entity objects from <code>step</code>
+would allocate 213 objects per frame, 12,780 per second, and hand the garbage
+collector a job it did not need.</p>
+<h3>4. Sound and score display are host concerns</h3>
+<p>The engine does not know sound exists. The renderer infers events by watching
+state change between frames:</p>
+<pre><code class="language-js">let prevScore = 0, prevLives = 5;
+const score = get_score(), lives = get_lives();
+if (score &gt; prevScore) sfx(&#39;explosion&#39;);
+if (lives &lt; prevLives) sfx(&#39;hit&#39;);
+prevScore = score; prevLives = lives;
+</code></pre>
+<p>Crude, and it has a real limitation: two kills in one frame make one sound.
+The alternative — an event queue in linear memory that the host drains — is
+maybe forty lines and the right answer if audio matters. For this game it does
+not, and knowing which corner you cut is the point.</p>
+<hr>
+<h2>Variable vs fixed timestep</h2>
+<p>The engines here integrate with whatever <code>dt</code> arrives. That is the simple choice
+and it has known costs.</p>
+<p><strong>Variable timestep</strong> (what these do):</p>
+<pre><code class="language-js">step(Math.min((now - last) / 1000, 0.05));
+</code></pre>
+<p>Simple, always in step with the display, no accumulator. But the simulation is
+<strong>not deterministic across machines</strong> — a 144 Hz monitor and a 60 Hz monitor
+produce different <code>dt</code> sequences and therefore slightly different runs. Physics
+at very large <code>dt</code> degrades: Euler integration with drag behaves differently at
+16 ms than at 50 ms, and tunnelling through thin objects becomes possible.</p>
+<p><strong>Fixed timestep with an accumulator</strong> (what a physics-dependent game should do):</p>
+<pre><code class="language-js">const FIXED = 1 / 120;
+let acc = 0;
+
+function frame(now) {
+  acc += Math.min((now - last) / 1000, 0.25);
+  last = now;
+  while (acc &gt;= FIXED) { step(FIXED); acc -= FIXED; }
+  render(acc / FIXED);          // interpolation factor for smooth drawing
+  requestAnimationFrame(frame);
+}
+</code></pre>
+<p>Every simulation step is identical everywhere. Collisions are stable. Replay
+works across machines. The costs are a variable number of <code>step</code> calls per
+frame, the need to interpolate rendering (or accept judder), and the &quot;spiral of
+death&quot; if <code>step</code> ever costs more than <code>FIXED</code> — hence the clamp on the
+accumulator.</p>
+<p><strong>Which to use.</strong> Fixed if physics correctness or determinism matters —
+platformers, anything with stacking or resting contacts, anything with replay or
+netcode. Variable is fine for these games: entities are points, collisions are
+circle overlaps, and nothing rests on anything. Glenn Fiedler&#39;s <em>Fix Your
+Timestep!</em> is the canonical treatment and worth the twenty minutes.</p>
+<p>Note that <strong>the engine supports both without modification</strong>, because <code>dt</code> is a
+parameter. Switching Pixel Wave to a fixed timestep is a change to the
+JavaScript and nothing else. That is the payoff for decision 1.</p>
+<hr>
+<h2>Ordering inside <code>step</code></h2>
+<p><code>step</code> is one function — locals declared up front, then a guard, then passes:</p>
+<pre><code class="language-wat">(func $step (export &quot;step&quot;) (param $dt f32)
+  (local $px f32) (local $py f32) … ;; ~40 locals
+  (if (global.get $gameOver) (then (return)))
+
+  ;; ===== player =====      rotate, thrust, drag, clamp, wrap, fire
+  ;; ===== bots =====        steer, dodge, move, fire
+  ;; ===== bullets =====     integrate, cull, collide
+  ;; ===== asteroids =====   fall, spawn        (Pixel Wave only)
+  ;; ===== ship-vs-ship =====
+  ;; ===== level check =====                    (Pixel Wave only)
+)
+</code></pre>
+<p>The order is load-bearing, and in two directions.</p>
+<p><strong>Bullets are integrated <em>after</em> the things that fire them.</strong> A shot spawned in
+the player pass moves in the same frame it was created. Put the bullet pass
+first and every shot is one frame late — 16 ms of input lag that no player
+could name but every player would feel.</p>
+<p><strong>Collisions happen after everything has moved.</strong> All positions are current, so
+there is no &quot;half the world has moved&quot; state for a test to see. This is the
+standard structure and the reason to keep collision last.</p>
+<p>There is a subtler consequence hiding in the bot loop. Bots are updated in index
+order, and bot 3&#39;s dodge scan reads bullet positions — including any bullet bot 1
+fired <em>this frame</em>, because bot 1 ran first. Later bots therefore see a very
+slightly newer world than earlier ones. It does not matter here (bots dodge only
+<em>player</em> bullets, <code>owner == 0</code>), but it is exactly the asymmetry that makes
+index-ordered updates a real bug in games where entities interact with each
+other. The fix, when you need it, is double-buffering: read from last frame&#39;s
+state, write to this frame&#39;s.</p>
+<hr>
+<h2>The player pass, in full</h2>
+<p>Worth walking, because it is the whole vocabulary of the engine in forty lines.</p>
+<p><strong>Load the record into locals.</strong> Six <code>f32.load</code>s at fixed offsets. Everything
+after works on locals, which is both faster and much more readable than
+repeatedly addressing memory.</p>
+<p><strong>Rotate.</strong> <code>heading += rotDir * ROT_SPEED * dt</code>. <code>$rotDir</code> is the <code>f32</code> the
+host pushed — −1, 0 or 1 from a keyboard, or an analogue axis from a stick.</p>
+<p><strong>Thrust.</strong> Acceleration along the heading, which is the only place <code>$cosf</code> and
+<code>$sinf</code> are needed for the player:</p>
+<pre><code class="language-wat">(local.set $ax (f32.mul (call $cosf (local.get $phead)) (global.get $ACCEL)))
+(local.set $pvx (f32.add (local.get $pvx) (f32.mul (local.get $ax) (local.get $dt))))
+</code></pre>
+<p><strong>Drag</strong>, as a multiplicative decay:</p>
+<pre><code class="language-wat">(local.set $pvx (f32.mul (local.get $pvx)
+  (f32.sub (f32.const 1.0) (f32.mul (global.get $DRAG) (local.get $dt)))))
+</code></pre>
+<p>This is <code>v *= (1 - DRAG*dt)</code>, an approximation of exponential decay that is
+cheap and correct enough. It has a failure mode worth knowing: if <code>DRAG * dt</code>
+ever exceeds 1, velocity <strong>flips sign</strong> and the ship flies backwards. With
+<code>DRAG = 0.6</code> you would need <code>dt &gt; 1.67 s</code>. The 50 ms clamp on the host side is
+what guarantees it never happens — the two constants are related, and neither
+file says so. Now this one does.</p>
+<p><strong>Clamp speed</strong> to <code>MAX_SPEED</code> by normalising, which needs the one <code>f32.sqrt</code>
+per frame the player costs.</p>
+<p><strong>Integrate and wrap.</strong> <code>x += vx * dt</code>, then <code>$wrap</code> for the toroidal arena.</p>
+<p><strong>Fire.</strong> The burst-fire state machine from <a href="08-globals-and-state.html">chapter
+8</a> — edge detect, arm, fire out one round per
+<code>$BURST_GAP</code>, pay <code>$BURST_RECOVER</code> on the last one.</p>
+<p><strong>Store the record back.</strong> Five <code>f32.store</code>s. <code>alive</code> is untouched here; the
+collision pass owns it.</p>
+<p>Load → work in locals → store. That shape repeats for every entity type in both
+engines, and it is the single most useful habit in hand-written WAT: memory
+accesses are cheap but not free, and locals are where a register allocator can
+help you.</p>
+<hr>
+<h2>What the host still has to do</h2>
+<p>The engine is ~700 lines and the widget around it is ~800, which surprises
+people who expect the wasm to be the bulk. The host&#39;s list:</p>
+<ul>
+<li>Build the DOM: canvas, HUD, overlays, touch buttons</li>
+<li>Size the canvas to its container and handle <code>devicePixelRatio</code></li>
+<li>Read keyboard and touch, and reduce them to three numbers</li>
+<li>Own the <code>requestAnimationFrame</code> loop and compute <code>dt</code></li>
+<li>Pre-render sprites (Pixel Wave draws its ASCII grids to offscreen canvases once
+at mount, then blits — drawing per-pixel per-frame would be the whole budget)</li>
+<li>Read memory and draw</li>
+<li>Infer sound events from state deltas</li>
+<li>Persist the high score</li>
+<li>Tear all of it down on <code>destroy()</code></li>
+</ul>
+<p><strong>None of that belongs in wasm.</strong> It is DOM work, allocation-heavy, and would
+require importing a dozen host functions — which would widen the capability
+surface (<a href="12-security-model.html">chapter 12</a>) for no gain. The division is not
+&quot;wasm is faster so put more in it&quot;; it is &quot;wasm owns the part that is pure
+computation over its own state&quot;.</p>
+
+<nav class="pager">
+  <a href="14-post-mvp-features.html"><span>Previous</span>Post-MVP features</a>
+  <a href="index.html">Contents</a>
+  <a class="next" href="16-entity-pools.html"><span>Next</span>Case study: entity pools in linear memory</a>
+</nav>
+</main>
+</body>
+</html>

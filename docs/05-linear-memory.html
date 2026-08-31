@@ -1,0 +1,413 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>05 · Linear memory</title>
+<meta name="description" content="05 · Linear memory — part of the WebAssembly course in the arcade-library repository.">
+<link rel="icon" href="../games/pixel-wave/logo.svg">
+<style>
+:root {
+  --bg: #fbfaf7; --panel: #ffffff; --sunk: #f2f0ea;
+  --fg: #14130f; --soft: #4a4842; --muted: #7a776e;
+  --line: rgba(20,19,15,.12); --accent: #b23a18; --accent-wash: rgba(178,58,24,.07);
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121110; --panel: #1a1917; --sunk: #232220;
+    --fg: #f4f2ed; --soft: #b5b1a8; --muted: #86827a;
+    --line: rgba(244,242,237,.14); --accent: #e0714b; --accent-wash: rgba(224,113,75,.12);
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 16px/1.7 var(--sans); -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 52rem; margin: 0 auto; padding: clamp(1.5rem,4vw,3rem) clamp(1.1rem,4vw,2rem) 5rem; }
+.wide { max-width: 64rem; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+h1 { font-size: clamp(1.8rem,4.5vw,2.6rem); line-height: 1.12; letter-spacing: -.025em; margin: 0 0 1.2rem; }
+h2 { font-size: clamp(1.3rem,3vw,1.6rem); letter-spacing: -.015em; margin: 3rem 0 1rem; padding-top: 1.4rem; border-top: 1px solid var(--line); }
+h3 { font-size: 1.12rem; margin: 2rem 0 .7rem; }
+h4 { font-size: 1rem; margin: 1.5rem 0 .5rem; }
+p, ul, ol { margin: 0 0 1.05rem; }
+ul, ol { padding-left: 1.4rem; }
+li { margin-bottom: .4rem; }
+li > ul, li > ol { margin-top: .4rem; }
+strong { font-weight: 650; }
+hr { border: 0; border-top: 1px solid var(--line); margin: 2.5rem 0; }
+blockquote {
+  margin: 0 0 1.05rem; padding: .1rem 0 .1rem 1.1rem;
+  border-left: 3px solid var(--accent); color: var(--soft);
+}
+code {
+  font: .87em/1.5 var(--mono);
+  background: var(--sunk); border: 1px solid var(--line); border-radius: 4px;
+  padding: .1em .35em; overflow-wrap: anywhere;
+}
+pre {
+  background: var(--sunk); border: 1px solid var(--line); border-radius: 10px;
+  padding: 1rem 1.15rem; overflow-x: auto; margin: 0 0 1.4rem;
+}
+pre code { background: none; border: 0; padding: 0; font-size: .84rem; line-height: 1.65; overflow-wrap: normal; }
+/* Wide content scrolls inside its own box; the page body never scrolls sideways. */
+.table-scroll { overflow-x: auto; margin: 0 0 1.4rem; border: 1px solid var(--line); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+th, td { text-align: left; padding: .6rem .85rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { background: var(--sunk); font-weight: 600; white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+img { max-width: 100%; height: auto; }
+
+/* ---- chrome ---- */
+.bar {
+  position: sticky; top: 0; z-index: 5;
+  display: flex; flex-wrap: wrap; align-items: center; gap: .4rem 1rem;
+  padding: .7rem clamp(1.1rem,4vw,2rem);
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(12px); border-bottom: 1px solid var(--line);
+  font-size: .82rem;
+}
+@supports not (background: color-mix(in srgb, red 50%, transparent)) { .bar { background: var(--bg); } }
+.bar a { color: var(--soft); }
+.bar .sep { color: var(--muted); }
+.bar .here { color: var(--fg); font-weight: 600; }
+.eyebrow {
+  font: 500 .7rem/1 var(--mono); letter-spacing: .16em; text-transform: uppercase;
+  color: var(--muted); margin: 0 0 .9rem;
+}
+.pager {
+  display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between;
+  margin-top: 3.5rem; padding-top: 1.5rem; border-top: 1px solid var(--line); font-size: .9rem;
+}
+.pager span { display: block; font: 500 .65rem/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-bottom: .2rem; }
+.pager .next { text-align: right; margin-left: auto; }
+
+/* ---- index ---- */
+.lede { font-size: 1.06rem; color: var(--soft); margin-bottom: 2rem; }
+.part { margin-top: 2.6rem; }
+.part h2 { margin-top: 0; border-top: 0; padding-top: 0; }
+.part > p { color: var(--muted); font-size: .92rem; margin-bottom: 1.1rem; }
+.toc { list-style: none; padding: 0; margin: 0; display: grid; gap: .5rem; }
+.toc a {
+  display: grid; grid-template-columns: 2.4rem 1fr; gap: .8rem; align-items: baseline;
+  padding: .8rem 1rem; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--panel); color: var(--fg);
+}
+.toc a:hover { border-color: var(--accent); text-decoration: none; background: var(--accent-wash); }
+.toc .n { font: 500 .78rem/1.4 var(--mono); color: var(--accent); }
+.toc .t { font-weight: 600; font-size: .97rem; }
+.toc .d { display: block; color: var(--muted); font-size: .85rem; font-weight: 400; margin-top: .15rem; }
+.routes { display: grid; gap: .5rem; grid-template-columns: repeat(auto-fit,minmax(15rem,1fr)); margin-bottom: 2.5rem; }
+.route { padding: .9rem 1rem; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.route strong { display: block; font-size: .93rem; margin-bottom: .2rem; }
+.route span { color: var(--muted); font-size: .85rem; }
+</style>
+</head>
+<body>
+<nav class="bar">
+  <a href="../index.html">Arcade Library</a>
+  <span class="sep">/</span>
+  <a href="index.html">WebAssembly course</a> <span class="sep">/</span> <span class="here">Linear memory</span>
+</nav>
+<main class="wrap ">
+<h1>05 · Linear memory</h1>
+<p>A wasm module&#39;s memory is <strong>one flat, contiguous, mutable array of bytes</strong>,
+starting at address 0, addressed by <code>i32</code>. That is the entire memory model.</p>
+<p>No heap. No stack in memory (the <em>call</em> stack is separate and invisible). No
+objects, no allocator, no garbage collector, no protection pages, no virtual
+addressing. If you want any of those, you build them, or your source language&#39;s
+runtime brings them along.</p>
+<p>This is the chapter that everything else rests on. It is also the one where
+wasm feels most like the 1980s, in a way that turns out to be clarifying.</p>
+<hr>
+<h2>Declaring it</h2>
+<pre><code class="language-wat">(memory 1)                        ;; 1 page = 65536 bytes, no maximum
+(memory 1 16)                     ;; 1 page initial, 16 pages maximum
+(memory (export &quot;memory&quot;) 1)      ;; …and let the host see it
+</code></pre>
+<p>The unit is a <strong>page</strong>: 65,536 bytes, always. Never a byte count.</p>
+<ul>
+<li><code>memory.size</code> → current size <strong>in pages</strong></li>
+<li><code>memory.grow n</code> → grow by <code>n</code> pages; returns the <em>previous</em> size, or <strong><code>-1</code></strong>
+if it failed. It does not trap. Check the result — this is a classic silent
+bug, since <code>-1</code> used as a base address will happily compute nonsense.</li>
+</ul>
+<pre><code class="language-wat">(if (i32.eq (memory.grow (i32.const 4)) (i32.const -1))
+  (then (unreachable)))            ;; out of memory
+</code></pre>
+<p>Growing may <strong>detach and reallocate</strong> the underlying buffer. In JavaScript that
+invalidates every existing typed-array view — the classic symptom is an
+<code>ArrayBuffer</code> that is suddenly <code>byteLength === 0</code>. <a href="07-javascript-interop.html">Chapter
+7</a> covers the fix; the short version is to re-create
+your views after any call that could grow memory.</p>
+<p>Both engines here declare exactly one page and never grow. Everything Pixel
+Wave needs — the player, 33 enemies, 160 bullets, 20 asteroids, score, lives —
+occupies 5,672 bytes. That is 8.7% of a single page, and it means the entire
+world state is one cache-friendly block with no allocation anywhere in the frame.</p>
+<hr>
+<h2>Loads and stores</h2>
+<pre><code class="language-wat">(f32.load  (i32.const 100))              ;; read 4 bytes as f32 from address 100
+(f32.store (i32.const 100) (f32.const 1.5))
+
+(i32.load  (local.get $addr))
+(i32.store (local.get $addr) (local.get $value))
+</code></pre>
+<h3>Narrow accesses</h3>
+<p>You can load and store less than the type&#39;s width. Loads must say how to fill
+the top bits:</p>
+<pre><code class="language-wat">i32.load8_s   i32.load8_u    i32.load16_s   i32.load16_u
+i64.load8_s   …  i64.load32_s  i64.load32_u
+i32.store8    i32.store16     i64.store32   ;; stores just truncate — no _s/_u
+</code></pre>
+<p><code>i32.load8_u</code> is how you read a byte. There is no byte type; this is it.</p>
+<h3><code>offset</code> is free</h3>
+<p>Every memory instruction takes a static <code>offset</code> and <code>align</code>:</p>
+<pre><code class="language-wat">(f32.load offset=16 (local.get $base))    ;; == load(base + 16)
+</code></pre>
+<p>The offset is encoded in the instruction, folded into the address at compile
+time, and costs nothing. <strong>This is the mechanism for struct fields</strong>, and it is
+why the entity code in these engines reads the way it does:</p>
+<pre><code class="language-wat">;; bot record: x@0 y@4 vx@8 vy@12 heading@16 alive@20 cooldown@24 …
+(f32.load offset=0  (local.get $a))    ;; bot.x
+(f32.load offset=16 (local.get $a))    ;; bot.heading
+(f32.load offset=20 (local.get $a))    ;; bot.alive
+</code></pre>
+<p>Compute the record&#39;s base address once into a local, then use offsets for every
+field. Writing <code>(i32.add (local.get $a) (i32.const 16))</code> instead is both slower
+and much harder to read.</p>
+<h3>Alignment is a hint, not a rule</h3>
+<pre><code class="language-wat">(f32.load align=4 (local.get $a))   ;; &quot;I promise this is 4-byte aligned&quot;
+</code></pre>
+<p><code>align</code> is a <strong>promise to the engine</strong>, not a constraint. An unaligned access
+does not trap — it just may be slower. Declaring an alignment larger than the
+actual address is allowed but pointless; the engine may generate a fast path
+that then has to be fixed up. If you are unsure, omit it: the default is the
+natural alignment of the type, which is what you want.</p>
+<p>The one place it matters is atomics (<a href="14-post-mvp-features.html">chapter 14</a>),
+where misalignment <strong>does</strong> trap.</p>
+<h3>Endianness</h3>
+<p>Little-endian, always, everywhere. The specification fixes it, so <code>i32.store</code>
+followed by <code>i32.load8_u</code> gives you the low byte on every platform. No
+byte-swapping, no host variation, ever. One fewer thing to think about than in
+native code.</p>
+<h3>Bounds</h3>
+<p>Every access is bounds-checked against the current memory size. Out of range
+<strong>traps</strong> — a <code>RuntimeError</code> in the host, and the call unwinds. There is no
+segfault, no adjacent-process corruption, and no way to reach the host&#39;s memory.</p>
+<p>This is the load-bearing safety property of the whole format. It is also
+usually free at runtime: 64-bit engines reserve 4 GiB of address space per
+memory and let the MMU do the checking, so the fast path has no explicit
+comparison at all.</p>
+<p>But note what it does <strong>not</strong> protect: writing past the end of <em>your own</em> array
+into <em>your own</em> next array is completely legal. Nothing in wasm knows those are
+two arrays. Heap corruption inside a module is entirely possible; see <a href="12-security-model.html">chapter
+12</a>.</p>
+<hr>
+<h2>Data segments</h2>
+<p>Bytes written into memory at instantiation, before anything runs:</p>
+<pre><code class="language-wat">(data (i32.const 0) &quot;hello\00&quot;)
+(data (i32.const 1024) &quot;\01\02\03\04&quot;)
+</code></pre>
+<p>Escapes are <code>\XX</code> hex pairs, plus <code>\n</code>, <code>\t</code>, <code>\\</code>, <code>\&quot;</code>. A &quot;string&quot; in wasm is
+a data segment plus a convention — you supply the length or the terminator
+yourself. There is no string type and nothing knows about UTF-8.</p>
+<p>Data segments are how compiled languages ship string literals, jump tables and
+constant lookup tables. Neither engine here uses one: the world is generated at
+<code>init</code> rather than loaded.</p>
+<hr>
+<h2>Laying out a struct by hand</h2>
+<p>This is the core skill. There is no <code>struct</code> keyword — you decide the field
+order, add up the sizes, and write the numbers down.</p>
+<p>Pixel Wave&#39;s bot record:</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Field</th>
+<th>Offset</th>
+<th>Type</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>x</code></td>
+<td>0</td>
+<td>f32</td>
+<td>position</td>
+</tr>
+<tr>
+<td><code>y</code></td>
+<td>4</td>
+<td>f32</td>
+<td></td>
+</tr>
+<tr>
+<td><code>vx</code></td>
+<td>8</td>
+<td>f32</td>
+<td>velocity</td>
+</tr>
+<tr>
+<td><code>vy</code></td>
+<td>12</td>
+<td>f32</td>
+<td></td>
+</tr>
+<tr>
+<td><code>heading</code></td>
+<td>16</td>
+<td>f32</td>
+<td>radians</td>
+</tr>
+<tr>
+<td><code>alive</code></td>
+<td>20</td>
+<td>f32</td>
+<td>0.0 / 1.0</td>
+</tr>
+<tr>
+<td><code>cooldown</code></td>
+<td>24</td>
+<td>f32</td>
+<td>seconds until it can fire</td>
+</tr>
+<tr>
+<td><code>wanderTimer</code></td>
+<td>28</td>
+<td>f32</td>
+<td>seconds until it re-picks a target</td>
+</tr>
+<tr>
+<td><code>targetX</code></td>
+<td>32</td>
+<td>f32</td>
+<td>where it is wandering to</td>
+</tr>
+<tr>
+<td><code>targetY</code></td>
+<td>36</td>
+<td>f32</td>
+<td></td>
+</tr>
+</tbody></table>
+</div><p><strong>Stride: 40 bytes.</strong> An array of 33 of them is 1,320 bytes.</p>
+<p>The addressing helper is three instructions:</p>
+<pre><code class="language-wat">(global $BOTS_OFF   i32 (i32.const 24))
+(global $BOT_STRIDE i32 (i32.const 40))
+
+(func $bot_addr (param $i i32) (result i32)
+  (i32.add (global.get $BOTS_OFF)
+           (i32.mul (local.get $i) (global.get $BOT_STRIDE))))
+</code></pre>
+<p><code>base + index * stride</code>, which is exactly what a C compiler emits for <code>bots[i]</code>.
+Writing it by hand is the moment array indexing stops being magic.</p>
+<h3>Choosing the stride</h3>
+<p>Keep it a multiple of the largest field&#39;s size — 40 is a multiple of 4, so every
+<code>f32</code> in every record is naturally aligned. A stride of 38 would put half your
+fields on odd addresses for no gain.</p>
+<p>Powers of two let the multiply become a shift, which is why <code>vector-arena</code> uses
+32 bytes per bot. Whether that is worth constraining your field count is a
+judgement call; at these sizes it is not measurable, and Pixel Wave&#39;s 40 was
+chosen for the fields it needed rather than for the shift.</p>
+<hr>
+<h2>The full map, and why it is a table in a comment</h2>
+<p>Both engines open with their memory map as a comment block, and this is not
+decoration — it is the schema. Nothing in the language records it, nothing
+checks it, and <strong>three separate files depend on it agreeing</strong>: the <code>.wat</code>, the
+JavaScript renderer that reads the memory, and the documentation.</p>
+<p><code>games/pixel-wave/game.wat</code>:</p>
+<pre><code class="language-wat">;; ================= MEMORY LAYOUT =================
+;; player    @0     : x,y,vx,vy,heading,alive                 (6 f32 = 24 B)
+;; bots      @24    : stride 40B, MAX_BOTS=33
+;;             x,y,vx,vy,heading,alive,cooldown,wanderTimer,targetX,targetY
+;;             ends at 24 + 33*40 = 1344
+;; bullets   @1344  : stride 24B, MAX_BULLETS=160 (x,y,vx,vy,owner,active)
+;;             ends at 1344 + 160*24 = 5184
+;; asteroids @5184  : stride 24B, MAX_AST=20 (x,y,vx,vy,radius,active)
+;;             ends at 5184 + 20*24 = 5664
+;; score @5664  lives @5668
+;; ===================================================
+</code></pre>
+<p>Notice the arithmetic is written out. Each region&#39;s start is the previous
+region&#39;s end, and if you change <code>MAX_BOTS</code> from 33 to 40 you must recompute
+every offset below it. Showing the sum is what makes that a two-minute edit
+instead of a debugging session.</p>
+<p><strong>Regions in order of how often they change.</strong> Scalars last, at the top of the
+address space, so adding one does not move anything. Getting this backwards
+means every new counter shifts the entity arrays and invalidates every offset
+constant in the renderer.</p>
+<hr>
+<h2>Building an allocator</h2>
+<p>You will not need one for a fixed world, but the moment you have variable-sized
+data you do. The simplest useful allocator is a <strong>bump allocator</strong> — twelve
+lines, no free:</p>
+<pre><code class="language-wat">(global $heap (mut i32) (i32.const 65536))   ;; start after the static region
+
+(func $alloc (param $size i32) (result i32)
+  (local $p i32)
+  (local.set $p (global.get $heap))
+  ;; round up to 8-byte alignment
+  (global.set $heap
+    (i32.and (i32.add (i32.add (local.get $p) (local.get $size)) (i32.const 7))
+             (i32.const -8)))
+  ;; grow if we have run past the end
+  (if (i32.gt_u (global.get $heap)
+                (i32.mul (memory.size) (i32.const 65536)))
+    (then
+      (if (i32.eq (memory.grow (i32.const 1)) (i32.const -1))
+        (then (unreachable)))))
+  (local.get $p))
+</code></pre>
+<p>That is genuinely all a bump allocator is, and for a program with an
+arena-per-frame lifetime — reset <code>$heap</code> at the top of each frame — it is both
+the fastest and the simplest option available.</p>
+<p>Add <code>free</code> and you need a free list, size classes, coalescing, and the fragmentation
+problem. That is <code>malloc</code>, it is a few thousand lines, and it is a large part of
+what makes a compiled-C wasm binary bigger than you expected.</p>
+<p><strong>The pool approach in these engines avoids the question entirely</strong>: every
+entity array is fixed-size, allocation is &quot;find a slot with <code>active == 0</code>&quot;, and
+freeing is &quot;set <code>active = 0</code>&quot;. <a href="16-entity-pools.html">Chapter 16</a> is about why
+that trade is usually right for a simulation.</p>
+<hr>
+<h2>Bulk memory operations</h2>
+<p>Shipped and universally available since 2020 (<a href="14-post-mvp-features.html">chapter
+14</a>):</p>
+<pre><code class="language-wat">(memory.copy (dest) (src) (len))     ;; memmove semantics — overlap is fine
+(memory.fill (dest) (byte) (len))    ;; memset
+(memory.init $seg (dest) (off) (len))
+(data.drop $seg)
+</code></pre>
+<p>Before these, <code>memset</code> was a hand-written byte loop. <code>memory.fill</code> is an engine
+intrinsic and orders of magnitude faster. If you are zeroing a region — clearing
+an entity pool at <code>init</code>, for example — reach for it.</p>
+<hr>
+<h2>Practical rules</h2>
+<ol>
+<li><strong>Write the layout as a comment, with the arithmetic shown.</strong> It is the
+schema; nothing else records it.</li>
+<li><strong>One address helper per array.</strong> <code>$bot_addr</code>, <code>$bullet_addr</code>, <code>$ast_addr</code>.
+Never open-code <code>base + i*stride</code>.</li>
+<li><strong>Compute the base into a local, then use static <code>offset=</code>.</strong> Free, and it
+makes the field names visible.</li>
+<li><strong>Order regions by volatility.</strong> Fixed arrays first, scalars last.</li>
+<li><strong>Keep strides a multiple of the widest field.</strong></li>
+<li><strong>Check <code>memory.grow</code>&#39;s return value.</strong> It gives you <code>-1</code>, not a trap.</li>
+<li><strong>Re-create JavaScript typed-array views after anything that might grow.</strong></li>
+<li><strong>Zero what you assume is zero.</strong> A memory is zeroed at instantiation, but not
+at your <code>init</code> — a restart that does not clear the pools inherits the last
+run&#39;s corpses. Both engines clear explicitly in <code>init</code> for exactly this
+reason.</li>
+</ol>
+
+<nav class="pager">
+  <a href="04-control-flow.html"><span>Previous</span>Control flow</a>
+  <a href="index.html">Contents</a>
+  <a class="next" href="06-functions-tables.html"><span>Next</span>Functions, tables and indirect calls</a>
+</nav>
+</main>
+</body>
+</html>

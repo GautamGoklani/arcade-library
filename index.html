@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Arcade Library — games written in WebAssembly Text</title>
+<meta name="description" content="Two browser arcade games whose entire simulation is hand-written WebAssembly Text, and a WebAssembly course built around them.">
+<link rel="icon" href="games/pixel-wave/logo.svg">
+<style>
+  :root {
+    --bg: #0b0d10;
+    --panel: #14181d;
+    --line: #262c34;
+    --fg: #e8ecf1;
+    --muted: #9aa4b2;
+    --accent: #33ff66;
+    --accent-2: #6cf0ff;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font: 16px/1.65 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 68rem; margin: 0 auto; padding: clamp(2rem, 6vw, 5rem) clamp(1.25rem, 4vw, 2.5rem) 5rem; }
+  header { border-bottom: 1px solid var(--line); padding-bottom: 2.5rem; margin-bottom: 3rem; }
+  .eyebrow {
+    font: 600 0.7rem/1 var(--mono);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 1rem;
+  }
+  h1 { font-size: clamp(2rem, 6vw, 3.25rem); line-height: 1.05; margin: 0 0 1rem; letter-spacing: -0.02em; }
+  .lede { font-size: clamp(1rem, 2.4vw, 1.15rem); color: var(--muted); max-width: 46rem; margin: 0; }
+  h2 { font-size: 1.35rem; margin: 3.5rem 0 1.25rem; letter-spacing: -0.01em; }
+  h2:first-of-type { margin-top: 0; }
+  a { color: var(--accent-2); }
+
+  .games { display: grid; gap: 1.25rem; grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr)); }
+  .game {
+    display: flex; flex-direction: column; gap: 0.75rem;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 1.5rem;
+    text-decoration: none;
+    color: inherit;
+    transition: border-color .18s ease, transform .18s ease;
+  }
+  .game:hover, .game:focus-visible { border-color: var(--accent); transform: translateY(-2px); }
+  .game img { width: 68px; height: 68px; }
+  .game h3 { margin: 0; font-size: 1.15rem; }
+  .game p { margin: 0; color: var(--muted); font-size: 0.92rem; }
+  .tags { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: auto; padding-top: 0.75rem; }
+  .tag {
+    font: 500 0.68rem/1 var(--mono);
+    letter-spacing: 0.06em;
+    padding: 0.35rem 0.55rem;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    color: var(--muted);
+  }
+
+  .docs { display: grid; gap: 0.6rem; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); padding: 0; list-style: none; }
+  .docs a {
+    display: block;
+    padding: 0.85rem 1rem;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    text-decoration: none;
+    color: var(--fg);
+    font-size: 0.93rem;
+  }
+  .docs a:hover { border-color: var(--accent-2); }
+  .docs span { display: block; color: var(--muted); font-size: 0.8rem; margin-top: 0.2rem; }
+
+  pre {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 1rem 1.15rem;
+    overflow-x: auto;
+    font: 0.85rem/1.7 var(--mono);
+  }
+  footer { margin-top: 4rem; padding-top: 2rem; border-top: 1px solid var(--line); color: var(--muted); font-size: 0.85rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <p class="eyebrow">Arcade Library</p>
+  <h1>Arcade games with no engine underneath them.</h1>
+  <p class="lede">
+    Two browser games whose entire simulation — physics, enemy AI, bullet pools, collisions,
+    the level curve — is hand-written WebAssembly Text. No game framework, no compiler
+    front-end, no runtime dependency. JavaScript forwards input and draws what it reads back
+    out of linear memory, and that is all it does.
+  </p>
+</header>
+
+<h2>Play</h2>
+<div class="games">
+  <a class="game" href="games/pixel-wave/index.html">
+    <img src="games/pixel-wave/logo.svg" alt="A pixel-art fighter below three enemy species">
+    <h3>Pixel Wave</h3>
+    <p>A retro wave shooter. The swarm patrols the upper half of the arena, asteroids fall, and every cleared level adds one more enemy.</p>
+    <div class="tags"><span class="tag">3.5 KB engine</span><span class="tag">33 enemies</span><span class="tag">touch + keyboard</span></div>
+  </a>
+  <a class="game" href="games/vector-arena/index.html">
+    <img src="games/vector-arena/logo.svg" alt="A cyan fighter breaking away from two red pursuers">
+    <h3>Vector Arena</h3>
+    <p>Vector-glow dogfighting in a wrap-around arena. The bots orbit at range, strafe, lead their shots, and dodge yours.</p>
+    <div class="tags"><span class="tag">2.7 KB engine</span><span class="tag">wrap-around</span><span class="tag">keyboard</span></div>
+  </a>
+</div>
+
+<h2>Learn WebAssembly</h2>
+<p class="lede" style="margin-bottom:1.25rem">
+  A full course in <a href="docs/index.html">docs/</a> — the language from first principles, the
+  ecosystem around it, and then these two engines as the worked example.
+  Seventeen chapters, a glossary and a reading list.
+</p>
+<ul class="docs">
+  <li><a href="docs/01-what-is-webassembly.html">01 · What WebAssembly actually is<span>And the four things it is usually mistaken for</span></a></li>
+  <li><a href="docs/02-wat-syntax.html">02 · Reading and writing WAT<span>S-expressions, the stack machine, folded form</span></a></li>
+  <li><a href="docs/05-linear-memory.html">05 · Linear memory<span>The single mutable array everything lives in</span></a></li>
+  <li><a href="docs/07-javascript-interop.html">07 · The JavaScript boundary<span>Imports, exports, and what crossing it costs</span></a></li>
+  <li><a href="docs/12-security-model.html">12 · The security model<span>What the sandbox protects, and what it doesn't</span></a></li>
+  <li><a href="docs/16-entity-pools.html">16 · Case study: entity pools<span>How these engines store 33 enemies and 160 bullets</span></a></li>
+  <li><a href="docs/index.html">Full contents →<span>All 17 chapters, plus the reference material</span></a></li>
+</ul>
+
+<h2>Build from source</h2>
+<pre>git clone https://github.com/GautamGoklani/arcade-library
+cd arcade-library
+npm install          # wabt, the WebAssembly Binary Toolkit
+npm run build        # every game.wat → game.wasm
+npm run serve        # http://localhost:8080</pre>
+<p style="color:var(--muted);font-size:0.9rem">
+  The compiled <code>.wasm</code> files are committed, so a fresh checkout is playable without
+  installing anything. <code>npm run check</code> verifies they still match their sources.
+</p>
+
+<footer>
+  MIT licensed. Engines, sprites and documentation written by hand —
+  see <a href="docs/reference/">docs/reference/</a> for the original project documents.
+</footer>
+
+</div>
+</body>
+</html>

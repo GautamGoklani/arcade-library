@@ -1,0 +1,384 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>13 · Debugging and profiling</title>
+<meta name="description" content="13 · Debugging and profiling — part of the WebAssembly course in the arcade-library repository.">
+<link rel="icon" href="../games/pixel-wave/logo.svg">
+<style>
+:root {
+  --bg: #fbfaf7; --panel: #ffffff; --sunk: #f2f0ea;
+  --fg: #14130f; --soft: #4a4842; --muted: #7a776e;
+  --line: rgba(20,19,15,.12); --accent: #b23a18; --accent-wash: rgba(178,58,24,.07);
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121110; --panel: #1a1917; --sunk: #232220;
+    --fg: #f4f2ed; --soft: #b5b1a8; --muted: #86827a;
+    --line: rgba(244,242,237,.14); --accent: #e0714b; --accent-wash: rgba(224,113,75,.12);
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 16px/1.7 var(--sans); -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 52rem; margin: 0 auto; padding: clamp(1.5rem,4vw,3rem) clamp(1.1rem,4vw,2rem) 5rem; }
+.wide { max-width: 64rem; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+h1 { font-size: clamp(1.8rem,4.5vw,2.6rem); line-height: 1.12; letter-spacing: -.025em; margin: 0 0 1.2rem; }
+h2 { font-size: clamp(1.3rem,3vw,1.6rem); letter-spacing: -.015em; margin: 3rem 0 1rem; padding-top: 1.4rem; border-top: 1px solid var(--line); }
+h3 { font-size: 1.12rem; margin: 2rem 0 .7rem; }
+h4 { font-size: 1rem; margin: 1.5rem 0 .5rem; }
+p, ul, ol { margin: 0 0 1.05rem; }
+ul, ol { padding-left: 1.4rem; }
+li { margin-bottom: .4rem; }
+li > ul, li > ol { margin-top: .4rem; }
+strong { font-weight: 650; }
+hr { border: 0; border-top: 1px solid var(--line); margin: 2.5rem 0; }
+blockquote {
+  margin: 0 0 1.05rem; padding: .1rem 0 .1rem 1.1rem;
+  border-left: 3px solid var(--accent); color: var(--soft);
+}
+code {
+  font: .87em/1.5 var(--mono);
+  background: var(--sunk); border: 1px solid var(--line); border-radius: 4px;
+  padding: .1em .35em; overflow-wrap: anywhere;
+}
+pre {
+  background: var(--sunk); border: 1px solid var(--line); border-radius: 10px;
+  padding: 1rem 1.15rem; overflow-x: auto; margin: 0 0 1.4rem;
+}
+pre code { background: none; border: 0; padding: 0; font-size: .84rem; line-height: 1.65; overflow-wrap: normal; }
+/* Wide content scrolls inside its own box; the page body never scrolls sideways. */
+.table-scroll { overflow-x: auto; margin: 0 0 1.4rem; border: 1px solid var(--line); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+th, td { text-align: left; padding: .6rem .85rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { background: var(--sunk); font-weight: 600; white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+img { max-width: 100%; height: auto; }
+
+/* ---- chrome ---- */
+.bar {
+  position: sticky; top: 0; z-index: 5;
+  display: flex; flex-wrap: wrap; align-items: center; gap: .4rem 1rem;
+  padding: .7rem clamp(1.1rem,4vw,2rem);
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(12px); border-bottom: 1px solid var(--line);
+  font-size: .82rem;
+}
+@supports not (background: color-mix(in srgb, red 50%, transparent)) { .bar { background: var(--bg); } }
+.bar a { color: var(--soft); }
+.bar .sep { color: var(--muted); }
+.bar .here { color: var(--fg); font-weight: 600; }
+.eyebrow {
+  font: 500 .7rem/1 var(--mono); letter-spacing: .16em; text-transform: uppercase;
+  color: var(--muted); margin: 0 0 .9rem;
+}
+.pager {
+  display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between;
+  margin-top: 3.5rem; padding-top: 1.5rem; border-top: 1px solid var(--line); font-size: .9rem;
+}
+.pager span { display: block; font: 500 .65rem/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-bottom: .2rem; }
+.pager .next { text-align: right; margin-left: auto; }
+
+/* ---- index ---- */
+.lede { font-size: 1.06rem; color: var(--soft); margin-bottom: 2rem; }
+.part { margin-top: 2.6rem; }
+.part h2 { margin-top: 0; border-top: 0; padding-top: 0; }
+.part > p { color: var(--muted); font-size: .92rem; margin-bottom: 1.1rem; }
+.toc { list-style: none; padding: 0; margin: 0; display: grid; gap: .5rem; }
+.toc a {
+  display: grid; grid-template-columns: 2.4rem 1fr; gap: .8rem; align-items: baseline;
+  padding: .8rem 1rem; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--panel); color: var(--fg);
+}
+.toc a:hover { border-color: var(--accent); text-decoration: none; background: var(--accent-wash); }
+.toc .n { font: 500 .78rem/1.4 var(--mono); color: var(--accent); }
+.toc .t { font-weight: 600; font-size: .97rem; }
+.toc .d { display: block; color: var(--muted); font-size: .85rem; font-weight: 400; margin-top: .15rem; }
+.routes { display: grid; gap: .5rem; grid-template-columns: repeat(auto-fit,minmax(15rem,1fr)); margin-bottom: 2.5rem; }
+.route { padding: .9rem 1rem; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.route strong { display: block; font-size: .93rem; margin-bottom: .2rem; }
+.route span { color: var(--muted); font-size: .85rem; }
+</style>
+</head>
+<body>
+<nav class="bar">
+  <a href="../index.html">Arcade Library</a>
+  <span class="sep">/</span>
+  <a href="index.html">WebAssembly course</a> <span class="sep">/</span> <span class="here">Debugging and profiling</span>
+</nav>
+<main class="wrap ">
+<h1>13 · Debugging and profiling</h1>
+<p>Debugging wasm is worse than debugging JavaScript and better than it used to be.
+The main adjustment is that many of your usual tools are gone — no <code>console.log</code>
+without an import, no stepping through a hand-written module with meaningful
+variable names, no exceptions with messages. What replaces them is discipline
+about where the failure can be.</p>
+<hr>
+<h2>Read the error, it tells you the phase</h2>
+<p>The four load phases from <a href="01-what-is-webassembly.html">chapter 1</a> fail with
+different exception types, and knowing which narrows the search enormously.</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Error</th>
+<th>Phase</th>
+<th>Means</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>CompileError</code></td>
+<td>decode/validate</td>
+<td>Malformed binary, or a type error the validator caught</td>
+</tr>
+<tr>
+<td><code>LinkError</code></td>
+<td>instantiate</td>
+<td>An import is missing or has the wrong type</td>
+</tr>
+<tr>
+<td><code>RuntimeError</code></td>
+<td>execute</td>
+<td>A trap — see below</td>
+</tr>
+<tr>
+<td><code>Incorrect response MIME type</code></td>
+<td>fetch</td>
+<td>The server did not send <code>application/wasm</code></td>
+</tr>
+</tbody></table>
+</div><h3>Trap messages</h3>
+<pre><code>RuntimeError: memory access out of bounds
+RuntimeError: integer divide by zero
+RuntimeError: unreachable
+RuntimeError: call stack exhausted
+RuntimeError: indirect call signature mismatch
+RuntimeError: integer overflow          ← a trapping float→int conversion
+</code></pre>
+<p><strong><code>memory access out of bounds</code></strong> is the one you will see most, and in a
+hand-written module it almost always means an index that ran past a pool&#39;s
+capacity — the engine checked the <em>address</em>, not your array length. The
+diagnosis is nearly always to print the index, not the address.</p>
+<p><strong><code>unreachable</code></strong> means you hit an explicit <code>unreachable</code> or a compiler emitted
+one for a path it believed impossible. In Rust it is what a <code>panic!</code> becomes when
+you build with <code>panic = &quot;abort&quot;</code>.</p>
+<p><strong><code>call stack exhausted</code></strong> is infinite recursion, or genuinely deep recursion —
+there is no tail-call elimination unless the tail-call proposal is enabled.</p>
+<hr>
+<h2><code>console.log</code> from wasm</h2>
+<p>There is no printing. Import one:</p>
+<pre><code class="language-wat">(import &quot;env&quot; &quot;log_i32&quot; (func $log_i32 (param i32)))
+(import &quot;env&quot; &quot;log_f32&quot; (func $log_f32 (param f32)))
+</code></pre>
+<pre><code class="language-js">env: {
+  log_i32: (v) =&gt; console.log(&#39;i32&#39;, v),
+  log_f32: (v) =&gt; console.log(&#39;f32&#39;, v),
+}
+</code></pre>
+<p>Crude, and indispensable. Two refinements worth the ten minutes:</p>
+<p><strong>Tag your call sites</strong>, since one <code>log_f32</code> in a loop tells you nothing about
+where it came from:</p>
+<pre><code class="language-wat">(import &quot;env&quot; &quot;trace&quot; (func $trace (param i32) (param f32)))   ;; (tag, value)
+(call $trace (i32.const 7) (local.get $dist))
+</code></pre>
+<p><strong>Log strings without a string type</strong> by putting the message in a data segment
+and passing pointer and length:</p>
+<pre><code class="language-wat">(data (i32.const 60000) &quot;bot spawn failed&quot;)
+(call $log_str (i32.const 60000) (i32.const 16))
+</code></pre>
+<pre><code class="language-js">log_str: (ptr, len) =&gt;
+  console.log(new TextDecoder().decode(new Uint8Array(memory.buffer, ptr, len))),
+</code></pre>
+<p>Keep the debug region at a high address, well clear of your live layout, so
+adding a message never shifts anything.</p>
+<hr>
+<h2>Inspecting memory from the console</h2>
+<p>Usually faster than any of the above. If you export the memory, the entire world
+state is inspectable live:</p>
+<pre><code class="language-js">// paste into devtools while the game is running
+const m = new Float32Array(game.memory.buffer);
+
+// the player record: x, y, vx, vy, heading, alive
+console.table([...m.slice(0, 6)]);
+
+// every live bot
+const BOTS = 24 / 4, STRIDE = 40 / 4;
+for (let i = 0; i &lt; 33; i++) {
+  const b = BOTS + i * STRIDE;
+  if (m[b + 5]) console.log(i, m[b].toFixed(1), m[b + 1].toFixed(1));
+}
+</code></pre>
+<p>For anything you will run twice, write it as a helper on <code>window</code> at mount time.
+The engines&#39; renderers are a reasonable place for a <code>__dumpWorld()</code> behind a
+flag.</p>
+<p><strong>Watching a single address change</strong> is the wasm equivalent of a watchpoint, and
+Chrome&#39;s Memory Inspector (right-click an exported memory in the Scope pane →
+<em>Reveal in Memory Inspector</em>) does it properly: a live hex view of linear memory
+that updates as the program runs, with jump-to-address.</p>
+<hr>
+<h2>Chrome DevTools</h2>
+<p>Genuinely good now, and better than most people expect.</p>
+<p><strong>Assemble with names.</strong> <code>wat2wasm --debug-names</code> writes the name custom section,
+and then stack traces and the Sources panel show <code>$update_bots</code> instead of
+<code>func[7]</code>. Costs a few hundred bytes; strip it in production if you care.</p>
+<p><strong>The Sources panel shows the disassembled WAT</strong> and lets you set breakpoints on
+instructions, step, and inspect the operand stack, locals and globals in the
+Scope pane. For a hand-written module this is close to a real debugger.</p>
+<p><strong>For compiled languages, install the C/C++ DevTools Support (DWARF)
+extension.</strong> Build with <code>-g</code> (Emscripten) or <code>debug = true</code> (Rust) and you get
+original source, real variable names, and stepping through the language you
+actually wrote. This is the single biggest quality-of-life improvement available
+if you are not writing WAT by hand.</p>
+<p><strong>The Performance panel profiles wasm frames natively.</strong> They appear in the flame
+chart alongside JavaScript, so you can see the boundary in the trace — usually
+the most valuable thing in it.</p>
+<hr>
+<h2>Profiling, and the mistake everyone makes</h2>
+<p>The mistake is profiling the wasm and finding it fast, when the cost was the
+boundary or the drawing.</p>
+<p>Measure in this order:</p>
+<ol>
+<li><strong>The whole frame.</strong> <code>performance.now()</code> around everything.</li>
+<li><strong><code>step()</code> alone.</strong> The engine&#39;s actual work.</li>
+<li><strong>The render pass alone.</strong></li>
+<li><strong>Everything else</strong> — the difference.</li>
+</ol>
+<pre><code class="language-js">let acc = { step: 0, draw: 0, n: 0 };
+
+function frame(now) {
+  const t0 = performance.now();
+  set_input(rot, thrust, fire);
+  step(dt);
+  const t1 = performance.now();
+  render();
+  const t2 = performance.now();
+
+  acc.step += t1 - t0; acc.draw += t2 - t1;
+  if (++acc.n === 120) {
+    console.log(`step ${(acc.step / 120).toFixed(3)}ms  draw ${(acc.draw / 120).toFixed(3)}ms`);
+    acc = { step: 0, draw: 0, n: 0 };
+  }
+  requestAnimationFrame(frame);
+}
+</code></pre>
+<p>For Pixel Wave at 33 enemies, 160 bullets and 20 asteroids, <code>step</code> lands in the
+tens of microseconds and drawing takes the overwhelming majority of the frame —
+which is the normal result for a canvas game, and the reason no optimisation
+effort went into the engine. <strong>Find out where the time is before you spend any.</strong></p>
+<p>Use <code>performance.mark</code> / <code>performance.measure</code> instead of raw timers if you want
+the results to appear in the Performance panel&#39;s timeline, which is usually
+worth it.</p>
+<hr>
+<h2>Deterministic replay</h2>
+<p>The strongest debugging technique available for a simulation, and these engines
+are <em>most</em> of the way to supporting it:</p>
+<ul>
+<li><code>step(dt)</code> takes the timestep as a parameter — the engine has no clock</li>
+<li>All state is in one linear memory, and nothing else</li>
+<li>The RNG is internal and pure — no <code>Math.random()</code> import</li>
+</ul>
+<p>The gap is that <code>init</code> does not reset <code>$rng</code> (<a href="08-globals-and-state.html">chapter
+8</a>), so only the <em>first</em> run after instantiation is
+reproducible. Make the seed a parameter — <code>init(seed)</code> — and a run becomes a
+pure function of <code>(seed, [(dt, input)…])</code>. Then record the input
+sequence and you can replay a bug exactly, in a test, headless, as fast as the
+CPU will go:</p>
+<pre><code class="language-js">const recording = [];                      // capture during play
+recording.push([dt, rot, thrust, fire]);
+
+function replay(upTo) {                    // reproduce, no rendering
+  init(SEED);
+  for (let i = 0; i &lt; upTo; i++) {
+    const [dt, r, t, f] = recording[i];
+    set_input(r, t, f); step(dt);
+  }
+  return snapshot();                       // inspect exact state at frame `upTo`
+}
+</code></pre>
+<p>Bisecting on <code>upTo</code> finds the frame an invariant broke in a few seconds. This is
+the payoff for the design in <a href="15-game-loop-architecture.html">chapter 15</a> — host
+owns the clock, engine owns the state — and it is worth preserving deliberately.</p>
+<p>The one thing that would destroy it outright is importing <code>Math.random()</code>
+instead of keeping an RNG in the module. Then the run depends on host state you
+cannot record, and none of the above works at any price.</p>
+<hr>
+<h2>Assertions in a language with no assertions</h2>
+<p>There is no <code>assert</code>. Build one:</p>
+<pre><code class="language-wat">(func $assert (param $cond i32) (param $tag i32)
+  (if (i32.eqz (local.get $cond))
+    (then
+      (call $log_i32 (local.get $tag))
+      (unreachable))))                     ;; trap with the tag already logged
+</code></pre>
+<p>Call it at the top of anything with an invariant:</p>
+<pre><code class="language-wat">(call $assert (i32.lt_u (local.get $i) (global.get $MAX_BOTS)) (i32.const 101))
+</code></pre>
+<p>The trap gives you a stack trace and the log line gives you which assertion. In
+a build where you want them gone, make <code>$assert</code> a no-op body — the engine will
+inline the empty function away.</p>
+<hr>
+<h2>Common failures, and what they usually are</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Symptom</th>
+<th>Usually</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>LinkError: import object field &#39;sinf&#39; is not a Function</code></td>
+<td>Typo in the import object, or the nesting is wrong — it is <code>{ env: { sinf } }</code></td>
+</tr>
+<tr>
+<td>Entities drawn at nonsense positions</td>
+<td>The host&#39;s copy of the memory offsets disagrees with the <code>.wat</code> (<a href="07-javascript-interop.html">ch. 7</a>)</td>
+</tr>
+<tr>
+<td><code>byteLength === 0</code> on a typed array</td>
+<td><code>memory.grow</code> detached the buffer; re-create the view</td>
+</tr>
+<tr>
+<td>Works once, breaks after restart</td>
+<td>A global not reset in <code>init</code> (<a href="08-globals-and-state.html">ch. 8</a>)</td>
+</tr>
+<tr>
+<td>Loop runs twice or forever</td>
+<td><code>br</code> to a <code>block</code> vs a <code>loop</code> label (<a href="04-control-flow.html">ch. 4</a>)</td>
+</tr>
+<tr>
+<td>Loop runs ~4 billion times</td>
+<td><code>_u</code> comparison on a counter that went negative (<a href="03-numbers-and-operations.html">ch. 3</a>)</td>
+</tr>
+<tr>
+<td>Half the RNG output is negative</td>
+<td><code>convert_i32_s</code> where you needed <code>_u</code></td>
+</tr>
+<tr>
+<td>Values slightly wrong, growing worse</td>
+<td><code>f32</code> accumulation where you needed <code>f64</code></td>
+</tr>
+<tr>
+<td>Fine locally, fails when deployed</td>
+<td>MIME type, or compression stripping the <code>Content-Type</code></td>
+</tr>
+<tr>
+<td>Fast in a benchmark, slow in the app</td>
+<td>Boundary crossings per item instead of per batch</td>
+</tr>
+</tbody></table>
+</div>
+<nav class="pager">
+  <a href="12-security-model.html"><span>Previous</span>The security model</a>
+  <a href="index.html">Contents</a>
+  <a class="next" href="14-post-mvp-features.html"><span>Next</span>Post-MVP features</a>
+</nav>
+</main>
+</body>
+</html>

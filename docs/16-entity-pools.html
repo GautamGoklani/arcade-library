@@ -1,0 +1,406 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>16 · Case study: entity pools in linear memory</title>
+<meta name="description" content="16 · Case study: entity pools in linear memory — part of the WebAssembly course in the arcade-library repository.">
+<link rel="icon" href="../games/pixel-wave/logo.svg">
+<style>
+:root {
+  --bg: #fbfaf7; --panel: #ffffff; --sunk: #f2f0ea;
+  --fg: #14130f; --soft: #4a4842; --muted: #7a776e;
+  --line: rgba(20,19,15,.12); --accent: #b23a18; --accent-wash: rgba(178,58,24,.07);
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121110; --panel: #1a1917; --sunk: #232220;
+    --fg: #f4f2ed; --soft: #b5b1a8; --muted: #86827a;
+    --line: rgba(244,242,237,.14); --accent: #e0714b; --accent-wash: rgba(224,113,75,.12);
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 16px/1.7 var(--sans); -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 52rem; margin: 0 auto; padding: clamp(1.5rem,4vw,3rem) clamp(1.1rem,4vw,2rem) 5rem; }
+.wide { max-width: 64rem; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+h1 { font-size: clamp(1.8rem,4.5vw,2.6rem); line-height: 1.12; letter-spacing: -.025em; margin: 0 0 1.2rem; }
+h2 { font-size: clamp(1.3rem,3vw,1.6rem); letter-spacing: -.015em; margin: 3rem 0 1rem; padding-top: 1.4rem; border-top: 1px solid var(--line); }
+h3 { font-size: 1.12rem; margin: 2rem 0 .7rem; }
+h4 { font-size: 1rem; margin: 1.5rem 0 .5rem; }
+p, ul, ol { margin: 0 0 1.05rem; }
+ul, ol { padding-left: 1.4rem; }
+li { margin-bottom: .4rem; }
+li > ul, li > ol { margin-top: .4rem; }
+strong { font-weight: 650; }
+hr { border: 0; border-top: 1px solid var(--line); margin: 2.5rem 0; }
+blockquote {
+  margin: 0 0 1.05rem; padding: .1rem 0 .1rem 1.1rem;
+  border-left: 3px solid var(--accent); color: var(--soft);
+}
+code {
+  font: .87em/1.5 var(--mono);
+  background: var(--sunk); border: 1px solid var(--line); border-radius: 4px;
+  padding: .1em .35em; overflow-wrap: anywhere;
+}
+pre {
+  background: var(--sunk); border: 1px solid var(--line); border-radius: 10px;
+  padding: 1rem 1.15rem; overflow-x: auto; margin: 0 0 1.4rem;
+}
+pre code { background: none; border: 0; padding: 0; font-size: .84rem; line-height: 1.65; overflow-wrap: normal; }
+/* Wide content scrolls inside its own box; the page body never scrolls sideways. */
+.table-scroll { overflow-x: auto; margin: 0 0 1.4rem; border: 1px solid var(--line); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+th, td { text-align: left; padding: .6rem .85rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { background: var(--sunk); font-weight: 600; white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+img { max-width: 100%; height: auto; }
+
+/* ---- chrome ---- */
+.bar {
+  position: sticky; top: 0; z-index: 5;
+  display: flex; flex-wrap: wrap; align-items: center; gap: .4rem 1rem;
+  padding: .7rem clamp(1.1rem,4vw,2rem);
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(12px); border-bottom: 1px solid var(--line);
+  font-size: .82rem;
+}
+@supports not (background: color-mix(in srgb, red 50%, transparent)) { .bar { background: var(--bg); } }
+.bar a { color: var(--soft); }
+.bar .sep { color: var(--muted); }
+.bar .here { color: var(--fg); font-weight: 600; }
+.eyebrow {
+  font: 500 .7rem/1 var(--mono); letter-spacing: .16em; text-transform: uppercase;
+  color: var(--muted); margin: 0 0 .9rem;
+}
+.pager {
+  display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between;
+  margin-top: 3.5rem; padding-top: 1.5rem; border-top: 1px solid var(--line); font-size: .9rem;
+}
+.pager span { display: block; font: 500 .65rem/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-bottom: .2rem; }
+.pager .next { text-align: right; margin-left: auto; }
+
+/* ---- index ---- */
+.lede { font-size: 1.06rem; color: var(--soft); margin-bottom: 2rem; }
+.part { margin-top: 2.6rem; }
+.part h2 { margin-top: 0; border-top: 0; padding-top: 0; }
+.part > p { color: var(--muted); font-size: .92rem; margin-bottom: 1.1rem; }
+.toc { list-style: none; padding: 0; margin: 0; display: grid; gap: .5rem; }
+.toc a {
+  display: grid; grid-template-columns: 2.4rem 1fr; gap: .8rem; align-items: baseline;
+  padding: .8rem 1rem; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--panel); color: var(--fg);
+}
+.toc a:hover { border-color: var(--accent); text-decoration: none; background: var(--accent-wash); }
+.toc .n { font: 500 .78rem/1.4 var(--mono); color: var(--accent); }
+.toc .t { font-weight: 600; font-size: .97rem; }
+.toc .d { display: block; color: var(--muted); font-size: .85rem; font-weight: 400; margin-top: .15rem; }
+.routes { display: grid; gap: .5rem; grid-template-columns: repeat(auto-fit,minmax(15rem,1fr)); margin-bottom: 2.5rem; }
+.route { padding: .9rem 1rem; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.route strong { display: block; font-size: .93rem; margin-bottom: .2rem; }
+.route span { color: var(--muted); font-size: .85rem; }
+</style>
+</head>
+<body>
+<nav class="bar">
+  <a href="../index.html">Arcade Library</a>
+  <span class="sep">/</span>
+  <a href="index.html">WebAssembly course</a> <span class="sep">/</span> <span class="here">Case study: entity pools in linear memory</span>
+</nav>
+<main class="wrap ">
+<h1>16 · Case study: entity pools in linear memory</h1>
+<p>There is no allocator in either engine. No <code>malloc</code>, no free list, no
+<code>memory.grow</code> — the whole world lives in a fixed layout decided at authoring
+time, and &quot;spawning&quot; a bullet means finding a slot whose <code>active</code> field is zero
+and writing into it.</p>
+<p>This chapter is about why that is a good trade, and where it stops being one.</p>
+<hr>
+<h2>The layout</h2>
+<p>Pixel Wave, in full:</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Region</th>
+<th>Offset</th>
+<th>Stride</th>
+<th>Count</th>
+<th>Bytes</th>
+<th>Fields</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>player</td>
+<td>0</td>
+<td>—</td>
+<td>1</td>
+<td>24</td>
+<td>x, y, vx, vy, heading, alive</td>
+</tr>
+<tr>
+<td>bots</td>
+<td>24</td>
+<td>40</td>
+<td>33</td>
+<td>1,320</td>
+<td>x, y, vx, vy, heading, alive, cooldown, wanderTimer, targetX, targetY</td>
+</tr>
+<tr>
+<td>bullets</td>
+<td>1,344</td>
+<td>24</td>
+<td>160</td>
+<td>3,840</td>
+<td>x, y, vx, vy, owner, active</td>
+</tr>
+<tr>
+<td>asteroids</td>
+<td>5,184</td>
+<td>24</td>
+<td>20</td>
+<td>480</td>
+<td>x, y, vx, vy, radius, active</td>
+</tr>
+<tr>
+<td>score</td>
+<td>5,664</td>
+<td>—</td>
+<td>1</td>
+<td>4</td>
+<td>f32</td>
+</tr>
+<tr>
+<td>lives</td>
+<td>5,668</td>
+<td>—</td>
+<td>1</td>
+<td>4</td>
+<td>f32</td>
+</tr>
+</tbody></table>
+</div><p><strong>Total: 5,672 bytes.</strong> One 64 KiB page is 65,536, so the entire world occupies
+8.7% of the smallest memory wasm can declare. There is no scenario in which this
+engine needs to grow, which is why the buffer-detachment problem from <a href="07-javascript-interop.html">chapter
+7</a> simply does not exist for it.</p>
+<p>Vector Arena is the same idea at a different scale: 8 bots at stride 32, 80
+bullets at stride 24, no asteroids, 2,208 bytes total.</p>
+<p>Each region starts where the last one ended, and the memory-map comment shows
+the arithmetic:</p>
+<pre><code class="language-wat">;; bots      @24    : stride 40B, MAX_BOTS=33
+;;             ends at 24 + 33*40 = 1344
+;; bullets   @1344  : stride 24B, MAX_BULLETS=160
+;;             ends at 1344 + 160*24 = 5184
+</code></pre>
+<p>Showing the sum is what makes changing <code>MAX_BOTS</code> a two-minute edit. Without it,
+every offset below is a number of unknown provenance.</p>
+<hr>
+<h2>Addressing</h2>
+<p>One helper per array, and never open-code the arithmetic:</p>
+<pre><code class="language-wat">(func $bot_addr    (param $i i32) (result i32)
+  (i32.add (global.get $BOTS_OFF)    (i32.mul (local.get $i) (global.get $BOT_STRIDE))))
+(func $bullet_addr (param $i i32) (result i32)
+  (i32.add (global.get $BULLETS_OFF) (i32.mul (local.get $i) (global.get $BULLET_STRIDE))))
+(func $ast_addr    (param $i i32) (result i32)
+  (i32.add (global.get $AST_OFF)     (i32.mul (local.get $i) (global.get $AST_STRIDE))))
+</code></pre>
+<p><code>base + i * stride</code>, which is exactly what a C compiler emits for <code>bots[i]</code>.
+Then fields come from the static <code>offset=</code> immediate, which costs nothing:</p>
+<pre><code class="language-wat">(local.set $a (call $bot_addr (local.get $i)))
+(local.set $bx    (f32.load offset=0  (local.get $a)))
+(local.set $by    (f32.load offset=4  (local.get $a)))
+(local.set $balive(f32.load offset=20 (local.get $a)))
+</code></pre>
+<p>Compute the base once into a local, then use offsets. Doing it the other way —
+<code>(i32.add (local.get $a) (i32.const 20))</code> — is slower and reads worse.</p>
+<p>Engines inline these three-instruction helpers, so there is no call overhead to
+worry about.</p>
+<hr>
+<h2>Array-of-structs vs struct-of-arrays</h2>
+<p>The layout above is <strong>array-of-structs</strong>: all of bot 0&#39;s fields, then all of bot
+1&#39;s. The alternative is <strong>struct-of-arrays</strong>: every <code>x</code>, then every <code>y</code>, and so
+on.</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th></th>
+<th>AoS (used here)</th>
+<th>SoA</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Access one entity&#39;s fields</td>
+<td>One cache line</td>
+<td>One cache miss per field</td>
+</tr>
+<tr>
+<td>Access one field across all</td>
+<td>Strided — wastes most of each line</td>
+<td>Sequential, perfect</td>
+</tr>
+<tr>
+<td>SIMD</td>
+<td>Awkward — needs gather</td>
+<td>Natural — load four <code>x</code>s at once</td>
+</tr>
+<tr>
+<td>Readability</td>
+<td>Reads like a struct</td>
+<td>Reads like six parallel arrays</td>
+</tr>
+<tr>
+<td>Add a field</td>
+<td>Change one stride</td>
+<td>Move every array below it</td>
+</tr>
+</tbody></table>
+</div><p>AoS is right here because the access pattern is per-entity: the bot loop reads
+nine of bot <code>i</code>&#39;s ten fields together, and 40 bytes is well inside one 64-byte
+cache line. It also happens to be what the renderer wants — one strided walk
+per entity, reading position and heading together.</p>
+<p>SoA wins when you sweep one field over everything, which is exactly what a
+SIMD-vectorised integrator does: <code>f32x4</code> over four <code>x</code>s at a time. If these
+engines ever used SIMD (<a href="14-post-mvp-features.html">chapter 14</a>), the bullet pool
+is where it would pay, and it would want restructuring first.</p>
+<p>At 213 entities neither choice is measurable. At 200,000 it is the whole
+performance story. Know which one you have picked and why.</p>
+<hr>
+<h2>Spawning: the free-slot scan</h2>
+<p>There is no allocator, so <code>spawn_bullet</code> linearly scans for a slot with
+<code>active == 0</code> and takes the first:</p>
+<pre><code class="language-wat">(func $spawn_bullet (param $owner i32) (param $x f32) (param $y f32)
+                    (param $vx f32) (param $vy f32)
+  (local $i i32) (local $a i32)
+  (local.set $i (i32.const 0))
+  (block $done
+    (loop $lp
+      (br_if $done (i32.ge_s (local.get $i) (global.get $MAX_BULLETS)))
+      (local.set $a (call $bullet_addr (local.get $i)))
+      (if (f32.eq (f32.load offset=20 (local.get $a)) (f32.const 0.0))
+        (then
+          (f32.store offset=0  (local.get $a) (local.get $x))
+          (f32.store offset=4  (local.get $a) (local.get $y))
+          (f32.store offset=8  (local.get $a) (local.get $vx))
+          (f32.store offset=12 (local.get $a) (local.get $vy))
+          (f32.store offset=16 (local.get $a) (f32.convert_i32_s (local.get $owner)))
+          (f32.store offset=20 (local.get $a) (f32.const 1.0))
+          (br $done)))                     ;; take the first free slot and stop
+      (local.set $i (i32.add (local.get $i) (i32.const 1)))
+      (br $lp))))
+</code></pre>
+<p>Three properties of this that are easy to miss:</p>
+<p><strong>Failure is silent.</strong> If every slot is taken, the loop ends and no bullet
+appears. No trap, no error, no return value. For bullets that is genuinely the
+right behaviour — the 161st simultaneous bullet is not something a player can
+perceive, and 160 is chosen to be comfortably above what the fire rates can
+produce. For anything where a dropped spawn matters, return a success flag and
+handle it.</p>
+<p><strong>Freeing is one store.</strong> <code>active = 0</code> and the slot is available. No coalescing,
+no metadata, no fragmentation — the defining advantage of fixed-size slots.</p>
+<p><strong>The scan is O(n) worst case</strong>, 160 iterations for a full pool. Called a few
+times per frame, that is a few hundred iterations of a two-instruction test:
+irrelevant. If it were called thousands of times per frame the fix is a free
+list — store the next free index <em>in</em> the inactive slot&#39;s first field, and pop
+the head in O(1). Twenty lines, and worth it only when you have measured that it
+matters.</p>
+<hr>
+<h2>Iteration and the alive flag</h2>
+<p>Every pass walks the whole pool and skips inactive slots:</p>
+<pre><code class="language-wat">(block $done
+  (loop $lp
+    (br_if $done (i32.ge_s (local.get $i) (global.get $MAX_BOTS)))
+    (local.set $a (call $bot_addr (local.get $i)))
+    (if (f32.gt (f32.load offset=20 (local.get $a)) (f32.const 0.0))
+      (then …))                                   ;; alive
+    (local.set $i (i32.add (local.get $i) (i32.const 1)))
+    (br $lp)))
+</code></pre>
+<p>So a pool with 3 live bots out of 33 still costs 33 iterations. The alternative —
+swap-remove to keep the live entities packed at the front — halves the average
+work and has one significant cost: <strong>entity indices stop being stable</strong>. Anything
+holding an index (a bullet remembering who fired it, a target reference, a
+renderer&#39;s per-entity animation state) breaks the moment an entity moves.</p>
+<p>For a 33-slot pool where the whole array is one cache line&#39;s worth of stride,
+the scan is free and stability is worth more. At ten thousand entities, pack
+them and use generational handles instead of raw indices.</p>
+<p>Note the flag is compared as a <strong>float</strong>: <code>f32.gt(alive, 0.0)</code>, not an integer
+test. All entity fields are <code>f32</code> so the whole record can be read as one
+<code>Float32Array</code> from JavaScript without a second view or byte arithmetic
+(<a href="03-numbers-and-operations.html">chapter 3</a> has the reasoning). It is a small
+cost paid at every iteration, in exchange for a much simpler renderer.</p>
+<hr>
+<h2>Collision: O(n·m) and why that is fine</h2>
+<p>Bullet-versus-bot is a nested loop with no spatial structure at all:</p>
+<pre><code>for each active bullet:
+    if owner == player:
+        for each alive bot:
+            if distance² &lt; HIT_RADIUS²:  both die, score++
+</code></pre>
+<p>Worst case in Pixel Wave: 160 × 33 = <strong>5,280 pair tests per frame</strong>. Vector
+Arena adds a bullet-versus-bullet dodge scan inside the bot loop — 8 bots × 80
+bullets = 640 more.</p>
+<p>That sounds bad and is not. Each test is a subtract, two multiplies, an add and
+a compare — call it five instructions on data already in cache. Five thousand of
+those is on the order of ten microseconds, against a 16.6 ms frame budget. Under
+0.1%.</p>
+<p>The point generalises: <strong>a quadtree, a spatial hash or a sweep-and-prune would
+all be slower here.</strong> Each has to be built or updated every frame, each adds
+pointer chasing and cache misses, and each has a fixed cost that a five-thousand-
+iteration flat loop does not. The crossover is usually somewhere in the low
+thousands of entities. Below that, the naive loop wins, and reaching for the
+sophisticated structure is a real and common mistake.</p>
+<h3>Squared distances</h3>
+<p>No <code>sqrt</code> in the collision test:</p>
+<pre><code class="language-wat">;; if (dx*dx + dy*dy) &lt; r*r
+(f32.lt (f32.add (f32.mul (local.get $dx) (local.get $dx))
+                 (f32.mul (local.get $dy) (local.get $dy)))
+        (f32.mul (global.get $HIT_RADIUS) (global.get $HIT_RADIUS)))
+</code></pre>
+<p><code>sqrt</code> is one instruction in wasm, but it has real latency (roughly 10–15 cycles
+on most hardware, and it is not pipelined the way a multiply is). Comparing
+squares is exact — both sides are non-negative, so the ordering is preserved —
+and costs a multiply. In a 5,000-iteration loop that is the difference between
+free and noticeable.</p>
+<p>Where the engines <em>do</em> call <code>sqrt</code> is where they need the actual magnitude: the
+player&#39;s speed clamp, and normalising the bots&#39; steering vector. There is no way
+around it there, and it is once per entity rather than once per pair.</p>
+<hr>
+<h2>When to abandon this design</h2>
+<p>The pool approach breaks down at four fairly clear boundaries:</p>
+<p><strong>Variable-size entities.</strong> A pool needs one stride. If entities differ in size,
+you need either a union sized to the largest (wasteful, but often correct) or
+separate pools per type (which is what these engines do — bots, bullets and
+asteroids each get their own).</p>
+<p><strong>Unbounded counts.</strong> If the maximum is genuinely unknown you need
+<code>memory.grow</code> and a real allocator, and with them the detached-buffer problem.
+Usually the better answer is to find a defensible cap: 160 bullets is not a
+limitation anyone has hit.</p>
+<p><strong>Very large, sparse pools.</strong> 10,000 slots with 50 alive means 99.5% of every
+iteration is wasted. Pack the live entities and use generational handles.</p>
+<p><strong>Genuinely dynamic structure</strong> — trees, graphs, growable strings. Pools are for
+uniform, independent, bounded records. That is a real constraint and a large
+fraction of simulation state fits inside it.</p>
+<hr>
+<h2>What transfers</h2>
+<p>Even if you never write WAT, three things here are worth stealing:</p>
+<p><strong>Fixed capacity is a feature.</strong> A cap you chose is better than an out-of-memory
+you did not. It also makes the memory footprint a number you can state.</p>
+<p><strong>No allocation in the hot loop.</strong> True in wasm, in C, in Rust, and most of all
+in JavaScript, where allocation means the garbage collector eventually pauses
+your frame.</p>
+<p><strong>Write the layout down, with the arithmetic.</strong> Nothing in the language records
+it, and three separate files depend on it agreeing. The comment <em>is</em> the schema.</p>
+
+<nav class="pager">
+  <a href="15-game-loop-architecture.html"><span>Previous</span>Architecture of a wasm game loop</a>
+  <a href="index.html">Contents</a>
+  <a class="next" href="17-math-without-a-stdlib.html"><span>Next</span>Case study: maths without a standard library</a>
+</nav>
+</main>
+</body>
+</html>

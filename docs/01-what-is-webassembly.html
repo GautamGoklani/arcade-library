@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>01 · What WebAssembly actually is</title>
+<meta name="description" content="01 · What WebAssembly actually is — part of the WebAssembly course in the arcade-library repository.">
+<link rel="icon" href="../games/pixel-wave/logo.svg">
+<style>
+:root {
+  --bg: #fbfaf7; --panel: #ffffff; --sunk: #f2f0ea;
+  --fg: #14130f; --soft: #4a4842; --muted: #7a776e;
+  --line: rgba(20,19,15,.12); --accent: #b23a18; --accent-wash: rgba(178,58,24,.07);
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121110; --panel: #1a1917; --sunk: #232220;
+    --fg: #f4f2ed; --soft: #b5b1a8; --muted: #86827a;
+    --line: rgba(244,242,237,.14); --accent: #e0714b; --accent-wash: rgba(224,113,75,.12);
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 16px/1.7 var(--sans); -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 52rem; margin: 0 auto; padding: clamp(1.5rem,4vw,3rem) clamp(1.1rem,4vw,2rem) 5rem; }
+.wide { max-width: 64rem; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+h1 { font-size: clamp(1.8rem,4.5vw,2.6rem); line-height: 1.12; letter-spacing: -.025em; margin: 0 0 1.2rem; }
+h2 { font-size: clamp(1.3rem,3vw,1.6rem); letter-spacing: -.015em; margin: 3rem 0 1rem; padding-top: 1.4rem; border-top: 1px solid var(--line); }
+h3 { font-size: 1.12rem; margin: 2rem 0 .7rem; }
+h4 { font-size: 1rem; margin: 1.5rem 0 .5rem; }
+p, ul, ol { margin: 0 0 1.05rem; }
+ul, ol { padding-left: 1.4rem; }
+li { margin-bottom: .4rem; }
+li > ul, li > ol { margin-top: .4rem; }
+strong { font-weight: 650; }
+hr { border: 0; border-top: 1px solid var(--line); margin: 2.5rem 0; }
+blockquote {
+  margin: 0 0 1.05rem; padding: .1rem 0 .1rem 1.1rem;
+  border-left: 3px solid var(--accent); color: var(--soft);
+}
+code {
+  font: .87em/1.5 var(--mono);
+  background: var(--sunk); border: 1px solid var(--line); border-radius: 4px;
+  padding: .1em .35em; overflow-wrap: anywhere;
+}
+pre {
+  background: var(--sunk); border: 1px solid var(--line); border-radius: 10px;
+  padding: 1rem 1.15rem; overflow-x: auto; margin: 0 0 1.4rem;
+}
+pre code { background: none; border: 0; padding: 0; font-size: .84rem; line-height: 1.65; overflow-wrap: normal; }
+/* Wide content scrolls inside its own box; the page body never scrolls sideways. */
+.table-scroll { overflow-x: auto; margin: 0 0 1.4rem; border: 1px solid var(--line); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+th, td { text-align: left; padding: .6rem .85rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { background: var(--sunk); font-weight: 600; white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+img { max-width: 100%; height: auto; }
+
+/* ---- chrome ---- */
+.bar {
+  position: sticky; top: 0; z-index: 5;
+  display: flex; flex-wrap: wrap; align-items: center; gap: .4rem 1rem;
+  padding: .7rem clamp(1.1rem,4vw,2rem);
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(12px); border-bottom: 1px solid var(--line);
+  font-size: .82rem;
+}
+@supports not (background: color-mix(in srgb, red 50%, transparent)) { .bar { background: var(--bg); } }
+.bar a { color: var(--soft); }
+.bar .sep { color: var(--muted); }
+.bar .here { color: var(--fg); font-weight: 600; }
+.eyebrow {
+  font: 500 .7rem/1 var(--mono); letter-spacing: .16em; text-transform: uppercase;
+  color: var(--muted); margin: 0 0 .9rem;
+}
+.pager {
+  display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between;
+  margin-top: 3.5rem; padding-top: 1.5rem; border-top: 1px solid var(--line); font-size: .9rem;
+}
+.pager span { display: block; font: 500 .65rem/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-bottom: .2rem; }
+.pager .next { text-align: right; margin-left: auto; }
+
+/* ---- index ---- */
+.lede { font-size: 1.06rem; color: var(--soft); margin-bottom: 2rem; }
+.part { margin-top: 2.6rem; }
+.part h2 { margin-top: 0; border-top: 0; padding-top: 0; }
+.part > p { color: var(--muted); font-size: .92rem; margin-bottom: 1.1rem; }
+.toc { list-style: none; padding: 0; margin: 0; display: grid; gap: .5rem; }
+.toc a {
+  display: grid; grid-template-columns: 2.4rem 1fr; gap: .8rem; align-items: baseline;
+  padding: .8rem 1rem; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--panel); color: var(--fg);
+}
+.toc a:hover { border-color: var(--accent); text-decoration: none; background: var(--accent-wash); }
+.toc .n { font: 500 .78rem/1.4 var(--mono); color: var(--accent); }
+.toc .t { font-weight: 600; font-size: .97rem; }
+.toc .d { display: block; color: var(--muted); font-size: .85rem; font-weight: 400; margin-top: .15rem; }
+.routes { display: grid; gap: .5rem; grid-template-columns: repeat(auto-fit,minmax(15rem,1fr)); margin-bottom: 2.5rem; }
+.route { padding: .9rem 1rem; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.route strong { display: block; font-size: .93rem; margin-bottom: .2rem; }
+.route span { color: var(--muted); font-size: .85rem; }
+</style>
+</head>
+<body>
+<nav class="bar">
+  <a href="../index.html">Arcade Library</a>
+  <span class="sep">/</span>
+  <a href="index.html">WebAssembly course</a> <span class="sep">/</span> <span class="here">What WebAssembly actually is</span>
+</nav>
+<main class="wrap ">
+<h1>01 · What WebAssembly actually is</h1>
+<p>WebAssembly is a <strong>binary instruction format for a stack-based virtual
+machine</strong>, plus a specification of how a program in that format is loaded,
+validated, instantiated and called. That is the whole of it. Everything else —
+the browser, the toolchains, the &quot;near-native speed&quot; marketing — is context.</p>
+<p>Three properties follow from that definition and are worth holding onto,
+because most confusion about WebAssembly comes from missing one of them.</p>
+<p><strong>It is a compilation target, not a language you are expected to write.</strong>
+The text format (WAT) exists so the binary can be read and debugged by humans.
+It is not a productivity language. This repository hand-writes it deliberately,
+as an exercise; that is the exception, not the practice.</p>
+<p><strong>It is deterministic and sandboxed by construction.</strong> A module cannot read a
+byte it was not given, cannot call a function it was not handed, and cannot
+observe anything about the host it was not told. It has no syscalls, no ambient
+authority, and no way to obtain either. Capability comes in through imports and
+nowhere else.</p>
+<p><strong>It has no idea what a browser is.</strong> There is no DOM in the specification, no
+<code>console</code>, no network, no clock. A wasm module in a browser can reach those
+things only because JavaScript passed it a function that does.</p>
+<hr>
+<h2>The design goals, and what each one bought</h2>
+<p>The MVP shipped in 2017 across all four major engines simultaneously — which
+almost never happens — because the goals were unusually narrow.</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Goal</th>
+<th>What it produced</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Fast to decode</strong></td>
+<td>A binary format that can be validated and compiled <em>while it downloads</em>. <code>instantiateStreaming</code> compiles from the network stream; a 3 MB module is often running before the last byte lands</td>
+</tr>
+<tr>
+<td><strong>Predictable performance</strong></td>
+<td>No JIT warm-up, no deoptimisation cliff, no hidden classes. The same code takes the same time on run one and run one million — the property JavaScript cannot offer</td>
+</tr>
+<tr>
+<td><strong>Safe</strong></td>
+<td>Memory-safe <em>with respect to the host</em>. A wasm module with a heap overflow corrupts its own linear memory and nothing else</td>
+</tr>
+<tr>
+<td><strong>Language-agnostic</strong></td>
+<td>Nothing in the format favours any source language. No GC in the MVP, no object model, no exception semantics — the deliberate absence of opinions</td>
+</tr>
+<tr>
+<td><strong>Part of the web platform</strong></td>
+<td>Same origin policy, same CSP, same devtools, same <code>fetch</code>. Not a plugin</td>
+</tr>
+</tbody></table>
+</div><p>The cost of &quot;language-agnostic&quot; was that the MVP is very low-level: four number
+types, one flat memory, no strings, no structs, no GC. Every higher-level idea
+has to be built on top by the source language&#39;s runtime — which is why a Rust
+&quot;hello world&quot; was 1.7 MB before anyone learned to trim it.</p>
+<hr>
+<h2>Four things it is not</h2>
+<h3>It is not faster than JavaScript</h3>
+<p>Not in general. Modern JavaScript engines are extraordinary, and for
+short-lived, monomorphic, numeric code a good JIT will match wasm or beat it.
+What wasm gives you is different:</p>
+<ul>
+<li><strong>Predictability</strong> — no warm-up, no deopt, no GC pause you didn&#39;t schedule</li>
+<li><strong>A floor under the worst case</strong> — the pathological JS cases (megamorphic call
+sites, unexpected type transitions) don&#39;t exist</li>
+<li><strong>Startup</strong> — compiling 1 MB of wasm is much cheaper than parsing 1 MB of JS</li>
+</ul>
+<p>If your bottleneck is DOM work, layout, network, or crossing into JavaScript
+constantly, WebAssembly will make your program <strong>slower</strong>, because you have
+added a boundary and changed nothing that mattered. Measure before you port.</p>
+<h3>It is not a JavaScript replacement</h3>
+<p>It cannot touch the DOM. There is no path by which it could, in the current
+spec, without going through an imported JavaScript function. Frameworks that
+advertise &quot;no JavaScript&quot; (Blazor WebAssembly, Yew, Leptos) ship a JavaScript
+shim that does the actual DOM mutation and marshals calls across the boundary.
+That shim is frequently the performance story.</p>
+<h3>It is not only for the browser</h3>
+<p>Arguably the more important deployment now is server-side: WASI on the command
+line, Fastly Compute and Cloudflare Workers at the edge, Envoy and Istio
+filters, Shopify Functions, Figma plugins, Envoy&#39;s <code>wasm</code> extensions, and the
+plugin systems of a dozen databases. See
+<a href="11-beyond-the-browser.html">chapter 11</a>.</p>
+<h3>It is not unsafe code made safe</h3>
+<p>The sandbox protects the <em>host</em> from the module. It does not protect the module
+from itself. A C program compiled to wasm still has buffer overflows — they
+just overflow into other parts of the same linear memory instead of into the
+process. Use-after-free, uninitialised reads and heap grooming attacks all work
+inside a wasm module. <a href="12-security-model.html">Chapter 12</a> goes through this
+properly, because it is routinely oversold.</p>
+<hr>
+<h2>When it is genuinely the right tool</h2>
+<p>A short and honest list:</p>
+<ul>
+<li><strong>You have an existing C/C++/Rust codebase and want it on the web.</strong> FFmpeg,
+SQLite, ImageMagick, Blender, AutoCAD, Photoshop. This is the flagship use
+case and it is not close.</li>
+<li><strong>Sustained numeric work.</strong> Codecs, compression, cryptography, physics,
+simulation, image and audio processing, ML inference.</li>
+<li><strong>You need predictable frame timing.</strong> Games, audio worklets, anything where a
+GC pause is a visible glitch.</li>
+<li><strong>You need to run untrusted code.</strong> A plugin system where the guest is a wasm
+module gets a real sandbox with per-instance memory limits, for free.</li>
+<li><strong>Cold start matters.</strong> Edge runtimes boot a wasm instance in microseconds; a
+container takes hundreds of milliseconds.</li>
+</ul>
+<p>And when it is not: DOM-heavy UI, glue code, anything I/O-bound, anything where
+the hot path crosses the boundary per item rather than per batch, and any case
+where you would be rewriting working JavaScript on a hunch.</p>
+<hr>
+<h2>How a module gets from bytes to running</h2>
+<p>Four distinct phases. Knowing where they split is most of debugging.</p>
+<pre><code>  .wat  ──parse──▶  .wasm bytes  ──decode──▶  module  ──validate──▶  compile
+                                                                        │
+                                                                   instantiate
+                                                                        │
+                                              (imports supplied) ───────▶ instance
+                                                                        │
+                                                                   call exports
+</code></pre>
+<ol>
+<li><strong>Decode</strong> — read the binary&#39;s sections. Fails on a malformed file.</li>
+<li><strong>Validate</strong> — type-check the whole module <em>before anything runs</em>. Every
+instruction&#39;s stack effects are checked statically; every branch target must
+agree on type; every memory access must be against a declared memory. This is
+why there is no such thing as a &quot;type error at runtime&quot; in wasm, and why a
+validated module cannot escape its sandbox.</li>
+<li><strong>Instantiate</strong> — allocate the memory, apply data segments, wire up imports,
+run the start function. Failures here are <code>LinkError</code>: an import you promised
+and did not supply.</li>
+<li><strong>Execute</strong> — call an export. Failures here are <code>RuntimeError</code>, always
+described as a <strong>trap</strong>: out-of-bounds access, integer divide by zero,
+<code>unreachable</code>, stack exhaustion, a failed indirect-call signature check.</li>
+</ol>
+<p>Validation happening up front is the property everything else rests on. It is
+what makes streaming compilation possible, what makes the sandbox provable, and
+what makes a wasm binary safe to run from an untrusted source in a way that a
+native <code>.so</code> never will be.</p>
+<hr>
+<h2>What a module can contain</h2>
+<p>A module is a list of typed sections, all optional:</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Section</th>
+<th>Holds</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Type</td>
+<td>Function signatures, deduplicated</td>
+</tr>
+<tr>
+<td>Import</td>
+<td>What the module demands from the host: functions, memories, tables, globals</td>
+</tr>
+<tr>
+<td>Function / Code</td>
+<td>The functions themselves — signature index and body</td>
+</tr>
+<tr>
+<td>Table</td>
+<td>Arrays of references, used for indirect calls (<a href="06-functions-tables.html">ch. 6</a>)</td>
+</tr>
+<tr>
+<td>Memory</td>
+<td>The linear memory declaration: initial and maximum pages (<a href="05-linear-memory.html">ch. 5</a>)</td>
+</tr>
+<tr>
+<td>Global</td>
+<td>Module-level typed values, mutable or not (<a href="08-globals-and-state.html">ch. 8</a>)</td>
+</tr>
+<tr>
+<td>Export</td>
+<td>What the host may reach: functions, memory, tables, globals</td>
+</tr>
+<tr>
+<td>Start</td>
+<td>One function run at instantiation, before any export can be called</td>
+</tr>
+<tr>
+<td>Element / Data</td>
+<td>Initialisers for tables and memory</td>
+</tr>
+<tr>
+<td>Custom</td>
+<td>Anything — names, DWARF debug info, source maps. Ignored by the engine</td>
+</tr>
+</tbody></table>
+</div><p>In the MVP a module may declare <strong>at most one memory and one table</strong>. The
+multi-memory proposal relaxes this; see <a href="14-post-mvp-features.html">chapter 14</a>.</p>
+<p>The engines in this repository use six of these. Here is the entire
+declaration surface of <code>games/vector-arena/game.wat</code>, which is a complete game:</p>
+<pre><code class="language-wat">(module
+  (import &quot;env&quot; &quot;sinf&quot; (func $sinf (param f32) (result f32)))
+  (import &quot;env&quot; &quot;cosf&quot; (func $cosf (param f32) (result f32)))
+  (memory (export &quot;memory&quot;) 1)          ;; 64 KB, exported so JS can read it
+  (global $MAX_BOTS i32 (i32.const 8))
+  ;; … ~40 more globals, ~20 functions …
+  (func (export &quot;step&quot;) (param $dt f32) …)
+)
+</code></pre>
+<p>Two imports, one memory, some globals, some functions. That is the whole
+vocabulary — and the next six chapters are about using exactly this much.</p>
+
+<nav class="pager">
+  <span></span>
+  <a href="index.html">Contents</a>
+  <a class="next" href="02-wat-syntax.html"><span>Next</span>Reading and writing WAT</a>
+</nav>
+</main>
+</body>
+</html>

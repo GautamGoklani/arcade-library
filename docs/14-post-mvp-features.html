@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>14 · Post-MVP features</title>
+<meta name="description" content="14 · Post-MVP features — part of the WebAssembly course in the arcade-library repository.">
+<link rel="icon" href="../games/pixel-wave/logo.svg">
+<style>
+:root {
+  --bg: #fbfaf7; --panel: #ffffff; --sunk: #f2f0ea;
+  --fg: #14130f; --soft: #4a4842; --muted: #7a776e;
+  --line: rgba(20,19,15,.12); --accent: #b23a18; --accent-wash: rgba(178,58,24,.07);
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121110; --panel: #1a1917; --sunk: #232220;
+    --fg: #f4f2ed; --soft: #b5b1a8; --muted: #86827a;
+    --line: rgba(244,242,237,.14); --accent: #e0714b; --accent-wash: rgba(224,113,75,.12);
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 16px/1.7 var(--sans); -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 52rem; margin: 0 auto; padding: clamp(1.5rem,4vw,3rem) clamp(1.1rem,4vw,2rem) 5rem; }
+.wide { max-width: 64rem; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+h1 { font-size: clamp(1.8rem,4.5vw,2.6rem); line-height: 1.12; letter-spacing: -.025em; margin: 0 0 1.2rem; }
+h2 { font-size: clamp(1.3rem,3vw,1.6rem); letter-spacing: -.015em; margin: 3rem 0 1rem; padding-top: 1.4rem; border-top: 1px solid var(--line); }
+h3 { font-size: 1.12rem; margin: 2rem 0 .7rem; }
+h4 { font-size: 1rem; margin: 1.5rem 0 .5rem; }
+p, ul, ol { margin: 0 0 1.05rem; }
+ul, ol { padding-left: 1.4rem; }
+li { margin-bottom: .4rem; }
+li > ul, li > ol { margin-top: .4rem; }
+strong { font-weight: 650; }
+hr { border: 0; border-top: 1px solid var(--line); margin: 2.5rem 0; }
+blockquote {
+  margin: 0 0 1.05rem; padding: .1rem 0 .1rem 1.1rem;
+  border-left: 3px solid var(--accent); color: var(--soft);
+}
+code {
+  font: .87em/1.5 var(--mono);
+  background: var(--sunk); border: 1px solid var(--line); border-radius: 4px;
+  padding: .1em .35em; overflow-wrap: anywhere;
+}
+pre {
+  background: var(--sunk); border: 1px solid var(--line); border-radius: 10px;
+  padding: 1rem 1.15rem; overflow-x: auto; margin: 0 0 1.4rem;
+}
+pre code { background: none; border: 0; padding: 0; font-size: .84rem; line-height: 1.65; overflow-wrap: normal; }
+/* Wide content scrolls inside its own box; the page body never scrolls sideways. */
+.table-scroll { overflow-x: auto; margin: 0 0 1.4rem; border: 1px solid var(--line); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+th, td { text-align: left; padding: .6rem .85rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { background: var(--sunk); font-weight: 600; white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+img { max-width: 100%; height: auto; }
+
+/* ---- chrome ---- */
+.bar {
+  position: sticky; top: 0; z-index: 5;
+  display: flex; flex-wrap: wrap; align-items: center; gap: .4rem 1rem;
+  padding: .7rem clamp(1.1rem,4vw,2rem);
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(12px); border-bottom: 1px solid var(--line);
+  font-size: .82rem;
+}
+@supports not (background: color-mix(in srgb, red 50%, transparent)) { .bar { background: var(--bg); } }
+.bar a { color: var(--soft); }
+.bar .sep { color: var(--muted); }
+.bar .here { color: var(--fg); font-weight: 600; }
+.eyebrow {
+  font: 500 .7rem/1 var(--mono); letter-spacing: .16em; text-transform: uppercase;
+  color: var(--muted); margin: 0 0 .9rem;
+}
+.pager {
+  display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between;
+  margin-top: 3.5rem; padding-top: 1.5rem; border-top: 1px solid var(--line); font-size: .9rem;
+}
+.pager span { display: block; font: 500 .65rem/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-bottom: .2rem; }
+.pager .next { text-align: right; margin-left: auto; }
+
+/* ---- index ---- */
+.lede { font-size: 1.06rem; color: var(--soft); margin-bottom: 2rem; }
+.part { margin-top: 2.6rem; }
+.part h2 { margin-top: 0; border-top: 0; padding-top: 0; }
+.part > p { color: var(--muted); font-size: .92rem; margin-bottom: 1.1rem; }
+.toc { list-style: none; padding: 0; margin: 0; display: grid; gap: .5rem; }
+.toc a {
+  display: grid; grid-template-columns: 2.4rem 1fr; gap: .8rem; align-items: baseline;
+  padding: .8rem 1rem; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--panel); color: var(--fg);
+}
+.toc a:hover { border-color: var(--accent); text-decoration: none; background: var(--accent-wash); }
+.toc .n { font: 500 .78rem/1.4 var(--mono); color: var(--accent); }
+.toc .t { font-weight: 600; font-size: .97rem; }
+.toc .d { display: block; color: var(--muted); font-size: .85rem; font-weight: 400; margin-top: .15rem; }
+.routes { display: grid; gap: .5rem; grid-template-columns: repeat(auto-fit,minmax(15rem,1fr)); margin-bottom: 2.5rem; }
+.route { padding: .9rem 1rem; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.route strong { display: block; font-size: .93rem; margin-bottom: .2rem; }
+.route span { color: var(--muted); font-size: .85rem; }
+</style>
+</head>
+<body>
+<nav class="bar">
+  <a href="../index.html">Arcade Library</a>
+  <span class="sep">/</span>
+  <a href="index.html">WebAssembly course</a> <span class="sep">/</span> <span class="here">Post-MVP features</span>
+</nav>
+<main class="wrap ">
+<h1>14 · Post-MVP features</h1>
+<p>The 2017 MVP was deliberately minimal. Everything since has arrived through the
+proposal process, and a good deal of it is now so universally supported that
+treating it as optional is a mistake.</p>
+<p>Proposals move through five stages: 0 pre-proposal, 1 feature proposal, 2 spec
+text, 3 implementation, 4 standardised. Below, &quot;shipped&quot; means available in
+Chrome, Firefox and Safari without a flag.</p>
+<p>Check current status at <a href="https://webassembly.org/features/">webassembly.org/features</a>
+and <a href="https://caniuse.com/wasm">caniuse.com/wasm</a> — this chapter will age.</p>
+<hr>
+<h2>Shipped and safe to assume</h2>
+<h3>Bulk memory operations</h3>
+<pre><code class="language-wat">(memory.copy (dest) (src) (len))     ;; memmove
+(memory.fill (dest) (byte) (len))    ;; memset
+(memory.init $seg (dest) (off) (len))
+(data.drop $seg)
+(table.copy) (table.fill) (table.init)
+</code></pre>
+<p>Replaces hand-written byte loops with engine intrinsics, and the difference is
+one to two orders of magnitude. If you are clearing a region — an entity pool at
+<code>init</code>, for instance — use <code>memory.fill</code>.</p>
+<h3>Multi-value</h3>
+<p>Functions and blocks may return more than one value.</p>
+<pre><code class="language-wat">(func $divmod (param i32 i32) (result i32 i32)
+  (i32.div_s (local.get 0) (local.get 1))
+  (i32.rem_s (local.get 0) (local.get 1)))
+</code></pre>
+<p>Removes a class of &quot;write the second result into memory&quot; workarounds and lets
+compilers avoid spilling. Enabled by default in every toolchain now.</p>
+<h3>Sign extension</h3>
+<p><code>i32.extend8_s</code>, <code>i32.extend16_s</code>, <code>i64.extend8_s</code>, and so on. One instruction
+for what used to be a shift-left-shift-right pair.</p>
+<h3>Non-trapping float→int</h3>
+<p><code>i32.trunc_sat_f32_s</code> and friends: saturate to the type&#39;s range instead of
+trapping on NaN or overflow. Prefer these over the trapping originals unless you
+specifically want the trap.</p>
+<h3>Reference types</h3>
+<p><code>externref</code> (an opaque host reference) and <code>funcref</code> as real value types, plus
+<code>table.get</code>, <code>table.set</code>, <code>table.grow</code> and multiple tables.</p>
+<p><code>externref</code> is the important one: a module can now hold a JavaScript object —
+a DOM node, a promise — without a side table of integer handles. It cannot
+<em>inspect</em> it; it can only store it and pass it back. That removes a lot of glue.</p>
+<h3>SIMD (fixed-width, 128-bit)</h3>
+<p>A <code>v128</code> type and roughly 200 instructions operating on lanes.</p>
+<pre><code class="language-wat">(v128.load (local.get $p))
+(f32x4.mul (local.get $a) (local.get $b))    ;; four multiplies, one instruction
+(i8x16.add …) (i16x8.add …) (i32x4.add …) (f64x2.add …)
+</code></pre>
+<p>Real speedups of 2–4× on the right workload: image filters, audio DSP, codecs,
+matrix maths, string search. Nothing for branchy or pointer-chasing code.</p>
+<p>Writing SIMD by hand in WAT is unpleasant. Use Rust&#39;s <code>core::arch::wasm32</code>
+intrinsics, C&#39;s <code>wasm_simd128.h</code>, or a compiler autovectoriser and then check
+the output.</p>
+<p><strong>Relaxed SIMD</strong> is a companion proposal trading bit-exact determinism for
+speed on operations (FMA, some rounding) where hardware differs. Only take it if
+you do not need reproducibility.</p>
+<hr>
+<h2>Shipped, with conditions</h2>
+<h3>Threads and atomics</h3>
+<p>A <code>SharedArrayBuffer</code>-backed memory, atomic operations, and <code>memory.atomic.wait</code>
+/ <code>memory.atomic.notify</code>.</p>
+<pre><code class="language-wat">(memory 1 1 shared)
+(i32.atomic.rmw.add (local.get $addr) (i32.const 1))
+(memory.atomic.wait32 (local.get $addr) (i32.const 0) (i64.const -1))
+</code></pre>
+<p>Threads themselves are Web Workers; the shared memory is what makes them
+threads. Emscripten&#39;s pthreads and Rust&#39;s <code>wasm-bindgen-rayon</code> build on this.</p>
+<p><strong>The condition is cross-origin isolation.</strong> <code>SharedArrayBuffer</code> requires:</p>
+<pre><code>Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Embedder-Policy: require-corp
+</code></pre>
+<p>which breaks embedded third-party content that does not send CORP headers.
+That is often a bigger project than the threading. Budget for it.</p>
+<p>Note also: <code>memory.atomic.wait</code> <strong>traps on the main thread</strong>. Blocking waits are
+worker-only.</p>
+<h3>Exception handling</h3>
+<p>Real <code>try</code>/<code>catch</code>/<code>throw</code> at the wasm level, with typed tags.</p>
+<pre><code class="language-wat">(tag $err (param i32))
+(try (do (call $risky))
+     (catch $err (call $handle)))
+</code></pre>
+<p>Before this, C++ exceptions and Rust unwinding were emulated through
+JavaScript, at a cost high enough that most projects compiled with
+<code>-fno-exceptions</code> or <code>panic = &quot;abort&quot;</code>. Shipped across engines; the legacy
+<code>try_table</code> vs <code>try</code> encoding difference is a toolchain concern, not yours.</p>
+<h3>Garbage collection</h3>
+<p>Managed <code>struct</code> and <code>array</code> types collected by the <em>host&#39;s</em> GC, with typed
+references.</p>
+<pre><code class="language-wat">(type $point (struct (field $x f32) (field $y f32)))
+(type $row (array (mut i32)))
+</code></pre>
+<p>The consequence is large: Kotlin/Wasm, Dart, Java (TeaVM), OCaml and Scheme
+targets no longer compile a collector into the binary. Dart&#39;s <code>dart compile wasm</code> and Kotlin/Wasm both target it, and output shrank by roughly an order of
+magnitude.</p>
+<p>It does <strong>not</strong> replace linear memory, and it is not useful for C, Rust or Zig,
+which do not want it. For hand-written WAT it is mostly a curiosity.</p>
+<h3>Tail calls</h3>
+<p><code>return_call</code> and <code>return_call_indirect</code>: reuse the current frame instead of
+pushing a new one.</p>
+<pre><code class="language-wat">(func $loop (param $n i32)
+  (if (local.get $n)
+    (then (return_call $loop (i32.sub (local.get $n) (i32.const 1))))))
+</code></pre>
+<p>Constant stack space for mutual recursion, state machines and continuation-
+passing style. Functional-language backends needed this; imperative code rarely
+notices.</p>
+<h3>Extended constant expressions</h3>
+<p>Arithmetic in global initialisers and data-segment offsets. Small, and it
+directly removes the annoyance from <a href="08-globals-and-state.html">chapter 8</a> where
+<code>(global $BULLETS_OFF i32 (i32.const 1344))</code> had to have its <code>24 + 33*40</code>
+computed by hand.</p>
+<hr>
+<h2>In flight</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Proposal</th>
+<th>What it gives you</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Memory64</strong></td>
+<td>64-bit addressing — memories beyond 4 GiB</td>
+</tr>
+<tr>
+<td><strong>Multiple memories</strong></td>
+<td>More than one linear memory per module; clean separation between a shared buffer and private state</td>
+</tr>
+<tr>
+<td><strong>Component Model</strong></td>
+<td>Language-agnostic typed interfaces and composition (<a href="11-beyond-the-browser.html">ch. 11</a>)</td>
+</tr>
+<tr>
+<td><strong>Stack switching</strong></td>
+<td>Coroutines, generators, async without unwinding tricks</td>
+</tr>
+<tr>
+<td><strong>Custom page sizes</strong></td>
+<td>Sub-64 KiB memories, aimed at embedded targets</td>
+</tr>
+<tr>
+<td><strong>Branch hinting</strong></td>
+<td>Static likely/unlikely annotations for the JIT</td>
+</tr>
+<tr>
+<td><strong>Flexible vectors</strong></td>
+<td>Variable-width SIMD, mapping to ARM SVE and AVX-512</td>
+</tr>
+<tr>
+<td><strong>Profile-guided optimisation hints</strong></td>
+<td>Feed real execution data back into the binary</td>
+</tr>
+</tbody></table>
+</div><hr>
+<h2>Choosing what to use</h2>
+<p><strong>Assume unconditionally:</strong> bulk memory, multi-value, sign extension,
+non-trapping conversions, reference types. These are everywhere, and avoiding
+them costs you performance and clarity for no benefit.</p>
+<p><strong>Use with a feature check:</strong> SIMD, exceptions, tail calls, GC. Detect and fall
+back:</p>
+<pre><code class="language-js">const hasSimd = WebAssembly.validate(new Uint8Array([
+  0,97,115,109, 1,0,0,0, 1,5,1,96,0,1,123, 3,2,1,0,
+  10,10,1,8,0,65,0,253,15,26,11,
+]));
+</code></pre>
+<p>The pattern is to compile the tiniest module using the feature and see whether
+<code>WebAssembly.validate</code> accepts it. The <code>wasm-feature-detect</code> package packages
+this for every proposal and is two lines instead of the above.</p>
+<p><strong>Ship two builds</strong> when the gain justifies it — a SIMD build and a scalar
+build, selected at load. Emscripten and <code>wasm-pack</code> both support this, and for
+a codec it is routinely worth the extra artefact.</p>
+<p><strong>Threads deserve a real decision.</strong> The COOP/COEP requirement has consequences
+well beyond your module. Confirm the whole page can live with cross-origin
+isolation before you commit.</p>
+<hr>
+<h2>What the engines here use</h2>
+<p>None of it. <code>games/vector-arena/game.wat</code> and <code>games/pixel-wave/game.wat</code> are
+strict MVP: four value types, one memory, one table&#39;s worth of nothing,
+structured control flow, two imports.</p>
+<p>That is partly the point of the exercise — the MVP is enough to write a complete
+game engine in — and partly a real property worth having: the binaries run on
+any engine that has ever supported WebAssembly, including a 2017 browser and a
+microcontroller interpreter, with no feature detection and no fallback build.</p>
+<p>The one place a proposal would genuinely help is <code>memory.fill</code> for clearing the
+entity pools in <code>init</code>, which is currently a byte loop. It is a few microseconds
+once per run, so it has stayed a loop — but it is the honest example of what you
+give up.</p>
+
+<nav class="pager">
+  <a href="13-debugging-and-profiling.html"><span>Previous</span>Debugging and profiling</a>
+  <a href="index.html">Contents</a>
+  <a class="next" href="15-game-loop-architecture.html"><span>Next</span>Architecture of a wasm game loop</a>
+</nav>
+</main>
+</body>
+</html>

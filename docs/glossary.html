@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Glossary</title>
+<meta name="description" content="Glossary — part of the WebAssembly course in the arcade-library repository.">
+<link rel="icon" href="../games/pixel-wave/logo.svg">
+<style>
+:root {
+  --bg: #fbfaf7; --panel: #ffffff; --sunk: #f2f0ea;
+  --fg: #14130f; --soft: #4a4842; --muted: #7a776e;
+  --line: rgba(20,19,15,.12); --accent: #b23a18; --accent-wash: rgba(178,58,24,.07);
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121110; --panel: #1a1917; --sunk: #232220;
+    --fg: #f4f2ed; --soft: #b5b1a8; --muted: #86827a;
+    --line: rgba(244,242,237,.14); --accent: #e0714b; --accent-wash: rgba(224,113,75,.12);
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 16px/1.7 var(--sans); -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 52rem; margin: 0 auto; padding: clamp(1.5rem,4vw,3rem) clamp(1.1rem,4vw,2rem) 5rem; }
+.wide { max-width: 64rem; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+h1 { font-size: clamp(1.8rem,4.5vw,2.6rem); line-height: 1.12; letter-spacing: -.025em; margin: 0 0 1.2rem; }
+h2 { font-size: clamp(1.3rem,3vw,1.6rem); letter-spacing: -.015em; margin: 3rem 0 1rem; padding-top: 1.4rem; border-top: 1px solid var(--line); }
+h3 { font-size: 1.12rem; margin: 2rem 0 .7rem; }
+h4 { font-size: 1rem; margin: 1.5rem 0 .5rem; }
+p, ul, ol { margin: 0 0 1.05rem; }
+ul, ol { padding-left: 1.4rem; }
+li { margin-bottom: .4rem; }
+li > ul, li > ol { margin-top: .4rem; }
+strong { font-weight: 650; }
+hr { border: 0; border-top: 1px solid var(--line); margin: 2.5rem 0; }
+blockquote {
+  margin: 0 0 1.05rem; padding: .1rem 0 .1rem 1.1rem;
+  border-left: 3px solid var(--accent); color: var(--soft);
+}
+code {
+  font: .87em/1.5 var(--mono);
+  background: var(--sunk); border: 1px solid var(--line); border-radius: 4px;
+  padding: .1em .35em; overflow-wrap: anywhere;
+}
+pre {
+  background: var(--sunk); border: 1px solid var(--line); border-radius: 10px;
+  padding: 1rem 1.15rem; overflow-x: auto; margin: 0 0 1.4rem;
+}
+pre code { background: none; border: 0; padding: 0; font-size: .84rem; line-height: 1.65; overflow-wrap: normal; }
+/* Wide content scrolls inside its own box; the page body never scrolls sideways. */
+.table-scroll { overflow-x: auto; margin: 0 0 1.4rem; border: 1px solid var(--line); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+th, td { text-align: left; padding: .6rem .85rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { background: var(--sunk); font-weight: 600; white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+img { max-width: 100%; height: auto; }
+
+/* ---- chrome ---- */
+.bar {
+  position: sticky; top: 0; z-index: 5;
+  display: flex; flex-wrap: wrap; align-items: center; gap: .4rem 1rem;
+  padding: .7rem clamp(1.1rem,4vw,2rem);
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(12px); border-bottom: 1px solid var(--line);
+  font-size: .82rem;
+}
+@supports not (background: color-mix(in srgb, red 50%, transparent)) { .bar { background: var(--bg); } }
+.bar a { color: var(--soft); }
+.bar .sep { color: var(--muted); }
+.bar .here { color: var(--fg); font-weight: 600; }
+.eyebrow {
+  font: 500 .7rem/1 var(--mono); letter-spacing: .16em; text-transform: uppercase;
+  color: var(--muted); margin: 0 0 .9rem;
+}
+.pager {
+  display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between;
+  margin-top: 3.5rem; padding-top: 1.5rem; border-top: 1px solid var(--line); font-size: .9rem;
+}
+.pager span { display: block; font: 500 .65rem/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-bottom: .2rem; }
+.pager .next { text-align: right; margin-left: auto; }
+
+/* ---- index ---- */
+.lede { font-size: 1.06rem; color: var(--soft); margin-bottom: 2rem; }
+.part { margin-top: 2.6rem; }
+.part h2 { margin-top: 0; border-top: 0; padding-top: 0; }
+.part > p { color: var(--muted); font-size: .92rem; margin-bottom: 1.1rem; }
+.toc { list-style: none; padding: 0; margin: 0; display: grid; gap: .5rem; }
+.toc a {
+  display: grid; grid-template-columns: 2.4rem 1fr; gap: .8rem; align-items: baseline;
+  padding: .8rem 1rem; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--panel); color: var(--fg);
+}
+.toc a:hover { border-color: var(--accent); text-decoration: none; background: var(--accent-wash); }
+.toc .n { font: 500 .78rem/1.4 var(--mono); color: var(--accent); }
+.toc .t { font-weight: 600; font-size: .97rem; }
+.toc .d { display: block; color: var(--muted); font-size: .85rem; font-weight: 400; margin-top: .15rem; }
+.routes { display: grid; gap: .5rem; grid-template-columns: repeat(auto-fit,minmax(15rem,1fr)); margin-bottom: 2.5rem; }
+.route { padding: .9rem 1rem; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.route strong { display: block; font-size: .93rem; margin-bottom: .2rem; }
+.route span { color: var(--muted); font-size: .85rem; }
+</style>
+</head>
+<body>
+<nav class="bar">
+  <a href="../index.html">Arcade Library</a>
+  <span class="sep">/</span>
+  <a href="index.html">WebAssembly course</a> <span class="sep">/</span> <span class="here">Glossary</span>
+</nav>
+<main class="wrap ">
+<h1>Glossary</h1>
+<p>Every term this course uses, defined once. Chapter references point at where it
+is explained properly.</p>
+<hr>
+<p><strong>AoS / Array-of-structs</strong> — a layout where each entity&#39;s fields are contiguous
+and entities are laid end to end. Contrast SoA. <a href="16-entity-pools.html">ch. 16</a></p>
+<p><strong>Alignment</strong> — the requirement or preference that a memory address be a
+multiple of the access width. In wasm the <code>align=</code> immediate is a <em>hint</em>, not a
+constraint; a misaligned access is legal but may be slower. Atomics are the
+exception and do trap. <a href="05-linear-memory.html">ch. 5</a></p>
+<p><strong>AssemblyScript</strong> — a TypeScript-shaped language compiled directly to wasm.
+Not TypeScript. <a href="10-source-languages.html">ch. 10</a></p>
+<p><strong>Binaryen</strong> — a compiler infrastructure library that uses wasm as its IR.
+Source of <code>wasm-opt</code>. <a href="09-toolchain.html">ch. 9</a></p>
+<p><strong>Block</strong> — a structured control region. Branching to a block&#39;s label jumps to
+just <em>after</em> the block — a <code>break</code>. <a href="04-control-flow.html">ch. 4</a></p>
+<p><strong>Bulk memory</strong> — the <code>memory.copy</code> / <code>memory.fill</code> family. Shipped everywhere.
+<a href="14-post-mvp-features.html">ch. 14</a></p>
+<p><strong>Bump allocator</strong> — an allocator that only moves a pointer forward and never
+frees individual objects. The simplest useful one. <a href="05-linear-memory.html">ch. 5</a></p>
+<p><strong>Capability-based security</strong> — the model where a component can only do what it
+was explicitly handed the means to do. Wasm&#39;s import list is a capability list.
+<a href="12-security-model.html">ch. 12</a></p>
+<p><strong>Component Model</strong> — a proposal layering typed, language-agnostic interfaces
+and composition over core wasm. Interfaces are written in WIT.
+<a href="11-beyond-the-browser.html">ch. 11</a></p>
+<p><strong>Custom section</strong> — a named binary section the engine ignores. Carries the
+name section, DWARF debug info, producer metadata. Strippable.
+<a href="01-what-is-webassembly.html">ch. 1</a></p>
+<p><strong>Data segment</strong> — bytes copied into linear memory at instantiation. How string
+literals and constant tables get there. <a href="05-linear-memory.html">ch. 5</a></p>
+<p><strong>Detached buffer</strong> — what happens to a JavaScript <code>ArrayBuffer</code> view after
+<code>memory.grow</code> reallocates. <code>byteLength</code> becomes 0. <a href="07-javascript-interop.html">ch. 7</a></p>
+<p><strong>DWARF</strong> — the debug-info format, carried in a custom section, that lets Chrome
+step through original C/Rust source. <a href="13-debugging-and-profiling.html">ch. 13</a></p>
+<p><strong>Emscripten</strong> — a C/C++ toolchain that emulates POSIX on the web: filesystem,
+SDL, pthreads, OpenGL→WebGL. Powerful and heavy. <a href="10-source-languages.html">ch. 10</a></p>
+<p><strong><code>externref</code></strong> — an opaque reference to a host value that a module can hold and
+pass back but not inspect. <a href="14-post-mvp-features.html">ch. 14</a></p>
+<p><strong>Folded form</strong> — the parenthesised WAT syntax where an instruction&#39;s operands
+are written as children. Pure sugar over linear form. <a href="02-wat-syntax.html">ch. 2</a></p>
+<p><strong>Fuel metering</strong> — a runtime feature that charges a guest per instruction and
+traps at a budget. Wasmtime. <a href="12-security-model.html">ch. 12</a></p>
+<p><strong><code>funcref</code></strong> — a reference to a function; the element type of a table.
+<a href="06-functions-tables.html">ch. 6</a></p>
+<p><strong>Global</strong> — a module-scoped typed value, mutable or not. <strong>Has no address</strong> —
+<code>i32.load</code> cannot reach it. <a href="08-globals-and-state.html">ch. 8</a></p>
+<p><strong>Host</strong> — whatever embeds the wasm engine: a browser, Node, Wasmtime, Envoy.</p>
+<p><strong>Import object</strong> — the nested JS object supplying a module&#39;s declared imports.
+Shape is <code>{ module: { name: value } }</code>. <a href="07-javascript-interop.html">ch. 7</a></p>
+<p><strong>Instance</strong> — a module plus its own memory, globals and tables. Instances share
+nothing by default. <a href="08-globals-and-state.html">ch. 8</a></p>
+<p><strong>Instantiation</strong> — allocating memory, applying data segments, wiring imports,
+running <code>start</code>. Fails with <code>LinkError</code>. <a href="01-what-is-webassembly.html">ch. 1</a></p>
+<p><strong>Linear memory</strong> — the single flat, growable, bounds-checked byte array a
+module addresses with <code>i32</code>. <a href="05-linear-memory.html">ch. 5</a></p>
+<p><strong><code>LinkError</code></strong> — instantiation failed: a missing or mistyped import.</p>
+<p><strong>Local</strong> — a function-scoped variable. Always zero-initialised, never
+addressable. <a href="02-wat-syntax.html">ch. 2</a></p>
+<p><strong>Loop</strong> — a structured control region. Branching to a loop&#39;s label jumps <em>back</em>
+to its start — a <code>continue</code>. A loop does not repeat on its own.
+<a href="04-control-flow.html">ch. 4</a></p>
+<p><strong>Memory64</strong> — an in-flight proposal for 64-bit addressing.
+<a href="14-post-mvp-features.html">ch. 14</a></p>
+<p><strong>Minimax polynomial</strong> — a polynomial approximation minimising <em>peak</em> error over
+a range, as opposed to a Taylor series which minimises error at one point. What
+<code>libm</code> actually uses. <a href="17-math-without-a-stdlib.html">ch. 17</a></p>
+<p><strong>Module</strong> — the compiled, validated code and declarations. Structured-cloneable,
+so it can be posted to workers. <a href="07-javascript-interop.html">ch. 7</a></p>
+<p><strong>Multi-value</strong> — returning more than one value from a function or block.
+Shipped. <a href="14-post-mvp-features.html">ch. 14</a></p>
+<p><strong>Name section</strong> — a custom section mapping indices to <code>$names</code>, so devtools show
+<code>$update_bots</code> rather than <code>func[7]</code>. <code>wat2wasm --debug-names</code>.
+<a href="09-toolchain.html">ch. 9</a></p>
+<p><strong>Operand stack</strong> — the value stack instructions push and pop. Its shape is
+statically known at every point, which is what makes validation possible.
+<a href="02-wat-syntax.html">ch. 2</a></p>
+<p><strong>Page</strong> — the unit of linear memory: <strong>65,536 bytes</strong>, always.
+<a href="05-linear-memory.html">ch. 5</a></p>
+<p><strong>Pool</strong> — a fixed-size array of records with an <code>active</code> flag, used instead of
+an allocator. <a href="16-entity-pools.html">ch. 16</a></p>
+<p><strong>Relaxed SIMD</strong> — SIMD operations that trade bit-exact determinism for hardware
+speed. <a href="14-post-mvp-features.html">ch. 14</a></p>
+<p><strong><code>RuntimeError</code></strong> — a trap during execution: out of bounds, divide by zero,
+<code>unreachable</code>, stack exhausted, signature mismatch. <a href="13-debugging-and-profiling.html">ch. 13</a></p>
+<p><strong>Shadow stack</strong> — a compiler-managed stack <em>inside</em> linear memory, for variables
+whose address is taken. Unlike the engine&#39;s call stack, it is corruptible.
+<a href="06-functions-tables.html">ch. 6</a>, <a href="12-security-model.html">ch. 12</a></p>
+<p><strong>SIMD</strong> — single instruction, multiple data. Wasm&#39;s <code>v128</code> type and ~200 lane
+operations. <a href="14-post-mvp-features.html">ch. 14</a></p>
+<p><strong>SoA / Struct-of-arrays</strong> — a layout where each field gets its own array.
+Better for sweeping one field; worse for touching one entity.
+<a href="16-entity-pools.html">ch. 16</a></p>
+<p><strong>Start function</strong> — one function run at instantiation, before any export can be
+called. <a href="06-functions-tables.html">ch. 6</a></p>
+<p><strong>Stride</strong> — the byte distance between consecutive records in a pool.
+<a href="05-linear-memory.html">ch. 5</a></p>
+<p><strong>Table</strong> — an array of references, indexed for <code>call_indirect</code>. The MVP allows
+one per module. <a href="06-functions-tables.html">ch. 6</a></p>
+<p><strong>Tail call</strong> — <code>return_call</code>, reusing the current frame instead of pushing one.
+<a href="14-post-mvp-features.html">ch. 14</a></p>
+<p><strong>Trap</strong> — an unrecoverable abort that unwinds to the host. Surfaces as
+<code>RuntimeError</code> in JavaScript. Not catchable inside wasm without the exception
+proposal. <a href="13-debugging-and-profiling.html">ch. 13</a></p>
+<p><strong>Validation</strong> — the static type-check of an entire module before execution. The
+property everything else rests on. <a href="01-what-is-webassembly.html">ch. 1</a></p>
+<p><strong>WABT</strong> — the WebAssembly Binary Toolkit: <code>wat2wasm</code>, <code>wasm2wat</code>,
+<code>wasm-objdump</code>, <code>wasm-decompile</code>. <a href="09-toolchain.html">ch. 9</a></p>
+<p><strong>WASI</strong> — the WebAssembly System Interface. Capability-based POSIX-adjacent
+imports for non-browser hosts. <a href="11-beyond-the-browser.html">ch. 11</a></p>
+<p><strong>WAT</strong> — WebAssembly Text format. The human-readable projection of the binary.
+<a href="02-wat-syntax.html">ch. 2</a></p>
+<p><strong>WIT</strong> — WebAssembly Interface Types, the IDL of the Component Model.
+<a href="11-beyond-the-browser.html">ch. 11</a></p>
+<p><strong>xorshift</strong> — a family of very fast PRNGs built from shifts and xors. The
+engines here use xorshift32 with the <code>(13, 17, 5)</code> triple.
+<a href="17-math-without-a-stdlib.html">ch. 17</a></p>
+
+<nav class="pager">
+  <a href="17-math-without-a-stdlib.html"><span>Previous</span>Case study: maths without a standard library</a>
+  <a href="index.html">Contents</a>
+  <a class="next" href="cheatsheet.html"><span>Next</span>Instruction cheatsheet</a>
+</nav>
+</main>
+</body>
+</html>

@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Instruction cheatsheet</title>
+<meta name="description" content="Instruction cheatsheet — part of the WebAssembly course in the arcade-library repository.">
+<link rel="icon" href="../games/pixel-wave/logo.svg">
+<style>
+:root {
+  --bg: #fbfaf7; --panel: #ffffff; --sunk: #f2f0ea;
+  --fg: #14130f; --soft: #4a4842; --muted: #7a776e;
+  --line: rgba(20,19,15,.12); --accent: #b23a18; --accent-wash: rgba(178,58,24,.07);
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121110; --panel: #1a1917; --sunk: #232220;
+    --fg: #f4f2ed; --soft: #b5b1a8; --muted: #86827a;
+    --line: rgba(244,242,237,.14); --accent: #e0714b; --accent-wash: rgba(224,113,75,.12);
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 16px/1.7 var(--sans); -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 52rem; margin: 0 auto; padding: clamp(1.5rem,4vw,3rem) clamp(1.1rem,4vw,2rem) 5rem; }
+.wide { max-width: 64rem; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+h1 { font-size: clamp(1.8rem,4.5vw,2.6rem); line-height: 1.12; letter-spacing: -.025em; margin: 0 0 1.2rem; }
+h2 { font-size: clamp(1.3rem,3vw,1.6rem); letter-spacing: -.015em; margin: 3rem 0 1rem; padding-top: 1.4rem; border-top: 1px solid var(--line); }
+h3 { font-size: 1.12rem; margin: 2rem 0 .7rem; }
+h4 { font-size: 1rem; margin: 1.5rem 0 .5rem; }
+p, ul, ol { margin: 0 0 1.05rem; }
+ul, ol { padding-left: 1.4rem; }
+li { margin-bottom: .4rem; }
+li > ul, li > ol { margin-top: .4rem; }
+strong { font-weight: 650; }
+hr { border: 0; border-top: 1px solid var(--line); margin: 2.5rem 0; }
+blockquote {
+  margin: 0 0 1.05rem; padding: .1rem 0 .1rem 1.1rem;
+  border-left: 3px solid var(--accent); color: var(--soft);
+}
+code {
+  font: .87em/1.5 var(--mono);
+  background: var(--sunk); border: 1px solid var(--line); border-radius: 4px;
+  padding: .1em .35em; overflow-wrap: anywhere;
+}
+pre {
+  background: var(--sunk); border: 1px solid var(--line); border-radius: 10px;
+  padding: 1rem 1.15rem; overflow-x: auto; margin: 0 0 1.4rem;
+}
+pre code { background: none; border: 0; padding: 0; font-size: .84rem; line-height: 1.65; overflow-wrap: normal; }
+/* Wide content scrolls inside its own box; the page body never scrolls sideways. */
+.table-scroll { overflow-x: auto; margin: 0 0 1.4rem; border: 1px solid var(--line); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+th, td { text-align: left; padding: .6rem .85rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { background: var(--sunk); font-weight: 600; white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+img { max-width: 100%; height: auto; }
+
+/* ---- chrome ---- */
+.bar {
+  position: sticky; top: 0; z-index: 5;
+  display: flex; flex-wrap: wrap; align-items: center; gap: .4rem 1rem;
+  padding: .7rem clamp(1.1rem,4vw,2rem);
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(12px); border-bottom: 1px solid var(--line);
+  font-size: .82rem;
+}
+@supports not (background: color-mix(in srgb, red 50%, transparent)) { .bar { background: var(--bg); } }
+.bar a { color: var(--soft); }
+.bar .sep { color: var(--muted); }
+.bar .here { color: var(--fg); font-weight: 600; }
+.eyebrow {
+  font: 500 .7rem/1 var(--mono); letter-spacing: .16em; text-transform: uppercase;
+  color: var(--muted); margin: 0 0 .9rem;
+}
+.pager {
+  display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between;
+  margin-top: 3.5rem; padding-top: 1.5rem; border-top: 1px solid var(--line); font-size: .9rem;
+}
+.pager span { display: block; font: 500 .65rem/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-bottom: .2rem; }
+.pager .next { text-align: right; margin-left: auto; }
+
+/* ---- index ---- */
+.lede { font-size: 1.06rem; color: var(--soft); margin-bottom: 2rem; }
+.part { margin-top: 2.6rem; }
+.part h2 { margin-top: 0; border-top: 0; padding-top: 0; }
+.part > p { color: var(--muted); font-size: .92rem; margin-bottom: 1.1rem; }
+.toc { list-style: none; padding: 0; margin: 0; display: grid; gap: .5rem; }
+.toc a {
+  display: grid; grid-template-columns: 2.4rem 1fr; gap: .8rem; align-items: baseline;
+  padding: .8rem 1rem; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--panel); color: var(--fg);
+}
+.toc a:hover { border-color: var(--accent); text-decoration: none; background: var(--accent-wash); }
+.toc .n { font: 500 .78rem/1.4 var(--mono); color: var(--accent); }
+.toc .t { font-weight: 600; font-size: .97rem; }
+.toc .d { display: block; color: var(--muted); font-size: .85rem; font-weight: 400; margin-top: .15rem; }
+.routes { display: grid; gap: .5rem; grid-template-columns: repeat(auto-fit,minmax(15rem,1fr)); margin-bottom: 2.5rem; }
+.route { padding: .9rem 1rem; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.route strong { display: block; font-size: .93rem; margin-bottom: .2rem; }
+.route span { color: var(--muted); font-size: .85rem; }
+</style>
+</head>
+<body>
+<nav class="bar">
+  <a href="../index.html">Arcade Library</a>
+  <span class="sep">/</span>
+  <a href="index.html">WebAssembly course</a> <span class="sep">/</span> <span class="here">Instruction cheatsheet</span>
+</nav>
+<main class="wrap ">
+<h1>Instruction cheatsheet</h1>
+<p>The subset you will actually type. <code>T</code> stands for <code>i32 | i64 | f32 | f64</code> unless
+noted. Full listing: the <a href="https://webassembly.github.io/spec/core/appendix/index-instructions.html">spec&#39;s instruction
+index</a>.</p>
+<hr>
+<h2>Constants and variables</h2>
+<pre><code class="language-wat">i32.const 42        f32.const 1.5        f32.const inf       f32.const nan
+i64.const 42        f64.const 1.5        f32.const -0x1.8p+0   ;; hex float
+
+local.get $x        local.set $x         local.tee $x    ;; set and re-push
+global.get $g       global.set $g
+</code></pre>
+<h2>Integer arithmetic</h2>
+<pre><code class="language-wat">i32.add   i32.sub   i32.mul
+i32.div_s i32.div_u i32.rem_s i32.rem_u        ;; TRAP on divisor 0
+i32.and   i32.or    i32.xor
+i32.shl   i32.shr_s i32.shr_u                  ;; shr_s = arithmetic
+i32.rotl  i32.rotr
+i32.clz   i32.ctz   i32.popcnt
+i32.eqz                                        ;; == 0, also logical NOT
+</code></pre>
+<p><code>i64.*</code> mirrors all of these.</p>
+<h2>Integer comparison → i32 (0 or 1)</h2>
+<pre><code class="language-wat">i32.eq  i32.ne
+i32.lt_s i32.lt_u  i32.le_s i32.le_u  i32.gt_s i32.gt_u  i32.ge_s i32.ge_u
+</code></pre>
+<p><strong><code>_s</code> for indices and counts, <code>_u</code> for addresses and bits.</strong></p>
+<h2>Float arithmetic</h2>
+<pre><code class="language-wat">f32.add  f32.sub  f32.mul  f32.div
+f32.sqrt f32.abs  f32.neg  f32.copysign
+f32.min  f32.max                     ;; NaN-propagating, unlike Math.min
+f32.ceil f32.floor f32.trunc f32.nearest   ;; nearest = round-half-to-EVEN
+</code></pre>
+<h2>Float comparison → i32</h2>
+<pre><code class="language-wat">f32.eq  f32.ne  f32.lt  f32.le  f32.gt  f32.ge     ;; no _s/_u
+</code></pre>
+<h2>Conversions</h2>
+<pre><code class="language-wat">i32.wrap_i64                  i64.extend_i32_s / _u
+i32.trunc_f32_s / _u          ;; TRAPS on NaN or out of range
+i32.trunc_sat_f32_s / _u      ;; saturates — prefer this
+f32.convert_i32_s / _u        f64.convert_i32_s / _u
+f32.demote_f64                f64.promote_f32
+i32.reinterpret_f32           f32.reinterpret_i32     ;; free bit-cast
+i32.extend8_s  i32.extend16_s
+</code></pre>
+<h2>Memory</h2>
+<pre><code class="language-wat">i32.load   i32.store          f32.load   f32.store
+i64.load   i64.store          f64.load   f64.store
+
+i32.load8_s  i32.load8_u  i32.load16_s  i32.load16_u
+i32.store8   i32.store16                        ;; stores just truncate
+
+;; static immediates — offset is FREE, align is a HINT
+(f32.load offset=16 align=4 (local.get $base))
+
+memory.size                   ;; → current size in PAGES
+memory.grow                   ;; → previous size, or -1. Does NOT trap.
+memory.copy  memory.fill      ;; memmove / memset
+memory.init $seg   data.drop $seg
+</code></pre>
+<h2>Control flow</h2>
+<pre><code class="language-wat">(block $out …)                ;; br $out → jumps AFTER the block
+(loop  $top …)                ;; br $top → jumps BACK to the start
+(if (cond) (then …) (else …))
+(if (result T) (cond) (then …) (else …))
+
+(br $label)
+(br_if $label (cond))
+(br_table $a $b $default (index))
+(return)
+(return (value))
+(unreachable)                 ;; trap
+(nop)
+(select (a) (b) (cond))       ;; cond ? a : b — branchless, both evaluated
+</code></pre>
+<h2>Calls</h2>
+<pre><code class="language-wat">(call $fn (arg) (arg))
+(call_indirect (type $sig) (args…) (table_index))     ;; index LAST
+(return_call $fn (args…))                             ;; tail call, post-MVP
+</code></pre>
+<h2>Module fields</h2>
+<pre><code class="language-wat">(module
+  (import &quot;env&quot; &quot;name&quot; (func $f (param i32) (result f32)))
+  (import &quot;env&quot; &quot;mem&quot;  (memory 1))
+  (import &quot;env&quot; &quot;g&quot;    (global $g i32))
+
+  (memory (export &quot;memory&quot;) 1 16)         ;; initial 1 page, max 16
+  (table 4 funcref)
+  (elem (i32.const 0) $a $b $c $d)
+  (data (i32.const 0) &quot;bytes\00&quot;)
+
+  (global $C i32 (i32.const 42))          ;; immutable
+  (global $m (mut f32) (f32.const 0.0))   ;; mutable
+
+  (type $sig (func (param f32) (result f32)))
+
+  (func $name (export &quot;name&quot;) (param $a i32) (result i32)
+    (local $t i32)                        ;; locals FIRST, before any instruction
+    (local.get $a))
+
+  (export &quot;alias&quot; (func $name))
+  (start $init)
+)
+</code></pre>
+<hr>
+<h2>The loop, memorised as one unit</h2>
+<pre><code class="language-wat">(local.set $i (i32.const 0))
+(block $done
+  (loop $next
+    (br_if $done (i32.ge_s (local.get $i) (local.get $count)))
+    ;; body
+    (local.set $i (i32.add (local.get $i) (i32.const 1)))
+    (br $next)))
+</code></pre>
+<h2>Struct access, memorised as one unit</h2>
+<pre><code class="language-wat">(func $addr (param $i i32) (result i32)
+  (i32.add (global.get $OFF) (i32.mul (local.get $i) (global.get $STRIDE))))
+
+(local.set $a (call $addr (local.get $i)))
+(f32.load offset=0  (local.get $a))     ;; field 0
+(f32.load offset=4  (local.get $a))     ;; field 1
+</code></pre>
+<h2>Guarded divide, memorised as one unit</h2>
+<pre><code class="language-wat">(if (f32.gt (local.get $len) (f32.const 0.001))
+  (then (local.set $nx (f32.div (local.get $dx) (local.get $len)))))
+</code></pre>
+<p>Skip it and a zero-length vector gives you a NaN that spreads silently through
+everything downstream.</p>
+<hr>
+<h2>Reflexes worth building</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Situation</th>
+<th>Reflex</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Comparing a loop counter</td>
+<td><code>_s</code>, not <code>_u</code></td>
+</tr>
+<tr>
+<td>Converting RNG bits to a float</td>
+<td><code>convert_i32_u</code>, not <code>_s</code></td>
+</tr>
+<tr>
+<td>About to divide</td>
+<td>Guard the divisor first</td>
+</tr>
+<tr>
+<td>Distance test</td>
+<td>Compare squares, skip <code>sqrt</code></td>
+</tr>
+<tr>
+<td>Struct field</td>
+<td><code>offset=</code>, not <code>i32.add</code></td>
+</tr>
+<tr>
+<td>Clearing a region</td>
+<td><code>memory.fill</code>, not a byte loop</td>
+</tr>
+<tr>
+<td>Float→int of a computed value</td>
+<td><code>trunc_sat</code>, not <code>trunc</code></td>
+</tr>
+<tr>
+<td><code>memory.grow</code></td>
+<td>Check for <code>-1</code></td>
+</tr>
+<tr>
+<td>Rotating a vector 90°</td>
+<td><code>(-y, x)</code>. No trig</td>
+</tr>
+<tr>
+<td>Adding a mutable global</td>
+<td>Reset it in <code>init</code> too</td>
+</tr>
+</tbody></table>
+</div>
+<nav class="pager">
+  <a href="glossary.html"><span>Previous</span>Glossary</a>
+  <a href="index.html">Contents</a>
+  <a class="next" href="further-reading.html"><span>Next</span>Further reading</a>
+</nav>
+</main>
+</body>
+</html>

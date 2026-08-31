@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>04 · Control flow</title>
+<meta name="description" content="04 · Control flow — part of the WebAssembly course in the arcade-library repository.">
+<link rel="icon" href="../games/pixel-wave/logo.svg">
+<style>
+:root {
+  --bg: #fbfaf7; --panel: #ffffff; --sunk: #f2f0ea;
+  --fg: #14130f; --soft: #4a4842; --muted: #7a776e;
+  --line: rgba(20,19,15,.12); --accent: #b23a18; --accent-wash: rgba(178,58,24,.07);
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121110; --panel: #1a1917; --sunk: #232220;
+    --fg: #f4f2ed; --soft: #b5b1a8; --muted: #86827a;
+    --line: rgba(244,242,237,.14); --accent: #e0714b; --accent-wash: rgba(224,113,75,.12);
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 16px/1.7 var(--sans); -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 52rem; margin: 0 auto; padding: clamp(1.5rem,4vw,3rem) clamp(1.1rem,4vw,2rem) 5rem; }
+.wide { max-width: 64rem; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+h1 { font-size: clamp(1.8rem,4.5vw,2.6rem); line-height: 1.12; letter-spacing: -.025em; margin: 0 0 1.2rem; }
+h2 { font-size: clamp(1.3rem,3vw,1.6rem); letter-spacing: -.015em; margin: 3rem 0 1rem; padding-top: 1.4rem; border-top: 1px solid var(--line); }
+h3 { font-size: 1.12rem; margin: 2rem 0 .7rem; }
+h4 { font-size: 1rem; margin: 1.5rem 0 .5rem; }
+p, ul, ol { margin: 0 0 1.05rem; }
+ul, ol { padding-left: 1.4rem; }
+li { margin-bottom: .4rem; }
+li > ul, li > ol { margin-top: .4rem; }
+strong { font-weight: 650; }
+hr { border: 0; border-top: 1px solid var(--line); margin: 2.5rem 0; }
+blockquote {
+  margin: 0 0 1.05rem; padding: .1rem 0 .1rem 1.1rem;
+  border-left: 3px solid var(--accent); color: var(--soft);
+}
+code {
+  font: .87em/1.5 var(--mono);
+  background: var(--sunk); border: 1px solid var(--line); border-radius: 4px;
+  padding: .1em .35em; overflow-wrap: anywhere;
+}
+pre {
+  background: var(--sunk); border: 1px solid var(--line); border-radius: 10px;
+  padding: 1rem 1.15rem; overflow-x: auto; margin: 0 0 1.4rem;
+}
+pre code { background: none; border: 0; padding: 0; font-size: .84rem; line-height: 1.65; overflow-wrap: normal; }
+/* Wide content scrolls inside its own box; the page body never scrolls sideways. */
+.table-scroll { overflow-x: auto; margin: 0 0 1.4rem; border: 1px solid var(--line); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+th, td { text-align: left; padding: .6rem .85rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { background: var(--sunk); font-weight: 600; white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+img { max-width: 100%; height: auto; }
+
+/* ---- chrome ---- */
+.bar {
+  position: sticky; top: 0; z-index: 5;
+  display: flex; flex-wrap: wrap; align-items: center; gap: .4rem 1rem;
+  padding: .7rem clamp(1.1rem,4vw,2rem);
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(12px); border-bottom: 1px solid var(--line);
+  font-size: .82rem;
+}
+@supports not (background: color-mix(in srgb, red 50%, transparent)) { .bar { background: var(--bg); } }
+.bar a { color: var(--soft); }
+.bar .sep { color: var(--muted); }
+.bar .here { color: var(--fg); font-weight: 600; }
+.eyebrow {
+  font: 500 .7rem/1 var(--mono); letter-spacing: .16em; text-transform: uppercase;
+  color: var(--muted); margin: 0 0 .9rem;
+}
+.pager {
+  display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between;
+  margin-top: 3.5rem; padding-top: 1.5rem; border-top: 1px solid var(--line); font-size: .9rem;
+}
+.pager span { display: block; font: 500 .65rem/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-bottom: .2rem; }
+.pager .next { text-align: right; margin-left: auto; }
+
+/* ---- index ---- */
+.lede { font-size: 1.06rem; color: var(--soft); margin-bottom: 2rem; }
+.part { margin-top: 2.6rem; }
+.part h2 { margin-top: 0; border-top: 0; padding-top: 0; }
+.part > p { color: var(--muted); font-size: .92rem; margin-bottom: 1.1rem; }
+.toc { list-style: none; padding: 0; margin: 0; display: grid; gap: .5rem; }
+.toc a {
+  display: grid; grid-template-columns: 2.4rem 1fr; gap: .8rem; align-items: baseline;
+  padding: .8rem 1rem; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--panel); color: var(--fg);
+}
+.toc a:hover { border-color: var(--accent); text-decoration: none; background: var(--accent-wash); }
+.toc .n { font: 500 .78rem/1.4 var(--mono); color: var(--accent); }
+.toc .t { font-weight: 600; font-size: .97rem; }
+.toc .d { display: block; color: var(--muted); font-size: .85rem; font-weight: 400; margin-top: .15rem; }
+.routes { display: grid; gap: .5rem; grid-template-columns: repeat(auto-fit,minmax(15rem,1fr)); margin-bottom: 2.5rem; }
+.route { padding: .9rem 1rem; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.route strong { display: block; font-size: .93rem; margin-bottom: .2rem; }
+.route span { color: var(--muted); font-size: .85rem; }
+</style>
+</head>
+<body>
+<nav class="bar">
+  <a href="../index.html">Arcade Library</a>
+  <span class="sep">/</span>
+  <a href="index.html">WebAssembly course</a> <span class="sep">/</span> <span class="here">Control flow</span>
+</nav>
+<main class="wrap ">
+<h1>04 · Control flow</h1>
+<p>WebAssembly has <strong>no <code>goto</code></strong>. Control flow is structured: nested regions with
+explicit entry and exit, and branches that can only travel <em>outward</em> to an
+enclosing region&#39;s label. This is not a stylistic preference — it is what makes
+single-pass validation and streaming compilation possible, and it is why a wasm
+binary cannot contain an irreducible control-flow graph.</p>
+<p>The consequence for a human writing WAT is that you spend a while translating
+familiar <code>break</code>/<code>continue</code>/<code>goto</code> shapes into blocks and loops. Once the
+mapping is memorised it is fine.</p>
+<hr>
+<h2>The three region constructs</h2>
+<pre><code class="language-wat">(block $label  … )      ;; branching to $label jumps to just AFTER the block
+(loop  $label  … )      ;; branching to $label jumps BACK to the loop&#39;s start
+(if (cond) (then …) (else …))
+</code></pre>
+<p><strong>Say this out loud until it sticks:</strong></p>
+<blockquote>
+<p><code>br</code> to a <strong>block</strong> label goes forward (a <code>break</code>).
+<code>br</code> to a <strong>loop</strong> label goes backward (a <code>continue</code>).</p>
+</blockquote>
+<p>A <code>loop</code> does not loop on its own. Falling off the bottom of a <code>loop</code> exits it.
+An infinite loop requires an explicit <code>br</code> back to the label. Getting this
+backwards is the classic first-day bug: either the loop body runs exactly once,
+or it never terminates.</p>
+<hr>
+<h2>Branch instructions</h2>
+<pre><code class="language-wat">(br $label)                    ;; unconditional
+(br_if $label (cond))          ;; branch when cond is nonzero
+(br_table $a $b $default (i))  ;; computed branch — a jump table
+(return)                       ;; leave the function
+(unreachable)                  ;; trap immediately
+</code></pre>
+<p>Labels can also be referenced by <strong>relative depth</strong>: <code>br 0</code> is the innermost
+enclosing region, <code>br 1</code> its parent. Named labels compile to exactly this, and
+a disassembler will show you the numbers. Use names.</p>
+<p><code>unreachable</code> is not &quot;do nothing&quot;. It traps, producing a <code>RuntimeError</code> in the
+host. Compilers emit it after calls that cannot return, and it is the right
+thing to put in a branch you believe is impossible — a trap in development beats
+silent corruption.</p>
+<hr>
+<h2>The canonical loop</h2>
+<p>Every counted loop in both engines is this shape, and it is worth learning as a
+single unit:</p>
+<pre><code class="language-wat">(local.set $i (i32.const 0))
+(block $done
+  (loop $next
+    (br_if $done (i32.ge_s (local.get $i) (local.get $count)))   ;; exit test
+    ;; ---- body ----
+    (local.set $i (i32.add (local.get $i) (i32.const 1)))        ;; increment
+    (br $next)))                                                 ;; continue
+</code></pre>
+<p>Four moving parts:</p>
+<ol>
+<li>The <strong><code>block</code></strong> provides the exit label. Without it there is nowhere for the
+exit branch to go.</li>
+<li>The <strong><code>loop</code></strong> provides the back-edge label.</li>
+<li><code>br_if $done</code> at the top is the <code>for</code> condition, <strong>inverted</strong> — you branch out
+when you want to stop.</li>
+<li><code>br $next</code> at the bottom is what actually repeats. Omit it and the body runs
+once.</li>
+</ol>
+<p>The real thing, from <code>games/pixel-wave/game.wat</code>, walking the bullet pool:</p>
+<pre><code class="language-wat">(local.set $i (i32.const 0))
+(block $done
+  (loop $lp
+    (br_if $done (i32.ge_s (local.get $i) (global.get $MAX_BULLETS)))
+    (local.set $a (call $bullet_addr (local.get $i)))
+    (if (f32.ne (f32.load offset=20 (local.get $a)) (f32.const 0.0))
+      (then
+        ;; integrate this bullet&#39;s position …
+      ))
+    (local.set $i (i32.add (local.get $i) (i32.const 1)))
+    (br $lp)))
+</code></pre>
+<h3><code>continue</code>, in a loop with work after it</h3>
+<p>If you want to skip to the next iteration but the increment lives at the
+bottom, you cannot <code>br $lp</code> — you would skip the increment and hang. Two fixes,
+both used in practice:</p>
+<p><strong>Wrap the body in an inner block:</strong></p>
+<pre><code class="language-wat">(loop $lp
+  (br_if $done (i32.ge_s (local.get $i) (local.get $n)))
+  (block $continue
+    (br_if $continue (call $should_skip (local.get $i)))
+    ;; … body …
+  )
+  (local.set $i (i32.add (local.get $i) (i32.const 1)))
+  (br $lp))
+</code></pre>
+<p><strong>Or increment first</strong>, and index with <code>$i - 1</code>. Less readable; occasionally
+worth it.</p>
+<hr>
+<h2><code>if</code> and its typed form</h2>
+<pre><code class="language-wat">(if (i32.lt_s (local.get $x) (i32.const 0))
+  (then (local.set $x (i32.const 0))))
+
+(if (local.get $cond)
+  (then (local.set $r (i32.const 1)))
+  (else (local.set $r (i32.const 2))))
+</code></pre>
+<p>An <code>if</code> can also <strong>produce a value</strong>, which requires a result type and both
+arms:</p>
+<pre><code class="language-wat">(if (result f32) (f32.gt (local.get $a) (local.get $b))
+  (then (local.get $a))
+  (else (local.get $b)))
+</code></pre>
+<p>For simple, cheap, side-effect-free arms, <code>select</code> is usually better — no
+branch at all:</p>
+<pre><code class="language-wat">(select (local.get $a) (local.get $b) (f32.gt (local.get $a) (local.get $b)))
+</code></pre>
+<h3>Clamping, the everyday idiom</h3>
+<p>Two <code>if</code>s and no branch prediction to worry about, from <code>pixel-wave</code>:</p>
+<pre><code class="language-wat">(func $clampf (param $v f32) (param $lo f32) (param $hi f32) (result f32)
+  (local $r f32)
+  (local.set $r (local.get $v))
+  (if (f32.lt (local.get $r) (local.get $lo)) (then (local.set $r (local.get $lo))))
+  (if (f32.gt (local.get $r) (local.get $hi)) (then (local.set $r (local.get $hi))))
+  (local.get $r))
+</code></pre>
+<p>Wrapping — the arena edge in <code>vector-arena</code> — is the same shape:</p>
+<pre><code class="language-wat">(func $wrap (param $v f32) (param $max f32) (result f32)
+  (local $r f32)
+  (local.set $r (local.get $v))
+  (if (f32.lt (local.get $r) (f32.const 0.0))   (then (local.set $r (f32.add (local.get $r) (local.get $max)))))
+  (if (f32.gt (local.get $r) (local.get $max))  (then (local.set $r (f32.sub (local.get $r) (local.get $max)))))
+  (local.get $r))
+</code></pre>
+<p>Note it corrects by <strong>one</strong> <code>max</code> and no more. That is a real assumption: an
+entity that moves more than a full arena width in one frame is not wrapped
+correctly. At the speeds and timestep involved it cannot happen, and the
+alternative — a modulo, or a loop — costs more than the case is worth. Knowing
+which of these shortcuts you have taken is the difference between a tuned engine
+and a fragile one.</p>
+<hr>
+<h2><code>br_table</code></h2>
+<p>A jump table: pops an index, branches to the label at that position, or to the
+last label if the index is out of range.</p>
+<pre><code class="language-wat">(block $default
+  (block $case2
+    (block $case1
+      (block $case0
+        (br_table $case0 $case1 $case2 $default (local.get $kind)))
+      ;; $case0 lands here
+      (br $default))
+    ;; $case1
+    (br $default))
+  ;; $case2
+  (br $default))
+;; $default and everything after
+</code></pre>
+<p>Verbose, and the nesting is inside-out — the <em>first</em> label in the table is the
+<em>innermost</em> block. Hand-written WAT rarely needs it; compilers emit it for dense
+<code>switch</code> statements. It is worth being able to recognise in a disassembly.</p>
+<hr>
+<h2>Early return</h2>
+<pre><code class="language-wat">(func $find (param $target f32) (result i32)
+  (local $i i32)
+  (block $done
+    (loop $lp
+      (br_if $done (i32.ge_s (local.get $i) (global.get $MAX)))
+      (if (f32.eq (call $value_at (local.get $i)) (local.get $target))
+        (then (return (local.get $i))))          ;; straight out of the function
+      (local.set $i (i32.add (local.get $i) (i32.const 1)))
+      (br $lp)))
+  (i32.const -1))                                 ;; not found
+</code></pre>
+<p><code>return</code> pops the function&#39;s declared result from the stack and leaves. Note
+that the fall-through at the bottom still has to supply an <code>i32</code> — every path
+must satisfy <code>(result i32)</code>, and the validator will tell you which one doesn&#39;t.</p>
+<hr>
+<h2>What the validator enforces</h2>
+<p>Worth knowing, because the error messages are terse:</p>
+<ul>
+<li><strong>Every path out of a region agrees on the stack.</strong> If a <code>block</code> has a result
+type, every <code>br</code> to it must carry a value of that type, and so must the
+fall-through.</li>
+<li><strong>You cannot branch inward or sideways.</strong> Only to an enclosing label. This is
+what forbids <code>goto</code> and guarantees reducibility.</li>
+<li><strong>Code after an unconditional branch is polymorphic.</strong> The validator knows it
+is unreachable and stops constraining the stack there — which is why an
+obviously-wrong instruction after a <code>br</code> sometimes validates fine. Do not read
+anything into that; delete the dead code.</li>
+<li><strong>Depth is bounded at compile time.</strong> There is no dynamic label. A branch
+target is always statically known, which is exactly why the compiler can lay
+out the jumps ahead of time.</li>
+</ul>
+<hr>
+<h2>The frame step, as a control-flow shape</h2>
+<p>The <code>step</code> export in both engines is one long function: a guard, then a
+sequence of passes over the world, each pass a loop of the canonical shape.</p>
+<pre><code class="language-wat">(func $step (export &quot;step&quot;) (param $dt f32)
+  (local $px f32) (local $py f32) (local $pvx f32) (local $pvy f32)
+  (local $i i32) (local $a i32) (local $b i32)
+  ;; … ~35 more locals, all declared here …
+
+  (if (global.get $gameOver) (then (return)))    ;; guard first
+
+  ;; ===== player =====      load, integrate, clamp, store
+  ;; ===== bots =====        one loop: AI steer, move, fire
+  ;; ===== bullets =====     one loop: integrate, cull off-screen
+  ;; ===== asteroids =====   one loop: fall, spawn on a timer
+  ;; ===== collisions =====  nested loops: bullet×bot, bullet×player, ship×ship
+  ;; ===== level check =====
+)
+</code></pre>
+<p><strong>All locals are declared at the top</strong>, because WAT requires it — every
+<code>(local …)</code> must precede the first instruction of the body. With no lexical
+scoping inside a function, that produces the long declaration block both engines
+open with, and the reason they are one big function rather than six small ones
+is honest inertia: the passes share a dozen of those locals, and splitting them
+would mean either passing state or re-loading it.</p>
+<p>The ordering is not arbitrary. Each pass reads the world as the previous pass
+left it, so a bullet spawned during the bots pass <strong>is integrated in the same
+frame</strong>, because bullets are updated after bots. Move the bullet pass above the
+bot pass and every enemy shot is one frame late. <a href="15-game-loop-architecture.html">Chapter
+15</a> goes into that properly.</p>
+
+<nav class="pager">
+  <a href="03-numbers-and-operations.html"><span>Previous</span>Numbers and operations</a>
+  <a href="index.html">Contents</a>
+  <a class="next" href="05-linear-memory.html"><span>Next</span>Linear memory</a>
+</nav>
+</main>
+</body>
+</html>

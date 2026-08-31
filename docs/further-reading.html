@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Further reading</title>
+<meta name="description" content="Further reading — part of the WebAssembly course in the arcade-library repository.">
+<link rel="icon" href="../games/pixel-wave/logo.svg">
+<style>
+:root {
+  --bg: #fbfaf7; --panel: #ffffff; --sunk: #f2f0ea;
+  --fg: #14130f; --soft: #4a4842; --muted: #7a776e;
+  --line: rgba(20,19,15,.12); --accent: #b23a18; --accent-wash: rgba(178,58,24,.07);
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121110; --panel: #1a1917; --sunk: #232220;
+    --fg: #f4f2ed; --soft: #b5b1a8; --muted: #86827a;
+    --line: rgba(244,242,237,.14); --accent: #e0714b; --accent-wash: rgba(224,113,75,.12);
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 16px/1.7 var(--sans); -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 52rem; margin: 0 auto; padding: clamp(1.5rem,4vw,3rem) clamp(1.1rem,4vw,2rem) 5rem; }
+.wide { max-width: 64rem; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+h1 { font-size: clamp(1.8rem,4.5vw,2.6rem); line-height: 1.12; letter-spacing: -.025em; margin: 0 0 1.2rem; }
+h2 { font-size: clamp(1.3rem,3vw,1.6rem); letter-spacing: -.015em; margin: 3rem 0 1rem; padding-top: 1.4rem; border-top: 1px solid var(--line); }
+h3 { font-size: 1.12rem; margin: 2rem 0 .7rem; }
+h4 { font-size: 1rem; margin: 1.5rem 0 .5rem; }
+p, ul, ol { margin: 0 0 1.05rem; }
+ul, ol { padding-left: 1.4rem; }
+li { margin-bottom: .4rem; }
+li > ul, li > ol { margin-top: .4rem; }
+strong { font-weight: 650; }
+hr { border: 0; border-top: 1px solid var(--line); margin: 2.5rem 0; }
+blockquote {
+  margin: 0 0 1.05rem; padding: .1rem 0 .1rem 1.1rem;
+  border-left: 3px solid var(--accent); color: var(--soft);
+}
+code {
+  font: .87em/1.5 var(--mono);
+  background: var(--sunk); border: 1px solid var(--line); border-radius: 4px;
+  padding: .1em .35em; overflow-wrap: anywhere;
+}
+pre {
+  background: var(--sunk); border: 1px solid var(--line); border-radius: 10px;
+  padding: 1rem 1.15rem; overflow-x: auto; margin: 0 0 1.4rem;
+}
+pre code { background: none; border: 0; padding: 0; font-size: .84rem; line-height: 1.65; overflow-wrap: normal; }
+/* Wide content scrolls inside its own box; the page body never scrolls sideways. */
+.table-scroll { overflow-x: auto; margin: 0 0 1.4rem; border: 1px solid var(--line); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+th, td { text-align: left; padding: .6rem .85rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { background: var(--sunk); font-weight: 600; white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+img { max-width: 100%; height: auto; }
+
+/* ---- chrome ---- */
+.bar {
+  position: sticky; top: 0; z-index: 5;
+  display: flex; flex-wrap: wrap; align-items: center; gap: .4rem 1rem;
+  padding: .7rem clamp(1.1rem,4vw,2rem);
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(12px); border-bottom: 1px solid var(--line);
+  font-size: .82rem;
+}
+@supports not (background: color-mix(in srgb, red 50%, transparent)) { .bar { background: var(--bg); } }
+.bar a { color: var(--soft); }
+.bar .sep { color: var(--muted); }
+.bar .here { color: var(--fg); font-weight: 600; }
+.eyebrow {
+  font: 500 .7rem/1 var(--mono); letter-spacing: .16em; text-transform: uppercase;
+  color: var(--muted); margin: 0 0 .9rem;
+}
+.pager {
+  display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between;
+  margin-top: 3.5rem; padding-top: 1.5rem; border-top: 1px solid var(--line); font-size: .9rem;
+}
+.pager span { display: block; font: 500 .65rem/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-bottom: .2rem; }
+.pager .next { text-align: right; margin-left: auto; }
+
+/* ---- index ---- */
+.lede { font-size: 1.06rem; color: var(--soft); margin-bottom: 2rem; }
+.part { margin-top: 2.6rem; }
+.part h2 { margin-top: 0; border-top: 0; padding-top: 0; }
+.part > p { color: var(--muted); font-size: .92rem; margin-bottom: 1.1rem; }
+.toc { list-style: none; padding: 0; margin: 0; display: grid; gap: .5rem; }
+.toc a {
+  display: grid; grid-template-columns: 2.4rem 1fr; gap: .8rem; align-items: baseline;
+  padding: .8rem 1rem; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--panel); color: var(--fg);
+}
+.toc a:hover { border-color: var(--accent); text-decoration: none; background: var(--accent-wash); }
+.toc .n { font: 500 .78rem/1.4 var(--mono); color: var(--accent); }
+.toc .t { font-weight: 600; font-size: .97rem; }
+.toc .d { display: block; color: var(--muted); font-size: .85rem; font-weight: 400; margin-top: .15rem; }
+.routes { display: grid; gap: .5rem; grid-template-columns: repeat(auto-fit,minmax(15rem,1fr)); margin-bottom: 2.5rem; }
+.route { padding: .9rem 1rem; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.route strong { display: block; font-size: .93rem; margin-bottom: .2rem; }
+.route span { color: var(--muted); font-size: .85rem; }
+</style>
+</head>
+<body>
+<nav class="bar">
+  <a href="../index.html">Arcade Library</a>
+  <span class="sep">/</span>
+  <a href="index.html">WebAssembly course</a> <span class="sep">/</span> <span class="here">Further reading</span>
+</nav>
+<main class="wrap ">
+<h1>Further reading</h1>
+<p>Curated rather than exhaustive. Everything here is something I would actually
+send someone.</p>
+<hr>
+<h2>Specifications and canonical references</h2>
+<ul>
+<li><strong><a href="https://webassembly.github.io/spec/core/">WebAssembly Core Specification</a></strong> —
+the actual document. Denser than you need for daily work, but the
+<a href="https://webassembly.github.io/spec/core/appendix/index-instructions.html">instruction index</a>
+is the fastest way to settle &quot;what exactly does this opcode do&quot;.</li>
+<li><strong><a href="https://developer.mozilla.org/en-US/docs/WebAssembly">MDN: WebAssembly</a></strong> —
+the practical reference for the JavaScript API. Start here for
+<code>instantiateStreaming</code>, <code>Memory</code>, <code>Table</code>, <code>Global</code>.</li>
+<li><strong><a href="https://developer.mozilla.org/en-US/docs/WebAssembly/Guides/Understanding_the_text_format">MDN: Understanding the text format</a></strong> —
+the best free WAT introduction after this course.</li>
+<li><strong><a href="https://webassembly.org/features/">webassembly.org/features</a></strong> — live
+proposal support matrix. Check before relying on anything post-MVP.</li>
+<li><strong><a href="https://github.com/WebAssembly/proposals">WebAssembly proposals repo</a></strong> —
+every proposal and its stage.</li>
+</ul>
+<h2>Books</h2>
+<ul>
+<li><strong>Rick Battagline, <em>The Art of WebAssembly</em></strong> (No Starch, 2021) — the only book
+that teaches hand-written WAT seriously. Closest in spirit to Part I here, and
+goes further on optimisation. If you want one book, this is it.</li>
+<li><strong>Brian Sletten, <em>WebAssembly: The Definitive Guide</em></strong> (O&#39;Reilly, 2021) —
+broader and shallower: ecosystem, toolchains, non-browser hosts, history.
+Good complement.</li>
+<li><strong>Kevin Hoffman, <em>Programming WebAssembly with Rust</em></strong> (Pragmatic, 2019) —
+dated in specifics, still the clearest explanation of the Rust/wasm boundary
+and why <code>wasm-bindgen</code> exists.</li>
+</ul>
+<h2>Papers</h2>
+<ul>
+<li><strong><a href="https://dl.acm.org/doi/10.1145/3062341.3062363">&quot;Bringing the Web up to Speed with WebAssembly&quot;</a></strong>
+(Haas et al., PLDI 2017) — the original design paper. Readable, and the best
+account of <em>why</em> the format looks like this.</li>
+<li><strong><a href="https://www.usenix.org/conference/usenixsecurity20/presentation/lehmann">&quot;Everything Old is New Again: Binary Security of WebAssembly&quot;</a></strong>
+(Lehmann, Kinder, Pradel, USENIX Security 2020) — the honest treatment of what
+the sandbox does not protect. Background for
+<a href="12-security-model.html">chapter 12</a>; read it before you trust a wasm sandbox
+with untrusted C.</li>
+<li><strong><a href="https://dl.acm.org/doi/10.1145/3442381.3450138">&quot;An Empirical Study of Real-World WebAssembly Binaries&quot;</a></strong>
+(Hilbig, Lehmann, Pradel, WWW 2021) — what is actually deployed on the web, as
+opposed to what the marketing suggests. A useful corrective.</li>
+</ul>
+<h2>Tools</h2>
+<ul>
+<li><strong><a href="https://github.com/WebAssembly/wabt">WABT</a></strong> — <code>wat2wasm</code>, <code>wasm2wat</code>,
+<code>wasm-objdump</code>, <code>wasm-decompile</code>. <a href="09-toolchain.html">Chapter 9</a>.</li>
+<li><strong><a href="https://github.com/WebAssembly/binaryen">Binaryen</a></strong> — <code>wasm-opt</code>. Run it on
+everything a compiler produced.</li>
+<li><strong><a href="https://webassembly.github.io/wabt/demo/wat2wasm/">wat2wasm online demo</a></strong> —
+live WAT editor with instant assembly and a JS scratchpad. The fastest way to
+try something.</li>
+<li><strong><a href="https://github.com/GoogleChromeLabs/wasm-feature-detect">wasm-feature-detect</a></strong> —
+runtime detection for every proposal, two lines.</li>
+<li><strong><a href="https://github.com/bytecodealliance/wasm-tools">wasm-tools</a></strong> — the
+Bytecode Alliance&#39;s Rust toolkit; the reference implementation for components.</li>
+</ul>
+<h2>Toolchains</h2>
+<ul>
+<li><strong><a href="https://rustwasm.github.io/wasm-pack/">wasm-pack</a></strong> and the
+<strong><a href="https://rustwasm.github.io/docs/book/">Rust and WebAssembly book</a></strong> — the
+best-supported path, and the book&#39;s Game of Life tutorial is a genuinely good
+first project.</li>
+<li><strong><a href="https://emscripten.org/">Emscripten docs</a></strong> — for porting C/C++. The
+&quot;Porting&quot; and &quot;Optimizing&quot; sections are the ones to read.</li>
+<li><strong><a href="https://www.assemblyscript.org/">AssemblyScript</a></strong> — the gentlest on-ramp
+for a JS/TS developer.</li>
+<li><strong><a href="https://ziglang.org/documentation/master/#WebAssembly">Zig&#39;s WebAssembly docs</a></strong> —
+smallest sensible output, no hidden runtime.</li>
+</ul>
+<h2>Non-browser</h2>
+<ul>
+<li><strong><a href="https://wasmtime.dev/">Wasmtime</a></strong> — the reference standalone runtime.</li>
+<li><strong><a href="https://wasi.dev/">WASI</a></strong> and the
+<strong><a href="https://github.com/WebAssembly/WASI">wasi specs repo</a></strong> — the system
+interface and its capability model.</li>
+<li><strong><a href="https://component-model.bytecodealliance.org/">Component Model documentation</a></strong> —
+the best introduction to WIT and composition.</li>
+<li><strong><a href="https://extism.org/">Extism</a></strong> — make your own application pluggable with
+wasm; host SDKs for a dozen languages.</li>
+<li><strong><a href="https://wazero.io/">wazero</a></strong> — pure-Go runtime, zero CGO.</li>
+</ul>
+<h2>Game-specific</h2>
+<ul>
+<li><strong>Glenn Fiedler, <a href="https://gafferongames.com/post/fix_your_timestep/">&quot;Fix Your Timestep!&quot;</a></strong> —
+the canonical treatment of the fixed-vs-variable timestep question from
+<a href="15-game-loop-architecture.html">chapter 15</a>. Twenty minutes, worth it.</li>
+<li><strong>Robert Nystrom, <em><a href="https://gameprogrammingpatterns.com/">Game Programming Patterns</a></em></strong> —
+free online. The Object Pool, Data Locality and Game Loop chapters are exactly
+the design space <a href="16-entity-pools.html">chapter 16</a> operates in.</li>
+<li><strong>Craig Reynolds, <a href="https://www.red3d.com/cwr/steer/">&quot;Steering Behaviors For Autonomous Characters&quot;</a></strong> —
+the 1999 paper that everything in Vector Arena&#39;s bot AI descends from.</li>
+<li><strong><a href="https://www.jstatsoft.org/article/view/v008i14">Marsaglia, &quot;Xorshift RNGs&quot;</a></strong> —
+the original paper, including the shift triples.</li>
+<li><strong><a href="https://www.pcg-random.org/">PCG</a></strong> — if xorshift is not good enough. The
+site&#39;s comparison of PRNG families is the best short survey available.</li>
+</ul>
+<h2>Talks</h2>
+<ul>
+<li><strong>Lin Clark, <a href="https://hacks.mozilla.org/2017/02/a-cartoon-intro-to-webassembly/">&quot;A Cartoon Intro to WebAssembly&quot;</a></strong> —
+a written series, not a talk, and still the clearest explanation of how the
+format compiles and why it is fast. Read it first if chapter 1 went too quickly.</li>
+<li><strong>Lin Clark, <a href="https://hacks.mozilla.org/2019/03/standardizing-wasi-a-webassembly-system-interface/">&quot;Standardizing WASI&quot;</a></strong> —
+the same treatment for the capability model.</li>
+<li><strong><a href="https://www.youtube.com/results?search_query=wasm+component+model+talk">&quot;WebAssembly: Building a New Kind of Cloud&quot;</a></strong> —
+search for recent Bytecode Alliance conference talks; the component-model story
+is moving fast enough that a specific link would be stale.</li>
+</ul>
+<h2>Communities</h2>
+<ul>
+<li><strong><a href="https://discord.gg/xMHKAyy">WebAssembly Discord</a></strong> and the
+<strong><a href="https://bytecodealliance.zulipchat.com/">Bytecode Alliance Zulip</a></strong> — where
+the people building this actually are.</li>
+<li><strong><a href="https://reddit.com/r/WebAssembly">r/WebAssembly</a></strong> — low volume, decent
+signal.</li>
+</ul>
+<hr>
+<h2>If you are starting today</h2>
+<ol>
+<li>Open the <a href="https://webassembly.github.io/wabt/demo/wat2wasm/">wat2wasm demo</a>
+and write the <code>sum</code> module from <a href="02-wat-syntax.html">chapter 2</a>.</li>
+<li>Read <a href="https://hacks.mozilla.org/2017/02/a-cartoon-intro-to-webassembly/">Lin Clark&#39;s cartoon intro</a>.</li>
+<li>Work through the <a href="https://rustwasm.github.io/docs/book/">Rust and WebAssembly book&#39;s</a>
+Game of Life. You will write no WAT and learn the boundary, which is the part
+that matters.</li>
+<li>Come back to <a href="05-linear-memory.html">chapter 5</a> and lay out a struct by hand.
+That is the moment the model clicks.</li>
+</ol>
+
+<nav class="pager">
+  <a href="cheatsheet.html"><span>Previous</span>Instruction cheatsheet</a>
+  <a href="index.html">Contents</a>
+  
+</nav>
+</main>
+</body>
+</html>
