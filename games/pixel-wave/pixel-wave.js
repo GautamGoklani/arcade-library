@@ -228,8 +228,14 @@
         '<div class="ss-overlay ss-msg" data-ss="msg">GAME OVER<small data-ss="msgsmall">PRESS R TO RESTART</small></div>' +
         '<div class="ss-overlay ss-levelbanner" data-ss="banner">LEVEL 1</div>' +
         '<div class="ss-touch">' +
-          '<div class="ss-btn ss-btn-left"  data-ss="btnL">&#9664;</div>' +
-          '<div class="ss-btn ss-btn-right" data-ss="btnR">&#9654;</div>' +
+          // Left half is one big capture zone; the ring inside it re-anchors to
+          // wherever the thumb lands, so the stick is never somewhere you have
+          // to look for.
+          '<div class="ss-stickzone" data-ss="stickzone">' +
+            '<div class="ss-stick" data-ss="stick">' +
+              '<div class="ss-stick-knob" data-ss="knob"></div>' +
+            '</div>' +
+          '</div>' +
           '<div class="ss-btn ss-btn-thrust" data-ss="btnT">THRUST</div>' +
           '<div class="ss-btn ss-btn-fire" data-ss="btnF">FIRE</div>' +
         '</div>' +
@@ -238,19 +244,37 @@
     container.appendChild(root);
 
     var q = function (name) { return root.querySelector('[data-ss="' + name + '"]'); };
+    var stage = root.querySelector('.ss-stage');
     var canvas = root.querySelector('canvas');
     var ctx = canvas.getContext('2d');
     ctx.imageSmoothingEnabled = false;
     var hudScore = q('score'), hudLives = q('lives'), hudLevel = q('level'), hudBots = q('bots');
     var msgEl = q('msg'), bannerEl = q('banner'), helpEl = q('help');
 
-    // ---------- touch detection ----------
-    var isTouch = (global.matchMedia && global.matchMedia('(pointer: coarse)').matches) ||
-                  ('ontouchstart' in global);
-    if (isTouch) {
-      root.classList.add('ss-is-touch');
-      helpEl.textContent = 'HOLD BUTTONS TO MOVE \u2022 TAP GAME OVER TO RESTART';
-      q('msgsmall').textContent = 'TAP TO RESTART';
+    // ---------- control mode ----------
+    // Driven by what the player actually touches, not by what the hardware is
+    // capable of. The old check OR'd in `'ontouchstart' in window`, which is true
+    // on any machine that merely HAS a touchscreen \u2014 Windows touch laptops,
+    // touch Chromebooks \u2014 so mouse-and-keyboard players got the on-screen
+    // controls parked over the arena. It also ran once at mount, so an iPad that
+    // gained or lost a keyboard kept whatever it guessed on load.
+    //
+    // `(pointer: coarse)` is the correct question (is the PRIMARY input coarse)
+    // and only seeds the initial guess; the first real touch or keypress after
+    // that corrects it, in either direction, for as long as the game is up.
+    var touchMode = null;
+
+    function setTouchMode(on) {
+      if (touchMode === on) return;
+      touchMode = on;
+      root.classList.toggle('ss-is-touch', on);
+      helpEl.textContent = on
+        ? 'DRAG LEFT TO AIM \u2022 THRUST + FIRE RIGHT \u2022 TAP GAME OVER TO RESTART'
+        : '[W] THRUST \u00a0 [A]/[D] ROTATE \u00a0 [SPACE] FIRE \u00a0 [R] RESTART';
+      q('msgsmall').textContent = on ? 'TAP TO RESTART' : 'PRESS R TO RESTART';
+      // Switching away from touch has to drop anything the on-screen controls
+      // were holding, or a hidden button stays latched on forever.
+      if (!on) releaseAllPointers();
     }
 
     // ---------- per-instance state ----------
@@ -258,6 +282,10 @@
     var running = false, destroyed = false;
     var lastLevel = 1, tGlobal = 0;
     var input = { left: false, right: false, thrust: false, fire: false };
+    // Thumbstick: `angle` is the heading being asked for in screen space, which
+    // is the same convention the engine stores heading in, so it feeds through
+    // without conversion. `mag` scales the turn rate — a nudge turns gently.
+    var stick = { active: false, angle: 0, mag: 0, originX: 0, originY: 0 };
     var explosions = [];
     var prevBotAlive = new Array(MAX_BOTS).fill(0);
     var prevAstActive = new Array(MAX_AST).fill(0);
@@ -265,7 +293,15 @@
     var rafId = 0;
 
     // ---------- keyboard ----------
+    // Any recognised game key is proof a keyboard is in use, so it hands control
+    // back from the on-screen stick. Scoped to the game's own keys so a browser
+    // shortcut or assistive-tech keypress does not flip the mode.
+    function isGameKey(k) {
+      return k === 'a' || k === 'd' || k === 'w' || k === 'r' || k === 'R' || k === ' ' ||
+             k === 'ArrowLeft' || k === 'ArrowRight' || k === 'ArrowUp';
+    }
     function onKeyDown(e) {
+      if (isGameKey(e.key)) setTouchMode(false);
       if (e.key === 'a' || e.key === 'ArrowLeft') input.left = true;
       if (e.key === 'd' || e.key === 'ArrowRight') input.right = true;
       if (e.key === 'w' || e.key === 'ArrowUp') input.thrust = true;
@@ -281,36 +317,146 @@
     global.addEventListener('keydown', onKeyDown);
     global.addEventListener('keyup', onKeyUp);
 
-    // ---------- touch buttons ----------
-    // Each button independently tracks pointers so multi-touch works
-    // (e.g. holding THRUST + FIRE + rotating simultaneously).
-    function bindHold(el, prop) {
-      function down(e) {
-        e.preventDefault();
-        input[prop] = true;
-        el.classList.add('ss-active');
-      }
-      function up(e) {
-        e.preventDefault();
-        input[prop] = false;
-        el.classList.remove('ss-active');
-      }
-      el.addEventListener('touchstart', down, { passive: false });
-      el.addEventListener('touchend', up, { passive: false });
-      el.addEventListener('touchcancel', up, { passive: false });
-      // pointer events as well: covers stylus + lets you test with a mouse
-      el.addEventListener('pointerdown', down);
-      el.addEventListener('pointerup', up);
-      el.addEventListener('pointerleave', up);
-    }
-    bindHold(q('btnL'), 'left');
-    bindHold(q('btnR'), 'right');
-    bindHold(q('btnT'), 'thrust');
-    bindHold(q('btnF'), 'fire');
+    // ---------- touch: one stick, two buttons ----------
+    // Everything routes through a single set of listeners on the stage, keyed by
+    // pointerId. The old version bound touch* AND pointer* per button, which meant
+    // a second finger on one button released it for the first, a cancelled
+    // gesture could leave thrust latched on, and sliding between the two rotate
+    // buttons dropped input entirely. One registry, one release path, no latching.
+    var stickZone = q('stickzone'), stickEl = q('stick'), knobEl = q('knob');
+    var btnT = q('btnT'), btnF = q('btnF');
 
-    // tap game-over text to restart (mobile has no R key)
-    msgEl.addEventListener('click', function () { restart(); });
-    msgEl.addEventListener('touchstart', function (e) { e.preventDefault(); restart(); }, { passive: false });
+    // Below this fraction of the ring radius the thumb is treated as centred, so
+    // resting on the pad holds heading instead of jittering it.
+    var STICK_DEADZONE = 0.18;
+    // Heading error (radians) at which rotation saturates. Inside it the turn
+    // rate eases off proportionally, which is what stops the ship overshooting
+    // the angle you asked for and hunting around it.
+    var STICK_SNAP = 0.40;
+
+    var pointers = new Map();   // pointerId -> { kind:'stick' } | { kind:'btn', el, prop }
+
+    // Places the ring so its centre sits under the thumb, clamped to stay inside
+    // the zone rather than hanging off the edge of the arena.
+    function anchorStick(cx, cy) {
+      var zr = stickZone.getBoundingClientRect();
+      var r = stickEl.offsetWidth / 2;
+      var x = Math.max(r, Math.min(zr.width - r, cx - zr.left));
+      var y = Math.max(r, Math.min(zr.height - r, cy - zr.top));
+      stick.originX = zr.left + x;
+      stick.originY = zr.top + y;
+      stickEl.style.left = x + 'px';
+      stickEl.style.top = y + 'px';
+      stickEl.classList.add('ss-active');
+    }
+
+    function moveStick(cx, cy) {
+      var r = stickEl.offsetWidth / 2 || 1;
+      var dx = cx - stick.originX, dy = cy - stick.originY;
+      var dist = Math.sqrt(dx * dx + dy * dy);
+      stick.mag = Math.min(1, dist / r);
+      if (dist > 0.0001) stick.angle = Math.atan2(dy, dx);
+      var k = Math.min(1, r / (dist || 1));
+      knobEl.style.transform = 'translate(-50%,-50%) translate(' + (dx * k) + 'px,' + (dy * k) + 'px)';
+    }
+
+    function releaseStick() {
+      stick.active = false;
+      stick.mag = 0;
+      stickEl.classList.remove('ss-active');
+      stickEl.style.left = '';
+      stickEl.style.top = '';
+      knobEl.style.transform = 'translate(-50%,-50%)';
+    }
+
+    // Clears every held input. Used when the controls are taken away mid-hold.
+    function releaseAllPointers() {
+      pointers.forEach(function (p) {
+        if (p.kind === 'stick') releaseStick();
+        else { input[p.prop] = false; p.el.classList.remove('ss-active'); }
+      });
+      pointers.clear();
+    }
+
+    // Hit-tests by geometry rather than by event target, so the touch that turns
+    // the controls on can also be the touch that starts steering — the zone was
+    // still display:none when the event fired, so it was never the target.
+    function inside(el, x, y) {
+      var r = el.getBoundingClientRect();
+      return r.width > 0 && x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+    }
+
+    function onPointerDown(e) {
+      if (e.pointerType === 'touch') setTouchMode(true);
+
+      // Game-over text is tappable (touch has no R key) and sits above the zone.
+      if (msgEl.style.display === 'block' && msgEl.contains(e.target)) {
+        e.preventDefault();
+        restart();
+        return;
+      }
+      if (!touchMode) return;
+
+      var btn = inside(btnT, e.clientX, e.clientY) ? btnT
+              : inside(btnF, e.clientX, e.clientY) ? btnF : null;
+      if (btn) {
+        var prop = btn === btnT ? 'thrust' : 'fire';
+        e.preventDefault();
+        pointers.set(e.pointerId, { kind: 'btn', el: btn, prop: prop });
+        input[prop] = true;
+        btn.classList.add('ss-active');
+        return;
+      }
+      if (!stick.active && inside(stickZone, e.clientX, e.clientY)) {
+        e.preventDefault();
+        pointers.set(e.pointerId, { kind: 'stick' });
+        stick.active = true;
+        anchorStick(e.clientX, e.clientY);
+        moveStick(e.clientX, e.clientY);
+      }
+    }
+
+    function onPointerMove(e) {
+      var p = pointers.get(e.pointerId);
+      if (!p || p.kind !== 'stick') return;
+      e.preventDefault();
+      moveStick(e.clientX, e.clientY);
+    }
+
+    // Covers pointerup, pointercancel and the browser stealing the pointer.
+    // Buttons stay held while the thumb slides off them — only a real release
+    // clears them, which is far more forgiving mid-firefight.
+    function stillHeld(prop) {
+      var held = false;
+      pointers.forEach(function (p) { if (p.kind === 'btn' && p.prop === prop) held = true; });
+      return held;
+    }
+
+    function onPointerUp(e) {
+      var p = pointers.get(e.pointerId);
+      if (!p) return;
+      pointers.delete(e.pointerId);
+      if (p.kind === 'stick') {
+        releaseStick();
+      } else if (!stillHeld(p.prop)) {
+        // Only the last finger off a button releases it. Two thumbs land on FIRE
+        // more often than you'd think, and lifting one used to stop the shooting.
+        input[p.prop] = false;
+        p.el.classList.remove('ss-active');
+      }
+    }
+
+    // Only the press is scoped to the stage. Move and release live on the window
+    // so a thumb that wanders outside the arena still steers, and so a release
+    // that happens anywhere at all still clears the input it started.
+    stage.addEventListener('pointerdown', onPointerDown);
+    global.addEventListener('pointermove', onPointerMove);
+    global.addEventListener('pointerup', onPointerUp);
+    global.addEventListener('pointercancel', onPointerUp);
+
+    // Seed the initial guess now that the release path it may call exists. From
+    // here on, real input decides.
+    setTouchMode(!!(global.matchMedia && global.matchMedia('(pointer: coarse)').matches));
 
     // ---------- pixel asteroids (per-instance cache) ----------
     var astSprites = new Map();
@@ -486,7 +632,18 @@
       tGlobal += dt;
 
       if (running) {
+        // set_input takes rotation as an f32 and the engine applies it as
+        // `heading += rot * ROT_SPEED * dt`, so anything in [-1,1] is valid —
+        // keys just happen to only ever ask for the extremes.
         var rot = (input.right ? 1 : 0) - (input.left ? 1 : 0);
+        if (stick.active && stick.mag > STICK_DEADZONE) {
+          // Steer toward the angle the thumb is pointing at, along the shortest
+          // arc, easing off as the ship lines up. Point-and-aim rather than
+          // hold-to-turn — the whole reason the stick beats a d-pad here.
+          var err = stick.angle - f32[4];
+          err = Math.atan2(Math.sin(err), Math.cos(err));
+          rot = Math.max(-1, Math.min(1, err / STICK_SNAP)) * stick.mag;
+        }
         wasm.exports.set_input(rot, input.thrust ? 1 : 0, input.fire ? 1 : 0);
         wasm.exports.step(dt);
         f32 = new Float32Array(wasm.exports.memory.buffer);
@@ -616,6 +773,9 @@
         cancelAnimationFrame(rafId);
         global.removeEventListener('keydown', onKeyDown);
         global.removeEventListener('keyup', onKeyUp);
+        global.removeEventListener('pointermove', onPointerMove);
+        global.removeEventListener('pointerup', onPointerUp);
+        global.removeEventListener('pointercancel', onPointerUp);
         root.remove();
       },
       getState: function () {

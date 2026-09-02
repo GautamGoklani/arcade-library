@@ -67,7 +67,7 @@
   (global $BURST_SIZE i32 (i32.const 3))
   (global $BURST_GAP f32 (f32.const 0.09))
   ;; Recovery after the third round, so mashing Space cannot beat the old
-  ;; hold-to-fire rate — see the note in v1-vector-arena/game.wat.
+  ;; hold-to-fire rate — see "Burst fire" in README.md for the measurements.
   (global $BURST_RECOVER f32 (f32.const 0.35))
   (global $prevFiring (mut i32) (i32.const 0))
   (global $burstLeft (mut i32) (i32.const 0))
@@ -308,8 +308,9 @@
     (global.set $prevFiring (global.get $firing))
 
     ;; Granted only once the previous burst has fired out and its recovery has
-    ;; elapsed, and held rather than discarded until then — see the longer note
-    ;; in v1-vector-arena/game.wat.
+    ;; elapsed, and held rather than discarded until then: dropping a press that
+    ;; arrives mid-burst cost anyone tapping at ~2 Hz half their inputs, which
+    ;; reads as the key not working.
     (if (i32.and (i32.ne (global.get $pendingFire) (i32.const 0))
                  (i32.and (i32.eq (global.get $burstLeft) (i32.const 0))
                           (f32.le (global.get $playerCooldown) (f32.const 0.0))))

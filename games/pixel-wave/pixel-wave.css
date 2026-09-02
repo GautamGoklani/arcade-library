@@ -80,9 +80,50 @@
   background: rgba(51, 255, 102, 0.28);
 }
 
-.ss-btn-left  { left: 3%;  bottom: 6%;  width: 15%; height: 16%; font-size: 5vw; }
-.ss-btn-right { left: 20%; bottom: 6%;  width: 15%; height: 16%; font-size: 5vw; }
-.ss-btn-thrust{ left: 11%; bottom: 25%; width: 16%; height: 15%; font-size: 3.4vw; }
+/* Left half is the steering zone: the ring re-anchors under whichever point the
+   thumb lands on, so there is no fixed target to hunt for and no reason to look
+   away from the arena. Sized in % of the stage so it tracks the 8:5 canvas
+   rather than the viewport. */
+.ss-stickzone {
+  position: absolute;
+  left: 0; bottom: 0;
+  width: 46%; height: 72%;
+  pointer-events: auto;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.ss-stick {
+  position: absolute;
+  left: 34%; top: 62%;          /* resting home; JS overrides while held */
+  transform: translate(-50%, -50%);
+  width: 40%;
+  aspect-ratio: 1 / 1;
+  border: 2px solid rgba(51, 255, 102, 0.45);
+  border-radius: 50%;
+  background: rgba(0, 20, 5, 0.35);
+  opacity: 0.55;
+  transition: opacity 0.15s;
+}
+.ss-stick.ss-active { opacity: 1; border-color: rgba(51, 255, 102, 0.85); }
+
+.ss-stick-knob {
+  position: absolute;
+  left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
+  width: 44%;
+  aspect-ratio: 1 / 1;
+  border-radius: 50%;
+  background: rgba(51, 255, 102, 0.55);
+  box-shadow: 0 0 12px rgba(51, 255, 102, 0.6);
+}
+.ss-stick.ss-active .ss-stick-knob { background: rgba(51, 255, 102, 0.85); }
+
+.ss-btn-thrust {
+  right: 30%; bottom: 10%; width: 17%; height: 19%;
+  border-radius: 50%;
+  font-size: 2.6vw;
+}
 .ss-btn-fire {
   right: 4%; bottom: 6%; width: 22%; height: 24%;
   border-color: rgba(255, 51, 85, 0.75);
@@ -94,8 +135,7 @@
 .ss-btn-fire.ss-active { background: rgba(255, 51, 85, 0.28); }
 
 @media (min-width: 800px) {
-  .ss-btn-left, .ss-btn-right { font-size: 34px; }
-  .ss-btn-thrust { font-size: 22px; }
+  .ss-btn-thrust { font-size: 18px; }
   .ss-btn-fire { font-size: 28px; }
 }
 
