@@ -10,6 +10,7 @@
     "build:docs": "node scripts/build-docs.mjs",
     "build:vector-arena": "node scripts/build.mjs vector-arena",
     "build:pixel-wave": "node scripts/build.mjs pixel-wave",
+    "build:grid-breaker": "node scripts/build.mjs grid-breaker",
     "check": "node scripts/build.mjs --check && node scripts/build-docs.mjs --check",
     "serve": "node scripts/serve.mjs"
   },

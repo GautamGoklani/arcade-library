@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>GRID BREAKER</title>
+<link rel="icon" href="logo.svg">
+<link rel="stylesheet" href="grid-breaker.css">
+<style>
+/* -----------------------------------------------------------------------
+   Standalone page shell.
+
+   Same shape as pixel-wave/index.html, and for the same reason. The widget
+   fills its container, which is what an embedder wants. This page is nothing
+   but the game, so the binding constraint is the window's *height*: at the
+   widget's full 1000px the 960x720 arena needs roughly 760px, and on a laptop
+   window the bottom of the field ends up below the fold with nothing offering
+   to scroll it into view.
+
+   `--gb-max-width` is the widget's hook for exactly this. Cap it by the height
+   left over after the widget's own HUD and help line, converted through the 4:3
+   aspect ratio.
+
+   No help text on this page: the widget renders its own control legend under
+   the canvas, so a second one here would both duplicate it and be the thing
+   that pushed the page past the fold.
+   --------------------------------------------------------------------- */
+html, body { margin: 0; background: #05060d; min-height: 100%; }
+
+body {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100dvh;
+  padding: clamp(0.5rem, 2vw, 1.25rem);
+  box-sizing: border-box;
+}
+
+.gb-root {
+  --chrome: 9rem;                              /* HUD + widget help + padding */
+  --gb-max-width: min(1000px, calc((100dvh - var(--chrome)) * 1.3333));
+}
+
+/* Very short windows: drop the chrome allowance rather than shrinking the
+   field to a postage stamp. */
+@media (max-height: 32rem) {
+  .gb-root { --chrome: 6rem; }
+}
+</style>
+</head>
+<body>
+
+<div id="game"></div>
+
+<script src="grid-breaker.js"></script>
+<script>
+  GridBreaker.mount('#game');
+</script>
+
+</body>
+</html>

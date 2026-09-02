@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Grid Breaker — demo</title>
+<!-- required on mobile so pinch-zoom doesn't fight the paddle -->
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<link rel="stylesheet" href="grid-breaker.css">
+<style>
+  body {
+    margin: 0;
+    padding: 24px 12px;
+    background: #05060d;
+    display: flex;
+    justify-content: center;
+    font-family: 'Courier New', monospace;
+  }
+</style>
+</head>
+<body>
+
+<!-- the widget builds its own HUD, canvas and overlays inside this container -->
+<div id="game"></div>
+
+<script src="grid-breaker.js"></script>
+<script>
+  var game = GridBreaker.mount('#game');
+  // game.restart();  — start a fresh run
+  // game.getState(); — { score, lives, level, tilesLeft, gameOver }
+  // game.destroy();  — stop the loop, remove DOM + all listeners
+</script>
+
+</body>
+</html>

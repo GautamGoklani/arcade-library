@@ -12,7 +12,8 @@ arcade-library/
 ├── index.html          ← landing page; open it, or npm run serve
 ├── games/
 │   ├── pixel-wave/     ← retro wave shooter, 3.5 KB engine, keyboard + touch
-│   └── vector-arena/   ← vector-glow dogfighting, 2.7 KB engine
+│   ├── vector-arena/   ← vector-glow dogfighting, 2.7 KB engine
+│   └── grid-breaker/   ← brick breaker, 4.4 KB engine, keyboard + pointer + touch
 ├── docs/               ← the course: 17 chapters, glossary, cheatsheet
 └── scripts/            ← build.mjs (wat → wasm) and serve.mjs
 ```
@@ -21,7 +22,7 @@ arcade-library/
 
 ## Play
 
-Both games are committed with their compiled binaries, so a fresh checkout is
+Every game is committed with its compiled binary, so a fresh checkout is
 playable with nothing installed:
 
 ```bash
@@ -29,8 +30,8 @@ git clone https://github.com/GautamGoklani/arcade-library
 cd arcade-library
 ```
 
-Open `games/vector-arena/index.html` or `games/pixel-wave/index.html` directly —
-both are single-file builds with the engine embedded, so `file://` works.
+Open any game's `index.html` directly — each is a single-file build with the
+engine embedded, so `file://` works.
 
 For the landing page and the docs, serve it:
 
@@ -43,14 +44,16 @@ npm run serve      # http://localhost:8080
 |---|---|
 | **[Pixel Wave](games/pixel-wave/)** | The swarm patrols the upper half of the arena, asteroids fall, and every cleared level adds one more enemy. 33 enemies, 160 bullets, endless levels. Keyboard and touch |
 | **[Vector Arena](games/vector-arena/)** | Six bots that orbit at range, strafe, lead their shots against your velocity and dodge yours by computing closest approach. Wrap-around arena. Keyboard |
+| **[Grid Breaker](games/grid-breaker/)** | Brick breaking where the layout, the ball physics and the power-up drops all live in the engine. Paddle follows the pointer, or an on-screen stick on touch. Keyboard, pointer and touch |
 
 ---
 
 ## Learn WebAssembly
 
 [**docs/**](docs/) is the substantial part of this repository: a course in three
-parts, written to be read in order, with these two engines as the worked example
-in Part III. The links below are the Markdown sources, which is what renders on
+parts, written to be read in order, with the Pixel Wave and Vector Arena engines
+as the worked example in Part III. Grid Breaker arrived after the course was
+written and is not covered by it. The links below are the Markdown sources, which is what renders on
 GitHub; the same chapters are also built as browsable HTML at
 [`docs/index.html`](docs/index.html) for the served site.
 

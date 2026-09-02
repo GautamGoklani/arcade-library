@@ -45,6 +45,26 @@ const TITLES = [
       },
     ],
   },
+  /**
+   * Grid Breaker arrived from the portfolio repo carrying its own `build.js`,
+   * on the reasoning that per-title tooling means one game's build can never
+   * break another's. That is a real trade, and this repo takes the other side
+   * of it: a single builder is what makes `--check` possible across every
+   * title at once, which is the guard that actually matters when the `.wasm`
+   * is committed. The per-title script was dropped rather than ported.
+   */
+  {
+    slug: 'grid-breaker',
+    wat: 'games/grid-breaker/game.wat',
+    wasm: 'games/grid-breaker/game.wasm',
+    embed: [
+      {
+        file: 'games/grid-breaker/grid-breaker.js',
+        pattern: /var WASM_B64 = "[A-Za-z0-9+/=]*";/,
+        render: (b64) => `var WASM_B64 = "${b64}";`,
+      },
+    ],
+  },
 ];
 
 const argv = process.argv.slice(2);

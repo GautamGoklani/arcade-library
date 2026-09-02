@@ -96,7 +96,7 @@
   <p class="eyebrow">Arcade Library</p>
   <h1>Arcade games with no engine underneath them.</h1>
   <p class="lede">
-    Two browser games whose entire simulation — physics, enemy AI, bullet pools, collisions,
+    Three browser games whose entire simulation — physics, enemy AI, bullet pools, collisions,
     the level curve — is hand-written WebAssembly Text. No game framework, no compiler
     front-end, no runtime dependency. JavaScript forwards input and draws what it reads back
     out of linear memory, and that is all it does.
@@ -117,13 +117,19 @@
     <p>Vector-glow dogfighting in a wrap-around arena. The bots orbit at range, strafe, lead their shots, and dodge yours.</p>
     <div class="tags"><span class="tag">2.7 KB engine</span><span class="tag">wrap-around</span><span class="tag">keyboard</span></div>
   </a>
+  <a class="game" href="games/grid-breaker/index.html">
+    <img src="games/grid-breaker/logo.svg" alt="A paddle below a grid of coloured bricks, with the ball breaking through">
+    <h3>Grid Breaker</h3>
+    <p>Brick-breaking where the brick layout, the ball physics and the power-up drops all live in the engine. The paddle follows the pointer, or a stick on touch.</p>
+    <div class="tags"><span class="tag">4.4 KB engine</span><span class="tag">power-ups</span><span class="tag">touch + keyboard</span></div>
+  </a>
 </div>
 
 <h2>Learn WebAssembly</h2>
 <p class="lede" style="margin-bottom:1.25rem">
   A full course in <a href="docs/index.html">docs/</a> — the language from first principles, the
-  ecosystem around it, and then these two engines as the worked example.
-  Seventeen chapters, a glossary and a reading list.
+  ecosystem around it, and then the Pixel Wave and Vector Arena engines as the worked
+  example. Seventeen chapters, a glossary and a reading list.
 </p>
 <ul class="docs">
   <li><a href="docs/01-what-is-webassembly.html">01 · What WebAssembly actually is<span>And the four things it is usually mistaken for</span></a></li>
