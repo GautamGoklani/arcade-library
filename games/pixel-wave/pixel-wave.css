@@ -119,13 +119,22 @@
 }
 .ss-stick.ss-active .ss-stick-knob { background: rgba(51, 255, 102, 0.85); }
 
+/* `width` + `aspect-ratio`, not `width` + `height`, for the same reason the
+   stick above does it: a percentage width resolves against the stage's width
+   and a percentage height against its height, so on an 8:5 stage `17% / 19%`
+   with a 50% radius draws an ellipse, not a circle. One axis and a ratio keeps
+   them round at every stage size. */
 .ss-btn-thrust {
-  right: 30%; bottom: 10%; width: 17%; height: 19%;
+  right: 30%; bottom: 10%;
+  width: 14%;
+  aspect-ratio: 1 / 1;
   border-radius: 50%;
   font-size: 2.6vw;
 }
 .ss-btn-fire {
-  right: 4%; bottom: 6%; width: 22%; height: 24%;
+  right: 4%; bottom: 6%;
+  width: 18%;
+  aspect-ratio: 1 / 1;
   border-color: rgba(255, 51, 85, 0.75);
   color: #ff3355;
   text-shadow: 0 0 6px #ff3355;
