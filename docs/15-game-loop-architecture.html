@@ -116,9 +116,10 @@ img { max-width: 100%; height: auto; }
 </nav>
 <main class="wrap ">
 <h1>15 · Architecture of a wasm game loop</h1>
-<p>Part I was the language. This chapter and the two after it are one worked
-example: how <code>games/vector-arena/game.wat</code> and <code>games/pixel-wave/game.wat</code> are
-put together, and which of those decisions generalise.</p>
+<p>Part I was the language. This chapter and the ones after it are one worked
+example: how the engines in <code>games/</code> are put together — <code>pixel-wave</code> first, and
+then the later titles where a decision was made differently — and which of those
+decisions generalise.</p>
 <p>The architecture in one sentence: <strong>the host owns time and pixels, the module
 owns state and rules, and the only thing crossing between them is three
 numbers in and a <code>Float32Array</code> out.</strong></p>

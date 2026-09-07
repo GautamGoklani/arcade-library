@@ -116,7 +116,7 @@ img { max-width: 100%; height: auto; }
 </nav>
 <main class="wrap ">
 <h1>16 · Case study: entity pools in linear memory</h1>
-<p>There is no allocator in either engine. No <code>malloc</code>, no free list, no
+<p>There is no allocator in any of these engines. No <code>malloc</code>, no free list, no
 <code>memory.grow</code> — the whole world lives in a fixed layout decided at authoring
 time, and &quot;spawning&quot; a bullet means finding a slot whose <code>active</code> field is zero
 and writing into it.</p>
@@ -188,8 +188,8 @@ and writing into it.</p>
 8.7% of the smallest memory wasm can declare. There is no scenario in which this
 engine needs to grow, which is why the buffer-detachment problem from <a href="07-javascript-interop.html">chapter
 7</a> simply does not exist for it.</p>
-<p>Vector Arena is the same idea at a different scale: 8 bots at stride 32, 80
-bullets at stride 24, no asteroids, 2,208 bytes total.</p>
+<p>Sector Defense is the same idea at a different scale: 24 attackers at stride
+40, 20 player bullets and 30 enemy bullets at stride 24, 2,176 bytes total.</p>
 <p>Each region starts where the last one ended, and the memory-map comment shows
 the arithmetic:</p>
 <pre><code class="language-wat">;; bots      @24    : stride 40B, MAX_BOTS=33

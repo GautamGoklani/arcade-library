@@ -201,7 +201,8 @@ tractable — you can enumerate a module&#39;s entire capability set from its
 <code>(import …)</code> declarations, and you can grep for it.</p>
 <pre><code class="language-bash">wasm-objdump -x module.wasm | grep -A100 &#39;^Import&#39;
 </code></pre>
-<p>Both engines in this repository import exactly two functions:</p>
+<p>Most engines in this repository import exactly two functions (and two import
+nothing at all):</p>
 <pre><code class="language-wat">(import &quot;env&quot; &quot;sinf&quot; (func $sinf (param f32) (result f32)))
 (import &quot;env&quot; &quot;cosf&quot; (func $cosf (param f32) (result f32)))
 </code></pre>

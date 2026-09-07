@@ -4,9 +4,10 @@
 
 ---
 
-Part I was the language. This chapter and the two after it are one worked
-example: how `games/vector-arena/game.wat` and `games/pixel-wave/game.wat` are
-put together, and which of those decisions generalise.
+Part I was the language. This chapter and the ones after it are one worked
+example: how the engines in `games/` are put together — `pixel-wave` first, and
+then the later titles where a decision was made differently — and which of those
+decisions generalise.
 
 The architecture in one sentence: **the host owns time and pixels, the module
 owns state and rules, and the only thing crossing between them is three

@@ -64,7 +64,7 @@ Read it inside-out, like arithmetic. It is `player.heading += rotDir *
 ROT_SPEED * dt` written by someone with no infix operators.
 
 **Convention that helps enormously:** put the infix equivalent in a `;;`
-comment above anything with more than two levels of nesting. Both engines in
+comment above anything with more than two levels of nesting. The engines in
 this repository do, and it is the difference between the files being editable in
 six months and not.
 
@@ -154,8 +154,9 @@ far away.
 
 An imported function occupies a lower function index than any defined one. The
 assembler handles this, but it explains a class of confusing disassembly: in
-`vector-arena`, `$sinf` is function 0 and `$cosf` is function 1, so the first
-function *you* wrote is function 2.
+`pixel-wave`, `$sinf` is function 0 and `$cosf` is function 1, so the first
+function *you* wrote is function 2. In `worm-chase`, which imports nothing, your
+first function is index 0.
 
 ---
 
@@ -204,7 +205,7 @@ calls ([chapter 6](06-functions-tables.md)):
 In the MVP a function returns **zero or one** value. Multi-value returns are a
 shipped post-MVP feature ([chapter 14](14-post-mvp-features.md)) and are widely
 supported now, but hand-written WAT rarely needs them — the usual workaround,
-and what both engines here do, is to write extra outputs into linear memory.
+and what the engines here do, is to write extra outputs into linear memory.
 
 ---
 

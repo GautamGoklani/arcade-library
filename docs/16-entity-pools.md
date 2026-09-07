@@ -4,7 +4,7 @@
 
 ---
 
-There is no allocator in either engine. No `malloc`, no free list, no
+There is no allocator in any of these engines. No `malloc`, no free list, no
 `memory.grow` — the whole world lives in a fixed layout decided at authoring
 time, and "spawning" a bullet means finding a slot whose `active` field is zero
 and writing into it.
@@ -31,8 +31,8 @@ Pixel Wave, in full:
 engine needs to grow, which is why the buffer-detachment problem from [chapter
 7](07-javascript-interop.md) simply does not exist for it.
 
-Vector Arena is the same idea at a different scale: 8 bots at stride 32, 80
-bullets at stride 24, no asteroids, 2,208 bytes total.
+Sector Defense is the same idea at a different scale: 24 attackers at stride
+40, 20 player bullets and 30 enemy bullets at stride 24, 2,176 bytes total.
 
 Each region starts where the last one ended, and the memory-map comment shows
 the arithmetic:

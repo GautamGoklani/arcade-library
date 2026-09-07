@@ -156,7 +156,7 @@ thing to put in a branch you believe is impossible — a trap in development bea
 silent corruption.</p>
 <hr>
 <h2>The canonical loop</h2>
-<p>Every counted loop in both engines is this shape, and it is worth learning as a
+<p>Every counted loop in every engine here is this shape, and it is worth learning as a
 single unit:</p>
 <pre><code class="language-wat">(local.set $i (i32.const 0))
 (block $done
@@ -233,7 +233,7 @@ branch at all:</p>
   (if (f32.gt (local.get $r) (local.get $hi)) (then (local.set $r (local.get $hi))))
   (local.get $r))
 </code></pre>
-<p>Wrapping — the arena edge in <code>vector-arena</code> — is the same shape:</p>
+<p>Wrapping — the arena edge in a game whose world has no walls — is the same shape:</p>
 <pre><code class="language-wat">(func $wrap (param $v f32) (param $max f32) (result f32)
   (local $r f32)
   (local.set $r (local.get $v))
@@ -243,10 +243,19 @@ branch at all:</p>
 </code></pre>
 <p>Note it corrects by <strong>one</strong> <code>max</code> and no more. That is a real assumption: an
 entity that moves more than a full arena width in one frame is not wrapped
-correctly. At the speeds and timestep involved it cannot happen, and the
-alternative — a modulo, or a loop — costs more than the case is worth. Knowing
-which of these shortcuts you have taken is the difference between a tuned engine
-and a fragile one.</p>
+correctly.</p>
+<p>It is also an assumption that can fail, and <code>games/asteroid-miner/game.wat</code>
+declines to make it. A backgrounded tab hands back one enormous <code>dt</code>, and a
+frame that advances an entity several arena widths is exactly the case the two
+<code>if</code>s cannot fix. So it wraps with a floor instead, which lands anywhere in one
+expression:</p>
+<pre><code class="language-wat">(func $wrapf (param $v f32) (param $w f32) (result f32)
+  (f32.sub (local.get $v)
+    (f32.mul (local.get $w) (f32.floor (f32.div (local.get $v) (local.get $w))))))
+</code></pre>
+<p>Knowing which of these shortcuts you have taken is the difference between a
+tuned engine and a fragile one — and knowing when the shortcut stops being
+available is the difference between a tuned engine and a correct one.</p>
 <hr>
 <h2><code>br_table</code></h2>
 <p>A jump table: pops an index, branches to the label at that position, or to the
@@ -302,7 +311,7 @@ out the jumps ahead of time.</li>
 </ul>
 <hr>
 <h2>The frame step, as a control-flow shape</h2>
-<p>The <code>step</code> export in both engines is one long function: a guard, then a
+<p>The <code>step</code> export in every engine here is one long function: a guard, then a
 sequence of passes over the world, each pass a loop of the canonical shape.</p>
 <pre><code class="language-wat">(func $step (export &quot;step&quot;) (param $dt f32)
   (local $px f32) (local $py f32) (local $pvx f32) (local $pvy f32)
@@ -321,7 +330,7 @@ sequence of passes over the world, each pass a loop of the canonical shape.</p>
 </code></pre>
 <p><strong>All locals are declared at the top</strong>, because WAT requires it — every
 <code>(local …)</code> must precede the first instruction of the body. With no lexical
-scoping inside a function, that produces the long declaration block both engines
+scoping inside a function, that produces the long declaration block the engines
 open with, and the reason they are one big function rather than six small ones
 is honest inertia: the passes share a dozen of those locals, and splitting them
 would mean either passing state or re-loading it.</p>

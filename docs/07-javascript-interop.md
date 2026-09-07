@@ -75,7 +75,7 @@ frame, and come back. Engines have optimised this hard — modern V8 can inline 
 small JS import into wasm code in some cases — but it is not free, and it is a
 JIT-dependent optimisation, so it is not *predictable* either.
 
-Both engines import `Math.sin` and `Math.cos` and call them a few dozen times
+Most engines here import `Math.sin` and `Math.cos` and call them a few dozen times
 per frame. At 60 fps that is a few thousand crossings per second, which is
 nothing. Calling them per *bullet* per frame — tens of thousands — would start to
 show up. Calling them inside a per-pixel loop would dominate the profile
@@ -157,7 +157,7 @@ function refresh() {
 }
 ```
 
-Both engines declare one page and never grow, so this problem does not exist
+Every engine here declares one page and never grows, so this problem does not exist
 here. That is a design choice with a real payoff — the view is created once at
 mount and held for the lifetime of the instance.
 
@@ -213,7 +213,7 @@ allocator export from the module. This is exactly the plumbing that
 `wasm-bindgen` generates for you, and seeing it written out is a good argument
 for using it.
 
-Neither engine here has a single string. All communication is numbers, which is
+No engine here has a single string. All communication is numbers, which is
 why the boundary code in `pixel-wave.js` is about thirty lines.
 
 ---
@@ -285,14 +285,16 @@ narrow and frequent.**
 Worth naming, because the choice recurs and this repository contains one of
 each.
 
-**A bare engine.** Ship the `.wasm`; the host writes a renderer. Vector Arena
-works this way. Maximum flexibility — the host can render however it likes, add
-waves without recompiling ([chapter 6](06-functions-tables.md)) — at the cost of
-duplicating the memory layout into the host's code, with nothing to keep the two
-in step.
+**A bare engine.** Ship the `.wasm`; the host writes a renderer. Maximum
+flexibility — the host can render however it likes, and can set policy the
+engine declined to own, such as a wave curve ([chapter
+6](06-functions-tables.md)) — at the cost of duplicating the memory layout into
+the host's code, with nothing to keep the two in step. This repository shipped a
+title in that shape once and no longer does; the drift is a real tax, and every
+title here now carries its own renderer.
 
 **A self-contained widget.** Ship a `.js` with the engine embedded as base64 and
-a `mount()` API. Pixel Wave works this way:
+a `mount()` API. Every game here works this way. Pixel Wave, for instance:
 
 ```js
 const game = PixelWave.mount('#container');

@@ -8,7 +8,7 @@ WebAssembly gives you `+ - * / sqrt abs neg min max ceil floor trunc nearest
 copysign` and nothing else. No sine, no cosine, no `atan2`, no `exp`, no
 random number generator.
 
-A game needs all of those. This chapter is what the two engines here do about
+A game needs all of those. This chapter is what the engines here do about
 it, and it turns out to be a good tour of the trade-offs, because each answer
 went a different way.
 
@@ -19,7 +19,7 @@ went a different way.
 Wasm has no randomness — deliberately, because randomness is a capability
 ([chapter 12](12-security-model.md)). You either import one or write one.
 
-Both engines write one. Nine lines, three shifts and three xors:
+Every engine here writes one. Nine lines, three shifts and three xors:
 
 ```wat
 (global $rng (mut i32) (i32.const 88172645))
@@ -54,7 +54,7 @@ easy bug to write and an annoying one to find.
 instruction; multiplying by the reciprocal would be marginally faster and is not
 worth the loss of clarity.
 
-Built on it, the only other RNG primitive either engine needs:
+Built on it, the only other RNG primitive these engines need:
 
 ```wat
 (func $frand (param $lo f32) (param $hi f32) (result f32)
@@ -106,11 +106,16 @@ ulp, so a replay recorded in Chrome may not reproduce in Firefox. It also means
 the module's import list grows, and every host must supply them.
 
 **Why it won here:** the call count is small. The player calls `cosf`/`sinf`
-twice per frame when thrusting; each bot calls them zero times in Pixel Wave
-(its wander steering is pure vector maths) and zero in Vector Arena's steering
-too — the trig is concentrated in thrust and in spawn-ring placement at `init`.
-A few dozen crossings per frame is nothing. And these games have no replay
-feature, so the determinism forfeit costs nothing real.
+twice per frame when thrusting; each bot calls them zero times, because the
+wander steering is pure vector maths — the trig is concentrated in thrust and in
+spawn-ring placement at `init`. A few dozen crossings per frame is nothing. And
+these games have no replay feature, so the determinism forfeit costs nothing
+real.
+
+Two engines here took the forfeit off the table entirely by not needing the
+imports: Worm Chase moves on a grid and Sector Defense steers toward a column,
+so neither turns through an angle, and both are exactly reproducible on any
+host.
 
 ### Option 2 — a polynomial approximation in-module
 
@@ -180,7 +185,7 @@ false, so an entity that lands exactly on top of another silently stops
 responding to anything. The threshold is `1.0` rather than an epsilon because at
 sub-pixel separation the direction is meaningless anyway.
 
-Both engines use `> 1.0` or `> 0.001` guards before every division in the file.
+These engines use `> 1.0` or `> 0.001` guards before every division in the file.
 That habit is worth more in WAT than anywhere else, because there is no
 exception to catch and no stack trace when it goes wrong — just a ship that has
 quietly become NaN.
@@ -189,9 +194,15 @@ quietly become NaN.
 
 ## Steering: three behaviours, no trigonometry
 
-Vector Arena's bots are the most interesting code in either engine, and there is
-not a single trig call in them. Everything is vector arithmetic on the
-normalised player-relative direction `(nx, ny)`.
+Bot steering is where this pays off hardest, and it can be done with no trig at
+all: everything below is vector arithmetic on the normalised player-relative
+direction `(nx, ny)`.
+
+The engine these excerpts are drawn from — a wrap-around dogfighting game whose
+bots orbited at range, strafed and dodged — is no longer part of this
+repository. The code is kept because the three techniques in it are not
+demonstrated anywhere else in the course, and each is quoted in full and
+compiles as shown.
 
 ### Range keeping, branchlessly
 

@@ -62,7 +62,7 @@ same bits either way. Division does not, and neither does ordering.
 With `_u`, `-1` compares as 4294967295 — greater than everything. With `_s` it
 compares as less than zero. A loop counter that decrements past zero will
 either exit immediately or run essentially forever, depending purely on which
-suffix you typed. Both engines here use `_s` for loop bounds:
+suffix you typed. The engines here use `_s` for loop bounds:
 
 ```wat
 (br_if $done (i32.ge_s (local.get $i) (global.get $MAX_BULLETS)))
@@ -86,7 +86,7 @@ conditional treats "nonzero" as true.
 `i32.eqz` tests for zero and doubles as logical NOT. There is no `!=` against
 zero — the idiom is just to use the value directly.
 
-Both engines store booleans in linear memory as **`f32` 0.0 / 1.0** — the
+The engines here mostly store booleans in linear memory as **`f32` 0.0 / 1.0** — the
 `alive` and `active` fields of every entity. That is unusual and deliberate: the
 entity records are otherwise all `f32`, and keeping one uniform type means the
 whole record can be read as a single `Float32Array` from JavaScript without a
@@ -175,7 +175,8 @@ is the only one IEEE-754 requires to be correctly rounded — and therefore the
 only one that could be specified deterministically.
 
 Everything else is either imported from the host or implemented in the module.
-Both engines here import two functions and no more:
+Three of the five engines here import two functions and no more; the other two
+import nothing at all:
 
 ```wat
 (import "env" "sinf" (func $sinf (param f32) (result f32)))
@@ -212,7 +213,7 @@ f32.reinterpret_i32
 ```
 
 The `reinterpret` pair is a free bit-cast. It is how you inspect a float's bit
-pattern, and how the RNG in both engines converts a random `i32` into a float —
+pattern, and how the RNG in every engine here converts a random `i32` into a float —
 though there it does the honest arithmetic conversion instead:
 
 ```wat
@@ -242,7 +243,7 @@ cheap. When they are, it avoids a branch — useful in a tight loop.
 
 ## Sizes and the case for `f32`
 
-Both engines use `f32` throughout, never `f64`, and it is a considered choice:
+Every engine here uses `f32` throughout, never `f64`, and it is a considered choice:
 
 - **Half the memory.** An entity record of 10 fields is 40 bytes instead of 80.
   Pixel Wave's 33 enemies, 160 bullets and 20 asteroids fit in 5.7 KB — under a

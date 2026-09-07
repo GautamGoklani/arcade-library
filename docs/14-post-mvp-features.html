@@ -291,9 +291,9 @@ well beyond your module. Confirm the whole page can live with cross-origin
 isolation before you commit.</p>
 <hr>
 <h2>What the engines here use</h2>
-<p>None of it. <code>games/vector-arena/game.wat</code> and <code>games/pixel-wave/game.wat</code> are
-strict MVP: four value types, one memory, one table&#39;s worth of nothing,
-structured control flow, two imports.</p>
+<p>None of it. Every <code>game.wat</code> in <code>games/</code> is strict MVP: four value types, one
+memory, one table&#39;s worth of nothing, structured control flow, and at most two
+imports — Worm Chase and Sector Defense have none.</p>
 <p>That is partly the point of the exercise — the MVP is enough to write a complete
 game engine in — and partly a real property worth having: the binaries run on
 any engine that has ever supported WebAssembly, including a 2017 browser and a

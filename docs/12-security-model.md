@@ -116,7 +116,8 @@ tractable — you can enumerate a module's entire capability set from its
 wasm-objdump -x module.wasm | grep -A100 '^Import'
 ```
 
-Both engines in this repository import exactly two functions:
+Most engines in this repository import exactly two functions (and two import
+nothing at all):
 
 ```wat
 (import "env" "sinf" (func $sinf (param f32) (result f32)))

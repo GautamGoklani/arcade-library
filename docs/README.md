@@ -8,16 +8,7 @@ to me.
 Every code sample is real WAT that compiles. Where a chapter draws on
 `games/pixel-wave/game.wat`, `games/worm-chase/game.wat`,
 `games/asteroid-miner/game.wat` or `games/sector-defense/game.wat` it says so,
-and you can open the file and check.
-
-> **A note on Vector Arena.** Several chapters — 1, 2, 4, 5, 6, 7, 8, 14, 15,
-> 16 and 17 — teach from a second engine called Vector Arena: a wrap-around
-> dogfighting game with eight bots, a bare `.wasm` with no widget around it.
-> **That game has been removed from this repository**, so those `game.wat`
-> citations no longer resolve to a file you can open. The material is kept
-> because the points it makes — the import index space, closest-approach
-> dodging, shipping an engine without a renderer — are not made anywhere else
-> in the course, and the code quoted in them is quoted in full. (Grid Breaker is not covered — it arrived
+and you can open the file and check. (Grid Breaker is not covered — it arrived
 after the first seventeen chapters were written, and its own
 [README](../games/grid-breaker/README.md) documents it.)
 

@@ -170,14 +170,14 @@ In the MVP a module may declare **at most one memory and one table**. The
 multi-memory proposal relaxes this; see [chapter 14](14-post-mvp-features.md).
 
 The engines in this repository use six of these. Here is the entire
-declaration surface of `games/vector-arena/game.wat`, which is a complete game:
+declaration surface of `games/pixel-wave/game.wat`, which is a complete game:
 
 ```wat
 (module
   (import "env" "sinf" (func $sinf (param f32) (result f32)))
   (import "env" "cosf" (func $cosf (param f32) (result f32)))
   (memory (export "memory") 1)          ;; 64 KB, exported so JS can read it
-  (global $MAX_BOTS i32 (i32.const 8))
+  (global $MAX_BOTS i32 (i32.const 33))
   ;; … ~40 more globals, ~20 functions …
   (func (export "step") (param $dt f32) …)
 )
@@ -185,6 +185,11 @@ declaration surface of `games/vector-arena/game.wat`, which is a complete game:
 
 Two imports, one memory, some globals, some functions. That is the whole
 vocabulary — and the next six chapters are about using exactly this much.
+
+Two of the five engines here do not even need the imports:
+`games/worm-chase/game.wat` and `games/sector-defense/game.wat` turn through no
+angles at all, so their import section is empty and the whole module is a pure
+function of its inputs.
 
 ---
 

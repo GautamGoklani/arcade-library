@@ -190,7 +190,7 @@ memory offsets from drifting — see <a href="07-javascript-interop.html">chapte
 </code></pre>
 <p>Immutable globals are the right default for tuning constants. Engines constant-
 fold <code>global.get</code> of an immutable global, so there is <strong>no runtime cost</strong> — you
-get the readability for free. Both engines use them exhaustively, and it is why
+get the readability for free. These engines use them exhaustively, and it is why
 retuning the difficulty was a matter of editing thirteen lines at the top of a
 file rather than hunting through 700:</p>
 <pre><code class="language-wat">(global $PLAYER_FIRE_CD f32 (f32.const 0.15))   ;; was 0.22
@@ -207,30 +207,35 @@ reasoned about or typed at random.</p>
 <p>Globals are for <strong>scalars the whole module reads</strong>, and memory is for
 <strong>anything with a shape</strong>. The dividing line is whether JavaScript needs to see
 it.</p>
-<p><code>vector-arena</code>&#39;s mutable globals, in full:</p>
+<p><code>pixel-wave</code>&#39;s mutable globals, in full:</p>
 <pre><code class="language-wat">(global $rng            (mut i32) (i32.const 88172645))  ;; RNG state
-(global $numBots        (mut i32) (i32.const 0))
+(global $level          (mut i32) (i32.const 1))
 (global $rotDir         (mut f32) (f32.const 0.0))       ;; input
 (global $thrustOn       (mut i32) (i32.const 0))         ;; input
 (global $firing         (mut i32) (i32.const 0))         ;; input
 (global $playerCooldown (mut f32) (f32.const 0.0))
 (global $gameOver       (mut i32) (i32.const 0))
+(global $astTimer       (mut f32) (f32.const 2.0))       ;; next asteroid
 (global $prevFiring     (mut i32) (i32.const 0))         ;; burst-fire edge
 (global $burstLeft      (mut i32) (i32.const 0))
 (global $pendingFire    (mut i32) (i32.const 0))
 </code></pre>
-<p>Ten machine words. Meanwhile score and lives — two equally scalar values — live
-in <em>memory</em>, at offsets 2200 and 2204. Why the split?</p>
+<p>Eleven machine words. Meanwhile score and lives — two equally scalar values —
+live in <em>memory</em>, at offsets 5664 and 5668. Why the split?</p>
 <p><strong>Because JavaScript reads score and lives, and does not read the others.</strong> A
 global is reachable from JS only through an accessor or an exported
 <code>WebAssembly.Global</code>; a memory word is reachable through the <code>Float32Array</code> view
 the renderer already holds. Putting them in memory means the HUD can read them
 in the same pass as everything else.</p>
 <p>It is a defensible line: <em>state the host observes goes in memory; state only the
-engine cares about goes in globals</em>. Both engines then also export <code>get_score</code>
+engine cares about goes in globals</em>. Pixel Wave then also exports <code>get_score</code>
 and <code>get_lives</code> accessors, which is belt and braces — the accessor spares the
 host from knowing the offset, and the memory location is there if it wants the
 fast path.</p>
+<p>The later titles here drop the second half of that. Worm Chase, Asteroid Miner
+and Sector Defense keep every scalar in a global and expose it only through a
+reader, because their renderers do not otherwise walk memory for those values —
+so a global is one instruction to read and there is no offset to keep in sync.</p>
 <hr>
 <h2>Input as globals: the double-buffer that isn&#39;t</h2>
 <pre><code class="language-wat">(func $set_input (export &quot;set_input&quot;) (param $rot f32) (param $thrust i32) (param $fire i32)
@@ -252,7 +257,7 @@ has no imports that could tell it. That constraint turned out to be a design
 benefit.</p>
 <hr>
 <h2>Edge detection: state the host cannot provide</h2>
-<p>The most interesting mutable global in either engine is <code>$prevFiring</code>, and it
+<p>The most interesting mutable global in this engine is <code>$prevFiring</code>, and it
 exists because of a genuine gap in the interface.</p>
 <p><code>set_input</code> reports the <strong>held state</strong> of the fire key: 1 while Space is down.
 But burst fire needs the <strong>press</strong>, the 0→1 transition. Nothing in the input
@@ -302,7 +307,7 @@ once at instantiation. <strong>They are not re-applied when you call <code>init(
 <p>So an <code>init</code> that forgets to reset a global will behave differently on the
 second run than on the first — the classic &quot;only breaks after a restart&quot; bug,
 and one that no amount of testing the happy path will find.</p>
-<p>Both engines reset their mutable globals explicitly. Pixel Wave&#39;s <code>init</code>, with
+<p>Every engine here resets its mutable globals explicitly. Pixel Wave&#39;s <code>init</code>, with
 the memory-clearing loops elided:</p>
 <pre><code class="language-wat">(func $init (export &quot;init&quot;)
   (global.set $level (i32.const 1))
@@ -327,7 +332,7 @@ a burst. Seeding it to 1 means the engine believes the key was already down, so
 the player must release and press again. One character, and it is the difference
 between a restart that feels deliberate and one that feels haunted.</p>
 <h3>The global that is deliberately <em>not</em> reset</h3>
-<p><code>$rng</code> does not appear in that list, in either engine. Its declared initialiser
+<p><code>$rng</code> does not appear in that list. Its declared initialiser
 runs once, at instantiation:</p>
 <pre><code class="language-wat">(global $rng (mut i32) (i32.const 88172645))
 </code></pre>
@@ -350,7 +355,7 @@ parameter so the host can choose:</p>
 </code></pre>
 <p>That is the version to write if you ever want deterministic replay, which
 <a href="13-debugging-and-profiling.html">chapter 13</a> argues is the strongest debugging
-tool available for a simulation. Neither engine here does, and it is the one
+tool available for a simulation. No engine here does, and it is the one
 design choice in them I would change.</p>
 <hr>
 <h2>Instance isolation</h2>

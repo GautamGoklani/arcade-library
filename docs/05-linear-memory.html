@@ -145,7 +145,7 @@ invalidates every existing typed-array view — the classic symptom is an
 <code>ArrayBuffer</code> that is suddenly <code>byteLength === 0</code>. <a href="07-javascript-interop.html">Chapter
 7</a> covers the fix; the short version is to re-create
 your views after any call that could grow memory.</p>
-<p>Both engines here declare exactly one page and never grow. Everything Pixel
+<p>Every engine here declares exactly one page and never grows. Everything Pixel
 Wave needs — the player, 33 enemies, 160 bullets, 20 asteroids, score, lives —
 occupies 5,672 bytes. That is 8.7% of a single page, and it means the entire
 world state is one cache-friendly block with no allocation anywhere in the frame.</p>
@@ -217,7 +217,7 @@ two arrays. Heap corruption inside a module is entirely possible; see <a href="1
 a data segment plus a convention — you supply the length or the terminator
 yourself. There is no string type and nothing knows about UTF-8.</p>
 <p>Data segments are how compiled languages ship string literals, jump tables and
-constant lookup tables. Neither engine here uses one: the world is generated at
+constant lookup tables. No engine here uses one: the world is generated at
 <code>init</code> rather than loaded.</p>
 <hr>
 <h2>Laying out a struct by hand</h2>
@@ -309,13 +309,13 @@ Writing it by hand is the moment array indexing stops being magic.</p>
 <p>Keep it a multiple of the largest field&#39;s size — 40 is a multiple of 4, so every
 <code>f32</code> in every record is naturally aligned. A stride of 38 would put half your
 fields on odd addresses for no gain.</p>
-<p>Powers of two let the multiply become a shift, which is why <code>vector-arena</code> uses
-32 bytes per bot. Whether that is worth constraining your field count is a
-judgement call; at these sizes it is not measurable, and Pixel Wave&#39;s 40 was
-chosen for the fields it needed rather than for the shift.</p>
+<p>Powers of two let the multiply become a shift, which is one reason
+<code>asteroid-miner</code> uses 32 bytes per rock. Whether that is worth constraining your
+field count is a judgement call; at these sizes it is not measurable, and Pixel
+Wave&#39;s 40 was chosen for the fields it needed rather than for the shift.</p>
 <hr>
 <h2>The full map, and why it is a table in a comment</h2>
-<p>Both engines open with their memory map as a comment block, and this is not
+<p>Every engine here opens with its memory map as a comment block, and this is not
 decoration — it is the schema. Nothing in the language records it, nothing
 checks it, and <strong>three separate files depend on it agreeing</strong>: the <code>.wat</code>, the
 JavaScript renderer that reads the memory, and the documentation.</p>
@@ -399,7 +399,7 @@ makes the field names visible.</li>
 <li><strong>Re-create JavaScript typed-array views after anything that might grow.</strong></li>
 <li><strong>Zero what you assume is zero.</strong> A memory is zeroed at instantiation, but not
 at your <code>init</code> — a restart that does not clear the pools inherits the last
-run&#39;s corpses. Both engines clear explicitly in <code>init</code> for exactly this
+run&#39;s corpses. Every engine here clears explicitly in <code>init</code> for exactly this
 reason.</li>
 </ol>
 

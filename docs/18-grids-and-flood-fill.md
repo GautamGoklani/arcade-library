@@ -244,7 +244,7 @@ the renderer never decides anything the next tick depends on.
 
 ## A module with no imports
 
-Pixel Wave, Vector Arena and Grid Breaker all begin the same way:
+Pixel Wave, Grid Breaker and Asteroid Miner all begin the same way:
 
 ```wat
 (import "env" "sinf" (func $sinf (param f32) (result f32)))

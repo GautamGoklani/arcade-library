@@ -59,7 +59,7 @@ silent corruption.
 
 ## The canonical loop
 
-Every counted loop in both engines is this shape, and it is worth learning as a
+Every counted loop in every engine here is this shape, and it is worth learning as a
 single unit:
 
 ```wat
@@ -162,7 +162,7 @@ Two `if`s and no branch prediction to worry about, from `pixel-wave`:
   (local.get $r))
 ```
 
-Wrapping — the arena edge in `vector-arena` — is the same shape:
+Wrapping — the arena edge in a game whose world has no walls — is the same shape:
 
 ```wat
 (func $wrap (param $v f32) (param $max f32) (result f32)
@@ -175,10 +175,23 @@ Wrapping — the arena edge in `vector-arena` — is the same shape:
 
 Note it corrects by **one** `max` and no more. That is a real assumption: an
 entity that moves more than a full arena width in one frame is not wrapped
-correctly. At the speeds and timestep involved it cannot happen, and the
-alternative — a modulo, or a loop — costs more than the case is worth. Knowing
-which of these shortcuts you have taken is the difference between a tuned engine
-and a fragile one.
+correctly.
+
+It is also an assumption that can fail, and `games/asteroid-miner/game.wat`
+declines to make it. A backgrounded tab hands back one enormous `dt`, and a
+frame that advances an entity several arena widths is exactly the case the two
+`if`s cannot fix. So it wraps with a floor instead, which lands anywhere in one
+expression:
+
+```wat
+(func $wrapf (param $v f32) (param $w f32) (result f32)
+  (f32.sub (local.get $v)
+    (f32.mul (local.get $w) (f32.floor (f32.div (local.get $v) (local.get $w))))))
+```
+
+Knowing which of these shortcuts you have taken is the difference between a
+tuned engine and a fragile one — and knowing when the shortcut stops being
+available is the difference between a tuned engine and a correct one.
 
 ---
 
@@ -250,7 +263,7 @@ Worth knowing, because the error messages are terse:
 
 ## The frame step, as a control-flow shape
 
-The `step` export in both engines is one long function: a guard, then a
+The `step` export in every engine here is one long function: a guard, then a
 sequence of passes over the world, each pass a loop of the canonical shape.
 
 ```wat
@@ -272,7 +285,7 @@ sequence of passes over the world, each pass a loop of the canonical shape.
 
 **All locals are declared at the top**, because WAT requires it — every
 `(local …)` must precede the first instruction of the body. With no lexical
-scoping inside a function, that produces the long declaration block both engines
+scoping inside a function, that produces the long declaration block the engines
 open with, and the reason they are one big function rather than six small ones
 is honest inertia: the passes share a dozen of those locals, and splitting them
 would mean either passing state or re-loading it.

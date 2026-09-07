@@ -43,7 +43,7 @@ invalidates every existing typed-array view — the classic symptom is an
 7](07-javascript-interop.md) covers the fix; the short version is to re-create
 your views after any call that could grow memory.
 
-Both engines here declare exactly one page and never grow. Everything Pixel
+Every engine here declares exactly one page and never grows. Everything Pixel
 Wave needs — the player, 33 enemies, 160 bullets, 20 asteroids, score, lives —
 occupies 5,672 bytes. That is 8.7% of a single page, and it means the entire
 world state is one cache-friendly block with no allocation anywhere in the frame.
@@ -150,7 +150,7 @@ a data segment plus a convention — you supply the length or the terminator
 yourself. There is no string type and nothing knows about UTF-8.
 
 Data segments are how compiled languages ship string literals, jump tables and
-constant lookup tables. Neither engine here uses one: the world is generated at
+constant lookup tables. No engine here uses one: the world is generated at
 `init` rather than loaded.
 
 ---
@@ -197,16 +197,16 @@ Keep it a multiple of the largest field's size — 40 is a multiple of 4, so eve
 `f32` in every record is naturally aligned. A stride of 38 would put half your
 fields on odd addresses for no gain.
 
-Powers of two let the multiply become a shift, which is why `vector-arena` uses
-32 bytes per bot. Whether that is worth constraining your field count is a
-judgement call; at these sizes it is not measurable, and Pixel Wave's 40 was
-chosen for the fields it needed rather than for the shift.
+Powers of two let the multiply become a shift, which is one reason
+`asteroid-miner` uses 32 bytes per rock. Whether that is worth constraining your
+field count is a judgement call; at these sizes it is not measurable, and Pixel
+Wave's 40 was chosen for the fields it needed rather than for the shift.
 
 ---
 
 ## The full map, and why it is a table in a comment
 
-Both engines open with their memory map as a comment block, and this is not
+Every engine here opens with its memory map as a comment block, and this is not
 decoration — it is the schema. Nothing in the language records it, nothing
 checks it, and **three separate files depend on it agreeing**: the `.wat`, the
 JavaScript renderer that reads the memory, and the documentation.
@@ -311,7 +311,7 @@ an entity pool at `init`, for example — reach for it.
 7. **Re-create JavaScript typed-array views after anything that might grow.**
 8. **Zero what you assume is zero.** A memory is zeroed at instantiation, but not
    at your `init` — a restart that does not clear the pools inherits the last
-   run's corpses. Both engines clear explicitly in `init` for exactly this
+   run's corpses. Every engine here clears explicitly in `init` for exactly this
    reason.
 
 ---

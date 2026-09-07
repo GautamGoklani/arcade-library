@@ -222,9 +222,9 @@ isolation before you commit.
 
 ## What the engines here use
 
-None of it. `games/vector-arena/game.wat` and `games/pixel-wave/game.wat` are
-strict MVP: four value types, one memory, one table's worth of nothing,
-structured control flow, two imports.
+None of it. Every `game.wat` in `games/` is strict MVP: four value types, one
+memory, one table's worth of nothing, structured control flow, and at most two
+imports — Worm Chase and Sector Defense have none.
 
 That is partly the point of the exercise — the MVP is enough to write a complete
 game engine in — and partly a real property worth having: the binaries run on

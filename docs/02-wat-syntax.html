@@ -156,7 +156,7 @@ tree that flattens to a stack sequence.</p>
 </code></pre>
 <p>Read it inside-out, like arithmetic. It is <code>player.heading += rotDir * ROT_SPEED * dt</code> written by someone with no infix operators.</p>
 <p><strong>Convention that helps enormously:</strong> put the infix equivalent in a <code>;;</code>
-comment above anything with more than two levels of nesting. Both engines in
+comment above anything with more than two levels of nesting. The engines in
 this repository do, and it is the difference between the files being editable in
 six months and not.</p>
 <hr>
@@ -224,8 +224,9 @@ far away.</p>
 <h3>Imports must come first (in the binary)</h3>
 <p>An imported function occupies a lower function index than any defined one. The
 assembler handles this, but it explains a class of confusing disassembly: in
-<code>vector-arena</code>, <code>$sinf</code> is function 0 and <code>$cosf</code> is function 1, so the first
-function <em>you</em> wrote is function 2.</p>
+<code>pixel-wave</code>, <code>$sinf</code> is function 0 and <code>$cosf</code> is function 1, so the first
+function <em>you</em> wrote is function 2. In <code>worm-chase</code>, which imports nothing, your
+first function is index 0.</p>
 <hr>
 <h2>Locals and parameters</h2>
 <pre><code class="language-wat">(func $example (param $a i32) (param $b f32) (result i32)
@@ -259,7 +260,7 @@ calls (<a href="06-functions-tables.html">chapter 6</a>):</p>
 <p>In the MVP a function returns <strong>zero or one</strong> value. Multi-value returns are a
 shipped post-MVP feature (<a href="14-post-mvp-features.html">chapter 14</a>) and are widely
 supported now, but hand-written WAT rarely needs them — the usual workaround,
-and what both engines here do, is to write extra outputs into linear memory.</p>
+and what the engines here do, is to write extra outputs into linear memory.</p>
 <hr>
 <h2>A complete, minimal module</h2>
 <p>Small enough to hold in your head, real enough to run:</p>

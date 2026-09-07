@@ -75,7 +75,7 @@ Three ways to write the number 33, with real differences:
 
 Immutable globals are the right default for tuning constants. Engines constant-
 fold `global.get` of an immutable global, so there is **no runtime cost** — you
-get the readability for free. Both engines use them exhaustively, and it is why
+get the readability for free. These engines use them exhaustively, and it is why
 retuning the difficulty was a matter of editing thirteen lines at the top of a
 file rather than hunting through 700:
 
@@ -99,23 +99,24 @@ Globals are for **scalars the whole module reads**, and memory is for
 **anything with a shape**. The dividing line is whether JavaScript needs to see
 it.
 
-`vector-arena`'s mutable globals, in full:
+`pixel-wave`'s mutable globals, in full:
 
 ```wat
 (global $rng            (mut i32) (i32.const 88172645))  ;; RNG state
-(global $numBots        (mut i32) (i32.const 0))
+(global $level          (mut i32) (i32.const 1))
 (global $rotDir         (mut f32) (f32.const 0.0))       ;; input
 (global $thrustOn       (mut i32) (i32.const 0))         ;; input
 (global $firing         (mut i32) (i32.const 0))         ;; input
 (global $playerCooldown (mut f32) (f32.const 0.0))
 (global $gameOver       (mut i32) (i32.const 0))
+(global $astTimer       (mut f32) (f32.const 2.0))       ;; next asteroid
 (global $prevFiring     (mut i32) (i32.const 0))         ;; burst-fire edge
 (global $burstLeft      (mut i32) (i32.const 0))
 (global $pendingFire    (mut i32) (i32.const 0))
 ```
 
-Ten machine words. Meanwhile score and lives — two equally scalar values — live
-in *memory*, at offsets 2200 and 2204. Why the split?
+Eleven machine words. Meanwhile score and lives — two equally scalar values —
+live in *memory*, at offsets 5664 and 5668. Why the split?
 
 **Because JavaScript reads score and lives, and does not read the others.** A
 global is reachable from JS only through an accessor or an exported
@@ -124,10 +125,15 @@ the renderer already holds. Putting them in memory means the HUD can read them
 in the same pass as everything else.
 
 It is a defensible line: *state the host observes goes in memory; state only the
-engine cares about goes in globals*. Both engines then also export `get_score`
+engine cares about goes in globals*. Pixel Wave then also exports `get_score`
 and `get_lives` accessors, which is belt and braces — the accessor spares the
 host from knowing the offset, and the memory location is there if it wants the
 fast path.
+
+The later titles here drop the second half of that. Worm Chase, Asteroid Miner
+and Sector Defense keep every scalar in a global and expose it only through a
+reader, because their renderers do not otherwise walk memory for those values —
+so a global is one instruction to read and there is no offset to keep in sync.
 
 ---
 
@@ -159,7 +165,7 @@ benefit.
 
 ## Edge detection: state the host cannot provide
 
-The most interesting mutable global in either engine is `$prevFiring`, and it
+The most interesting mutable global in this engine is `$prevFiring`, and it
 exists because of a genuine gap in the interface.
 
 `set_input` reports the **held state** of the fire key: 1 while Space is down.
@@ -206,7 +212,7 @@ So an `init` that forgets to reset a global will behave differently on the
 second run than on the first — the classic "only breaks after a restart" bug,
 and one that no amount of testing the happy path will find.
 
-Both engines reset their mutable globals explicitly. Pixel Wave's `init`, with
+Every engine here resets its mutable globals explicitly. Pixel Wave's `init`, with
 the memory-clearing loops elided:
 
 ```wat
@@ -236,7 +242,7 @@ between a restart that feels deliberate and one that feels haunted.
 
 ### The global that is deliberately *not* reset
 
-`$rng` does not appear in that list, in either engine. Its declared initialiser
+`$rng` does not appear in that list. Its declared initialiser
 runs once, at instantiation:
 
 ```wat
@@ -265,7 +271,7 @@ parameter so the host can choose:
 
 That is the version to write if you ever want deterministic replay, which
 [chapter 13](13-debugging-and-profiling.md) argues is the strongest debugging
-tool available for a simulation. Neither engine here does, and it is the one
+tool available for a simulation. No engine here does, and it is the one
 design choice in them I would change.
 
 ---

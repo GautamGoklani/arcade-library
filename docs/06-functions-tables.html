@@ -151,9 +151,10 @@ type reasons at runtime.</p>
 engines routinely inline small functions like <code>$bot_addr</code>. Do not hand-inline
 for performance without measuring; you will lose readability and probably gain
 nothing.</p>
-<p>Note the index space: <strong>imported functions come first</strong>. In <code>vector-arena</code>,
+<p>Note the index space: <strong>imported functions come first</strong>. In <code>pixel-wave</code>,
 <code>$sinf</code> is function 0 and <code>$cosf</code> is function 1, so your first defined function
-is index 2. This only matters when reading a disassembly or a stack trace.</p>
+is index 2. In <code>worm-chase</code>, which imports nothing, it is index 0. This only
+matters when reading a disassembly or a stack trace.</p>
 <hr>
 <h2>Tables and indirect calls</h2>
 <p>A <strong>table</strong> is an array of references. In the MVP it holds <code>funcref</code> and it is
@@ -191,7 +192,7 @@ linking between wasm modules works, and how a host can hand a module a callback
 without going through JavaScript.</p>
 <hr>
 <h2>When you actually need a table</h2>
-<p>Hand-written WAT usually does not. Both engines here have zero tables, because
+<p>Hand-written WAT usually does not. Every engine here has zero tables, because
 their dispatch is a small fixed set best written as an <code>if</code> chain:</p>
 <pre><code class="language-wat">;; enemy species: 0 crab, 1 hornet, 2 skull — behaviour differs only in
 ;; constants, so there is nothing to dispatch to
@@ -212,7 +213,7 @@ entries.</p>
 </code></pre>
 <p>Both values land on the operand stack, in order. Useful, but hand-written WAT
 usually finds it simpler to write extra outputs to a known address in linear
-memory — which is what both engines do for everything JavaScript needs to read.</p>
+memory — which is what these engines do for everything JavaScript needs to read.</p>
 <hr>
 <h2>The start function</h2>
 <pre><code class="language-wat">(start $init)
@@ -220,7 +221,7 @@ memory — which is what both engines do for everything JavaScript needs to read
 </code></pre>
 <p>Runs once at instantiation, after imports are wired and data segments applied,
 before any export can be called. It cannot take parameters or return anything.</p>
-<p>Neither engine uses it — both export an explicit <code>init()</code> that JavaScript calls,
+<p>No engine here uses it — all export an explicit <code>init()</code> that JavaScript calls,
 which is the better choice here for one specific reason: <strong>restart</strong>. <code>R</code>
 restarts a run by calling <code>init()</code> again, re-seeding the RNG and clearing the
 pools. A <code>start</code> function can only ever fire once per instance, so the restart
@@ -231,18 +232,18 @@ restart&quot; bugs.</p>
 <hr>
 <h2>Designing the export surface</h2>
 <p>The exports <strong>are</strong> the API, and this is worth more thought than it usually
-gets. Vector Arena exports eight things and no more:</p>
+gets. Pixel Wave exports nine things and no more:</p>
 <pre><code class="language-wat">(memory (export &quot;memory&quot;) 1)
-(func $init      (export &quot;init&quot;) (param $n i32))                  ;; n = wave size
+(func $init      (export &quot;init&quot;))
 (func $set_input (export &quot;set_input&quot;) (param f32) (param i32) (param i32))
 (func $step      (export &quot;step&quot;) (param $dt f32))
 (func $get_score (export &quot;get_score&quot;) (result f32))
 (func $get_lives (export &quot;get_lives&quot;) (result f32))
+(func $get_level (export &quot;get_level&quot;) (result i32))
 (func $is_game_over     (export &quot;is_game_over&quot;)     (result i32))
 (func $bots_alive_count (export &quot;bots_alive_count&quot;) (result i32))
 </code></pre>
-<p>Pixel Wave adds exactly one, <code>get_level</code>, because it has levels and Vector
-Arena does not.</p>
+<p>Nine, for a complete game with 33 enemies and 160 bullets in flight.</p>
 <p>Three principles hold this together, and all three are about keeping the
 boundary narrow.</p>
 <p><strong>Commands take scalars; state comes back through memory.</strong> <code>set_input</code> takes
@@ -259,17 +260,19 @@ measurable.</p>
 <p><strong>Nothing is exported that JavaScript does not need.</strong> <code>$spawn_bullet</code>,
 <code>$bot_addr</code>, <code>$rand_f32</code>, <code>$wrap</code> — all internal. Every export is a
 compatibility surface you have promised to keep.</p>
-<p>The parameter on <code>init</code> is where the policy line sits, and it is worth noticing.
-Vector Arena&#39;s engine has <strong>no concept of waves</strong> — <code>init(n)</code> spawns <code>n</code> bots
-and that is the end of the engine&#39;s opinion. Wave progression was added later,
-entirely in JavaScript: watch <code>bots_alive_count()</code>, and when it reaches zero,
-call <code>init(n + 1)</code>. The binary was never recompiled.</p>
-<p>Pixel Wave takes the other side of the same choice: <code>init()</code> takes nothing, and
-<code>$wave_size</code> — <code>1 + level</code>, capped at 24 — lives <em>inside</em> the engine, with
-<code>get_level</code> exported so the HUD can display it. Neither is wrong. The first
-exposes mechanism and lets the host set policy; the second guarantees every host
-plays the same game. Decide which you want before you write the signature,
-because changing it later breaks every integration.</p>
+<p>Whether <code>init</code> takes a parameter is where the policy line sits, and it is worth
+noticing. Pixel Wave&#39;s takes nothing: <code>$wave_size</code> — <code>1 + level</code>, capped at 24 —
+lives <em>inside</em> the engine, with <code>get_level</code> exported so the HUD can display it.
+Every host that loads this binary plays the same game.</p>
+<p>The other side of the same choice is an engine with <strong>no concept of waves at
+all</strong>, whose <code>init(n)</code> spawns <code>n</code> enemies and stops having an opinion. Wave
+progression then lives entirely in the host: watch <code>bots_alive_count()</code>, and
+when it reaches zero, call <code>init(n + 1)</code> — a difficulty curve added, or changed,
+without recompiling the binary.</p>
+<p>Neither is wrong. The first guarantees every host plays the same game; the
+second exposes mechanism and lets the host set policy. Decide which you want
+before you write the signature, because changing it later breaks every
+integration.</p>
 <hr>
 <h2>Function references and the GC proposal</h2>
 <p>Newer proposals add typed function references (<code>(ref $type)</code>) and, with the GC

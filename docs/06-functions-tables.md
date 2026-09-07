@@ -53,9 +53,10 @@ engines routinely inline small functions like `$bot_addr`. Do not hand-inline
 for performance without measuring; you will lose readability and probably gain
 nothing.
 
-Note the index space: **imported functions come first**. In `vector-arena`,
+Note the index space: **imported functions come first**. In `pixel-wave`,
 `$sinf` is function 0 and `$cosf` is function 1, so your first defined function
-is index 2. This only matters when reading a disassembly or a stack trace.
+is index 2. In `worm-chase`, which imports nothing, it is index 0. This only
+matters when reading a disassembly or a stack trace.
 
 ---
 
@@ -104,7 +105,7 @@ without going through JavaScript.
 
 ## When you actually need a table
 
-Hand-written WAT usually does not. Both engines here have zero tables, because
+Hand-written WAT usually does not. Every engine here has zero tables, because
 their dispatch is a small fixed set best written as an `if` chain:
 
 ```wat
@@ -135,7 +136,7 @@ Post-MVP, and widely supported:
 
 Both values land on the operand stack, in order. Useful, but hand-written WAT
 usually finds it simpler to write extra outputs to a known address in linear
-memory — which is what both engines do for everything JavaScript needs to read.
+memory — which is what these engines do for everything JavaScript needs to read.
 
 ---
 
@@ -149,7 +150,7 @@ memory — which is what both engines do for everything JavaScript needs to read
 Runs once at instantiation, after imports are wired and data segments applied,
 before any export can be called. It cannot take parameters or return anything.
 
-Neither engine uses it — both export an explicit `init()` that JavaScript calls,
+No engine here uses it — all export an explicit `init()` that JavaScript calls,
 which is the better choice here for one specific reason: **restart**. `R`
 restarts a run by calling `init()` again, re-seeding the RNG and clearing the
 pools. A `start` function can only ever fire once per instance, so the restart
@@ -163,21 +164,21 @@ restart" bugs.
 ## Designing the export surface
 
 The exports **are** the API, and this is worth more thought than it usually
-gets. Vector Arena exports eight things and no more:
+gets. Pixel Wave exports nine things and no more:
 
 ```wat
 (memory (export "memory") 1)
-(func $init      (export "init") (param $n i32))                  ;; n = wave size
+(func $init      (export "init"))
 (func $set_input (export "set_input") (param f32) (param i32) (param i32))
 (func $step      (export "step") (param $dt f32))
 (func $get_score (export "get_score") (result f32))
 (func $get_lives (export "get_lives") (result f32))
+(func $get_level (export "get_level") (result i32))
 (func $is_game_over     (export "is_game_over")     (result i32))
 (func $bots_alive_count (export "bots_alive_count") (result i32))
 ```
 
-Pixel Wave adds exactly one, `get_level`, because it has levels and Vector
-Arena does not.
+Nine, for a complete game with 33 enemies and 160 bullets in flight.
 
 Three principles hold this together, and all three are about keeping the
 boundary narrow.
@@ -199,18 +200,21 @@ measurable.
 `$bot_addr`, `$rand_f32`, `$wrap` — all internal. Every export is a
 compatibility surface you have promised to keep.
 
-The parameter on `init` is where the policy line sits, and it is worth noticing.
-Vector Arena's engine has **no concept of waves** — `init(n)` spawns `n` bots
-and that is the end of the engine's opinion. Wave progression was added later,
-entirely in JavaScript: watch `bots_alive_count()`, and when it reaches zero,
-call `init(n + 1)`. The binary was never recompiled.
+Whether `init` takes a parameter is where the policy line sits, and it is worth
+noticing. Pixel Wave's takes nothing: `$wave_size` — `1 + level`, capped at 24 —
+lives *inside* the engine, with `get_level` exported so the HUD can display it.
+Every host that loads this binary plays the same game.
 
-Pixel Wave takes the other side of the same choice: `init()` takes nothing, and
-`$wave_size` — `1 + level`, capped at 24 — lives *inside* the engine, with
-`get_level` exported so the HUD can display it. Neither is wrong. The first
-exposes mechanism and lets the host set policy; the second guarantees every host
-plays the same game. Decide which you want before you write the signature,
-because changing it later breaks every integration.
+The other side of the same choice is an engine with **no concept of waves at
+all**, whose `init(n)` spawns `n` enemies and stops having an opinion. Wave
+progression then lives entirely in the host: watch `bots_alive_count()`, and
+when it reaches zero, call `init(n + 1)` — a difficulty curve added, or changed,
+without recompiling the binary.
+
+Neither is wrong. The first guarantees every host plays the same game; the
+second exposes mechanism and lets the host set policy. Decide which you want
+before you write the signature, because changing it later breaks every
+integration.
 
 ---
 

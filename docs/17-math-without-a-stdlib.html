@@ -118,14 +118,14 @@ img { max-width: 100%; height: auto; }
 <h1>17 · Case study: maths without a standard library</h1>
 <p>WebAssembly gives you <code>+ - * / sqrt abs neg min max ceil floor trunc nearest copysign</code> and nothing else. No sine, no cosine, no <code>atan2</code>, no <code>exp</code>, no
 random number generator.</p>
-<p>A game needs all of those. This chapter is what the two engines here do about
+<p>A game needs all of those. This chapter is what the engines here do about
 it, and it turns out to be a good tour of the trade-offs, because each answer
 went a different way.</p>
 <hr>
 <h2>Random numbers: xorshift32</h2>
 <p>Wasm has no randomness — deliberately, because randomness is a capability
 (<a href="12-security-model.html">chapter 12</a>). You either import one or write one.</p>
-<p>Both engines write one. Nine lines, three shifts and three xors:</p>
+<p>Every engine here writes one. Nine lines, three shifts and three xors:</p>
 <pre><code class="language-wat">(global $rng (mut i32) (i32.const 88172645))
 
 (func $rand_f32 (result f32)
@@ -152,7 +152,7 @@ easy bug to write and an annoying one to find.</p>
 <p><strong>Divide by 4294967296.0 = 2³².</strong> Gives <code>[0, 1)</code>. The float division is one
 instruction; multiplying by the reciprocal would be marginally faster and is not
 worth the loss of clarity.</p>
-<p>Built on it, the only other RNG primitive either engine needs:</p>
+<p>Built on it, the only other RNG primitive these engines need:</p>
 <pre><code class="language-wat">(func $frand (param $lo f32) (param $hi f32) (result f32)
   (f32.add (local.get $lo)
            (f32.mul (call $rand_f32) (f32.sub (local.get $hi) (local.get $lo)))))
@@ -187,11 +187,15 @@ V8, SpiderMonkey and JavaScriptCore may return results differing in the last
 ulp, so a replay recorded in Chrome may not reproduce in Firefox. It also means
 the module&#39;s import list grows, and every host must supply them.</p>
 <p><strong>Why it won here:</strong> the call count is small. The player calls <code>cosf</code>/<code>sinf</code>
-twice per frame when thrusting; each bot calls them zero times in Pixel Wave
-(its wander steering is pure vector maths) and zero in Vector Arena&#39;s steering
-too — the trig is concentrated in thrust and in spawn-ring placement at <code>init</code>.
-A few dozen crossings per frame is nothing. And these games have no replay
-feature, so the determinism forfeit costs nothing real.</p>
+twice per frame when thrusting; each bot calls them zero times, because the
+wander steering is pure vector maths — the trig is concentrated in thrust and in
+spawn-ring placement at <code>init</code>. A few dozen crossings per frame is nothing. And
+these games have no replay feature, so the determinism forfeit costs nothing
+real.</p>
+<p>Two engines here took the forfeit off the table entirely by not needing the
+imports: Worm Chase moves on a grid and Sector Defense steers toward a column,
+so neither turns through an angle, and both are exactly reproducible on any
+host.</p>
 <h3>Option 2 — a polynomial approximation in-module</h3>
 <p>A minimax polynomial on a reduced range. Roughly forty lines for <code>sinf</code> to about
 1e-7 accuracy:</p>
@@ -240,15 +244,20 @@ propagates through every subsequent operation and every comparison returns
 false, so an entity that lands exactly on top of another silently stops
 responding to anything. The threshold is <code>1.0</code> rather than an epsilon because at
 sub-pixel separation the direction is meaningless anyway.</p>
-<p>Both engines use <code>&gt; 1.0</code> or <code>&gt; 0.001</code> guards before every division in the file.
+<p>These engines use <code>&gt; 1.0</code> or <code>&gt; 0.001</code> guards before every division in the file.
 That habit is worth more in WAT than anywhere else, because there is no
 exception to catch and no stack trace when it goes wrong — just a ship that has
 quietly become NaN.</p>
 <hr>
 <h2>Steering: three behaviours, no trigonometry</h2>
-<p>Vector Arena&#39;s bots are the most interesting code in either engine, and there is
-not a single trig call in them. Everything is vector arithmetic on the
-normalised player-relative direction <code>(nx, ny)</code>.</p>
+<p>Bot steering is where this pays off hardest, and it can be done with no trig at
+all: everything below is vector arithmetic on the normalised player-relative
+direction <code>(nx, ny)</code>.</p>
+<p>The engine these excerpts are drawn from — a wrap-around dogfighting game whose
+bots orbited at range, strafed and dodged — is no longer part of this
+repository. The code is kept because the three techniques in it are not
+demonstrated anywhere else in the course, and each is quoted in full and
+compiles as shown.</p>
 <h3>Range keeping, branchlessly</h3>
 <p>A bot wants to sit at <code>$ORBIT</code> distance — approach if far, retreat if near,
 strafe if about right. Rather than three branches, it computes three 0-or-1
