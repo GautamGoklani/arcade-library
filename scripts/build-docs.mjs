@@ -12,7 +12,7 @@
  * meant to be read. But this repository is also *served* — from the landing
  * page, from `npm run serve`, from GitHub Pages — and there, a `.md` file is
  * delivered as `text/markdown` and the browser shows it as unstyled plain text,
- * every `#` and `|` and backtick intact. Seventeen chapters of raw Markdown is
+ * every `#` and `|` and backtick intact. Twenty chapters of raw Markdown is
  * not documentation anyone will read.
  *
  * There is no client-side alternative worth taking: fetching and rendering
@@ -71,11 +71,14 @@ const PARTS = [
   },
   {
     title: 'Part III — The engines in this repository',
-    blurb: 'The two arcade engines as a worked example, with the WAT open beside the prose.',
+    blurb: 'The arcade engines as a worked example, with the WAT open beside the prose.',
     chapters: [
       ['15-game-loop-architecture', 'Architecture of a wasm game loop', 'Who owns the clock, the fixed-timestep question, and the three-call frame'],
       ['16-entity-pools', 'Case study: entity pools in linear memory', 'Fixed offsets, strides, the free-slot scan, and why there is no allocator'],
       ['17-math-without-a-stdlib', 'Case study: maths without a standard library', 'xorshift, why sinf is imported, and steering with no trigonometry'],
+      ['18-grids-and-flood-fill', 'Case study: a grid, and the flood fill that closes a loop', 'Byte-packed cells, a BFS queue with no allocator, and a module with no imports'],
+      ['19-pools-that-grow', 'Case study: pools that grow their own contents', 'Entities that spawn entities, what a full pool should do, and the resolution you draw at'],
+      ['20-per-entity-intent', 'Case study: giving each entity its own intent', 'Behaviour that lives in the record, why unpredictable is not random, and meters instead of lives'],
     ],
   },
   {
@@ -409,7 +412,7 @@ ${parts}
 <h2>Also here</h2>
 <ul>
   <li><a href="reference/">Original project documents</a> — the Pixel Wave technical reference, roadmap and originality statement, with a note on where they now disagree with the code</li>
-  <li><a href="../games/pixel-wave/">Pixel Wave</a> and <a href="../games/vector-arena/">Vector Arena</a> — the engines this course dissects</li>
+  <li><a href="../games/pixel-wave/">Pixel Wave</a>, <a href="../games/worm-chase/">Worm Chase</a>, <a href="../games/asteroid-miner/">Asteroid Miner</a> and <a href="../games/sector-defense/">Sector Defense</a> — the engines this course dissects</li>
 </ul>
 
 <hr>

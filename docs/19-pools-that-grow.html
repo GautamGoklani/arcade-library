@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>19 · Case study: pools that grow their own contents</title>
+<meta name="description" content="19 · Case study: pools that grow their own contents — part of the WebAssembly course in the arcade-library repository.">
+<link rel="icon" href="../games/pixel-wave/logo.svg">
+<style>
+:root {
+  --bg: #fbfaf7; --panel: #ffffff; --sunk: #f2f0ea;
+  --fg: #14130f; --soft: #4a4842; --muted: #7a776e;
+  --line: rgba(20,19,15,.12); --accent: #b23a18; --accent-wash: rgba(178,58,24,.07);
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121110; --panel: #1a1917; --sunk: #232220;
+    --fg: #f4f2ed; --soft: #b5b1a8; --muted: #86827a;
+    --line: rgba(244,242,237,.14); --accent: #e0714b; --accent-wash: rgba(224,113,75,.12);
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 16px/1.7 var(--sans); -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 52rem; margin: 0 auto; padding: clamp(1.5rem,4vw,3rem) clamp(1.1rem,4vw,2rem) 5rem; }
+.wide { max-width: 64rem; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+h1 { font-size: clamp(1.8rem,4.5vw,2.6rem); line-height: 1.12; letter-spacing: -.025em; margin: 0 0 1.2rem; }
+h2 { font-size: clamp(1.3rem,3vw,1.6rem); letter-spacing: -.015em; margin: 3rem 0 1rem; padding-top: 1.4rem; border-top: 1px solid var(--line); }
+h3 { font-size: 1.12rem; margin: 2rem 0 .7rem; }
+h4 { font-size: 1rem; margin: 1.5rem 0 .5rem; }
+p, ul, ol { margin: 0 0 1.05rem; }
+ul, ol { padding-left: 1.4rem; }
+li { margin-bottom: .4rem; }
+li > ul, li > ol { margin-top: .4rem; }
+strong { font-weight: 650; }
+hr { border: 0; border-top: 1px solid var(--line); margin: 2.5rem 0; }
+blockquote {
+  margin: 0 0 1.05rem; padding: .1rem 0 .1rem 1.1rem;
+  border-left: 3px solid var(--accent); color: var(--soft);
+}
+code {
+  font: .87em/1.5 var(--mono);
+  background: var(--sunk); border: 1px solid var(--line); border-radius: 4px;
+  padding: .1em .35em; overflow-wrap: anywhere;
+}
+pre {
+  background: var(--sunk); border: 1px solid var(--line); border-radius: 10px;
+  padding: 1rem 1.15rem; overflow-x: auto; margin: 0 0 1.4rem;
+}
+pre code { background: none; border: 0; padding: 0; font-size: .84rem; line-height: 1.65; overflow-wrap: normal; }
+/* Wide content scrolls inside its own box; the page body never scrolls sideways. */
+.table-scroll { overflow-x: auto; margin: 0 0 1.4rem; border: 1px solid var(--line); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+th, td { text-align: left; padding: .6rem .85rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { background: var(--sunk); font-weight: 600; white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+img { max-width: 100%; height: auto; }
+
+/* ---- chrome ---- */
+.bar {
+  position: sticky; top: 0; z-index: 5;
+  display: flex; flex-wrap: wrap; align-items: center; gap: .4rem 1rem;
+  padding: .7rem clamp(1.1rem,4vw,2rem);
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(12px); border-bottom: 1px solid var(--line);
+  font-size: .82rem;
+}
+@supports not (background: color-mix(in srgb, red 50%, transparent)) { .bar { background: var(--bg); } }
+.bar a { color: var(--soft); }
+.bar .sep { color: var(--muted); }
+.bar .here { color: var(--fg); font-weight: 600; }
+.eyebrow {
+  font: 500 .7rem/1 var(--mono); letter-spacing: .16em; text-transform: uppercase;
+  color: var(--muted); margin: 0 0 .9rem;
+}
+.pager {
+  display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between;
+  margin-top: 3.5rem; padding-top: 1.5rem; border-top: 1px solid var(--line); font-size: .9rem;
+}
+.pager span { display: block; font: 500 .65rem/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-bottom: .2rem; }
+.pager .next { text-align: right; margin-left: auto; }
+
+/* ---- index ---- */
+.lede { font-size: 1.06rem; color: var(--soft); margin-bottom: 2rem; }
+.part { margin-top: 2.6rem; }
+.part h2 { margin-top: 0; border-top: 0; padding-top: 0; }
+.part > p { color: var(--muted); font-size: .92rem; margin-bottom: 1.1rem; }
+.toc { list-style: none; padding: 0; margin: 0; display: grid; gap: .5rem; }
+.toc a {
+  display: grid; grid-template-columns: 2.4rem 1fr; gap: .8rem; align-items: baseline;
+  padding: .8rem 1rem; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--panel); color: var(--fg);
+}
+.toc a:hover { border-color: var(--accent); text-decoration: none; background: var(--accent-wash); }
+.toc .n { font: 500 .78rem/1.4 var(--mono); color: var(--accent); }
+.toc .t { font-weight: 600; font-size: .97rem; }
+.toc .d { display: block; color: var(--muted); font-size: .85rem; font-weight: 400; margin-top: .15rem; }
+.routes { display: grid; gap: .5rem; grid-template-columns: repeat(auto-fit,minmax(15rem,1fr)); margin-bottom: 2.5rem; }
+.route { padding: .9rem 1rem; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.route strong { display: block; font-size: .93rem; margin-bottom: .2rem; }
+.route span { color: var(--muted); font-size: .85rem; }
+</style>
+</head>
+<body>
+<nav class="bar">
+  <a href="../index.html">Arcade Library</a>
+  <span class="sep">/</span>
+  <a href="index.html">WebAssembly course</a> <span class="sep">/</span> <span class="here">Case study: pools that grow their own contents</span>
+</nav>
+<main class="wrap ">
+<h1>19 · Case study: pools that grow their own contents</h1>
+<p><a href="16-entity-pools.html">Chapter 16</a> described a pool as a fixed array of records
+where &quot;spawning&quot; means finding a slot whose <code>active</code> field is zero. Every
+example there had one property in common: <strong>something outside the pool decided
+what went into it</strong>. The player fires, a bullet appears. A wave starts, enemies
+appear.</p>
+<p><a href="../games/asteroid-miner/">Asteroid Miner</a> breaks that. A rock in the pool, when
+destroyed, puts two rocks <em>into the same pool</em> — while the loop that destroyed
+it is still walking the array. This chapter is about why that turns out to be a
+non-problem, what the interesting failure is, and one boundary decision that has
+nothing to do with pools at all: the resolution you draw at.</p>
+<p>Read it with <a href="../games/asteroid-miner/game.wat"><code>games/asteroid-miner/game.wat</code></a>
+open.</p>
+<hr>
+<h2>The split</h2>
+<pre><code class="language-wat">(func $split_rock (param $a i32)
+  ...
+  (f32.store offset=24 (local.get $a) (f32.const 0.0))   ;; parent: active = 0
+  ...
+  (call $spawn_rock (local.get $x) (local.get $y) (i32.sub (local.get $size) (i32.const 1))
+    (f32.add (local.get $vx) (f32.mul (call $sinf (local.get $ang)) (local.get $sp)))
+    (f32.add (local.get $vy) (f32.mul (call $cosf (local.get $ang)) (local.get $sp))))
+  ...)
+</code></pre>
+<p>That is the whole mechanic. The parent is deactivated, and <code>$spawn_rock</code> — the
+same free-slot scan from chapter 16 — writes two children somewhere in the
+array.</p>
+<p><strong>Nothing recurses</strong>, and it is worth being precise about why, because &quot;an
+entity that creates entities&quot; sounds like it should. A recursive formulation
+would have <code>$split_rock</code> call itself for each child, which needs a depth bound,
+a stack that can hold it, and a story about what happens when a boulder&#39;s whole
+subtree is created inside one frame. None of that exists here. The children are
+ordinary records in an ordinary array, and the only thing that ever advances
+them is the same <code>$step_rocks</code> loop that advances everything else, on some
+later frame.</p>
+<p><strong>Nor does it matter whether the current loop reaches them.</strong> A child written
+into a slot the bullet loop has already passed simply starts moving next frame;
+a child written into a slot ahead of the cursor gets one frame of movement
+sooner. Neither is observable — these are drifting rocks whose starting
+velocity is randomised anyway. Iteration-order questions only bite when the
+order is load-bearing, and here it is not.</p>
+<p>This is the general shape worth taking away: <strong>a pool with an <code>active</code> flag is
+already a queue of work for the next frame.</strong> Writing into it mid-iteration is
+safe precisely because nothing in the design depends on when the write is
+observed.</p>
+<hr>
+<h2>The interesting failure is a full pool</h2>
+<p><code>$spawn_rock</code> scans for a free slot and, finding none, does nothing:</p>
+<pre><code class="language-wat">(block $done
+  (loop $lp
+    (br_if $done (i32.ge_s (local.get $i) (global.get $MAX_ROCKS)))
+    ...
+    (if (f32.eq (f32.load offset=24 (local.get $a)) (f32.const 0.0))
+      (then ... (return)))
+    (local.set $i (i32.add (local.get $i) (i32.const 1)))
+    (br $lp)))
+;; falls out having spawned nothing
+</code></pre>
+<p>So a full pool <strong>silently drops the children</strong>. A boulder is destroyed and
+nothing replaces it.</p>
+<p>That looks like a bug and is a deliberate choice, and the reasoning generalises
+past this game. The alternative — refuse to destroy the parent when the pool is
+full — sounds more correct and is much worse: it means a player shooting into a
+crowded field watches their shots land and do nothing, for a reason that is
+invisible on screen and impossible to reason about. Between &quot;the field is
+slightly smaller than the rules imply&quot; and &quot;the game stops responding to the
+only verb you have&quot;, the first is the failure you want.</p>
+<p>The general rule for a fixed pool: <strong>decide what dropping looks like, and make
+it the least surprising thing available.</strong> Pixel Wave drops bullets the same
+way — a player who fires with all 160 bullets alive gets no bullet, which is
+indistinguishable from a fire-rate cap. Grid Breaker&#39;s MULTI power-up drops the
+third ball if the pool is full. In every case the drop is invisible or reads as
+a rule, never as a stall.</p>
+<p>Sizing then becomes an ordinary engineering question rather than a correctness
+one. Twenty-eight rock slots for ten boulders looks tight — 10 boulders is
+10 + 20 + 40 = 70 rocks if the whole field were reduced to pebbles
+simultaneously — but pebbles are <em>destroyed</em> rather than split, the field is
+topped up toward a target count rather than a maximum, and the pool has never
+been observed full in benching. The bound that matters is the realistic
+concurrent population, not the theoretical total.</p>
+<hr>
+<h2>Resource state, and where it lives</h2>
+<p>The other thing this engine has that the earlier ones do not is <strong>resources</strong>:
+fuel and cargo, which are not positions and do not belong to any entity.</p>
+<p>They are globals:</p>
+<pre><code class="language-wat">(global $fuel (mut f32) (f32.const 100.0))
+(global $cargo (mut f32) (f32.const 0.0))
+</code></pre>
+<p><a href="08-globals-and-state.html">Chapter 8</a> made the case in the abstract; this is what
+it looks like in practice. There is exactly one fuel level, JavaScript reads it
+through <code>get_fuel()</code> once a frame to size a bar, and nothing walks it in a loop.
+A global is one instruction to read and needs no address arithmetic. Grid
+Breaker puts its score <em>in memory</em> at a fixed offset, which is also right —
+its renderer was already walking memory for the tile grid, so the score came
+along for free. The question is not &quot;which is better&quot; but &quot;is this value on a
+path something already traverses&quot;.</p>
+<p>What is worth copying is that the resources are <strong>converted, not just spent</strong>.
+Thrust turns fuel into velocity; mining turns rocks into gems; only the depot
+turns gems into progress. That last step is the one that makes the other two
+decisions rather than habits, and it is implemented as a drip rather than a
+single event:</p>
+<pre><code class="language-wat">(block $done
+  (loop $lp
+    (br_if $done (f32.lt (global.get $deliverAcc) (global.get $DELIVER_EVERY)))
+    (br_if $done (f32.le (global.get $cargo) (f32.const 0.0)))
+    (global.set $deliverAcc (f32.sub (global.get $deliverAcc) (global.get $DELIVER_EVERY)))
+    (global.set $cargo (f32.sub (global.get $cargo) (f32.const 1.0)))
+    ...
+    (br $lp)))
+</code></pre>
+<p>An accumulator, the same pattern as the fixed-timestep loop in <a href="15-game-loop-architecture.html">chapter
+15</a> and the tick clock in <a href="18-grids-and-flood-fill.html">chapter
+18</a>, used here for a game-design reason rather than
+a numerical one: a hold that emptied in one frame would be a number changing,
+where a drip is a sequence you can hear, and it costs the seconds that make
+<em>when to come home</em> a real decision.</p>
+<hr>
+<h2>A boundary decision: the resolution you draw at</h2>
+<p>Nothing in this section is about WebAssembly, which is the point of including
+it. <a href="15-game-loop-architecture.html">Chapter 15</a> drew the line as <em>simulation is
+the engine&#39;s, presentation is JavaScript&#39;s</em>. Asteroid Miner is the clearest test
+of that line in the repository, because it wants to look like a machine from
+1983 and the engine knows nothing about it.</p>
+<p>The renderer draws into a 320×240 buffer and blows it up 3× with smoothing off:</p>
+<pre><code class="language-js">var low = document.createElement(&#39;canvas&#39;);
+low.width = WORLD_W / LOW_SCALE;    // 320
+low.height = WORLD_H / LOW_SCALE;   // 240
+var g = low.getContext(&#39;2d&#39;);
+g.imageSmoothingEnabled = false;
+// ...then, every frame, in world units:
+g.setTransform(1 / LOW_SCALE, 0, 0, 1 / LOW_SCALE, 0, 0);
+</code></pre>
+<p>Every mark rasterises at the low resolution — a rotated rock, the depot&#39;s
+rings, a particle — so nothing on screen can be finer than the sprites are.
+<strong>The engine still works in 960×720 and did not change by one constant</strong>, and
+that is the whole demonstration: the simulation&#39;s units are a coordinate
+system, not a picture. The <code>1/3</code> transform is the entire adapter.</p>
+<p>Two smaller consequences of committing to a resolution, both of which are the
+kind of thing a &quot;pixel-art filter&quot; bolted on afterwards gets wrong:</p>
+<ul>
+<li><strong>Screen shake moves in whole low-res pixels.</strong> A sub-pixel offset resamples
+the entire field every frame, which is exactly the smooth, floating look the
+buffer exists to prevent.</li>
+<li><strong>No glow anywhere.</strong> <code>shadowBlur</code> is a giveaway that a picture was made after
+about 1995 — brightness on that hardware came from choosing a brighter
+colour, so a bullet here is a dark-amber block with a pale core.</li>
+</ul>
+<p>If the goal had been a modern look, none of this would touch the engine either.
+That is the property to keep: when the presentation layer can be rewritten
+end-to-end without opening <code>game.wat</code>, the boundary is in the right place.</p>
+<hr>
+<h2>Summary</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Question</th>
+<th>Answer here</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>An entity spawns entities — does the loop need protecting?</td>
+<td>No, if nothing depends on <em>when</em> the write is seen. A pool with an <code>active</code> flag is already next frame&#39;s work queue</td>
+</tr>
+<tr>
+<td>Recursion?</td>
+<td>None. The parent deactivates itself and writes children into the array</td>
+</tr>
+<tr>
+<td>What happens when the pool is full?</td>
+<td>The children are dropped. Choose the drop that is invisible or reads as a rule, never one that stalls the player&#39;s only verb</td>
+</tr>
+<tr>
+<td>How big should the pool be?</td>
+<td>The realistic concurrent population, not the theoretical total</td>
+</tr>
+<tr>
+<td>Where do resources live?</td>
+<td>A global, unless something already walks the memory they would sit in</td>
+</tr>
+<tr>
+<td>Who decides how the game looks?</td>
+<td>JavaScript, entirely. A 3× low-res buffer changed no engine constant</td>
+</tr>
+</tbody></table>
+</div>
+<nav class="pager">
+  <a href="18-grids-and-flood-fill.html"><span>Previous</span>Case study: a grid, and the flood fill that closes a loop</a>
+  <a href="index.html">Contents</a>
+  <a class="next" href="20-per-entity-intent.html"><span>Next</span>Case study: giving each entity its own intent</a>
+</nav>
+</main>
+</body>
+</html>

@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>20 · Case study: giving each entity its own intent</title>
+<meta name="description" content="20 · Case study: giving each entity its own intent — part of the WebAssembly course in the arcade-library repository.">
+<link rel="icon" href="../games/pixel-wave/logo.svg">
+<style>
+:root {
+  --bg: #fbfaf7; --panel: #ffffff; --sunk: #f2f0ea;
+  --fg: #14130f; --soft: #4a4842; --muted: #7a776e;
+  --line: rgba(20,19,15,.12); --accent: #b23a18; --accent-wash: rgba(178,58,24,.07);
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121110; --panel: #1a1917; --sunk: #232220;
+    --fg: #f4f2ed; --soft: #b5b1a8; --muted: #86827a;
+    --line: rgba(244,242,237,.14); --accent: #e0714b; --accent-wash: rgba(224,113,75,.12);
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 16px/1.7 var(--sans); -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 52rem; margin: 0 auto; padding: clamp(1.5rem,4vw,3rem) clamp(1.1rem,4vw,2rem) 5rem; }
+.wide { max-width: 64rem; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+h1 { font-size: clamp(1.8rem,4.5vw,2.6rem); line-height: 1.12; letter-spacing: -.025em; margin: 0 0 1.2rem; }
+h2 { font-size: clamp(1.3rem,3vw,1.6rem); letter-spacing: -.015em; margin: 3rem 0 1rem; padding-top: 1.4rem; border-top: 1px solid var(--line); }
+h3 { font-size: 1.12rem; margin: 2rem 0 .7rem; }
+h4 { font-size: 1rem; margin: 1.5rem 0 .5rem; }
+p, ul, ol { margin: 0 0 1.05rem; }
+ul, ol { padding-left: 1.4rem; }
+li { margin-bottom: .4rem; }
+li > ul, li > ol { margin-top: .4rem; }
+strong { font-weight: 650; }
+hr { border: 0; border-top: 1px solid var(--line); margin: 2.5rem 0; }
+blockquote {
+  margin: 0 0 1.05rem; padding: .1rem 0 .1rem 1.1rem;
+  border-left: 3px solid var(--accent); color: var(--soft);
+}
+code {
+  font: .87em/1.5 var(--mono);
+  background: var(--sunk); border: 1px solid var(--line); border-radius: 4px;
+  padding: .1em .35em; overflow-wrap: anywhere;
+}
+pre {
+  background: var(--sunk); border: 1px solid var(--line); border-radius: 10px;
+  padding: 1rem 1.15rem; overflow-x: auto; margin: 0 0 1.4rem;
+}
+pre code { background: none; border: 0; padding: 0; font-size: .84rem; line-height: 1.65; overflow-wrap: normal; }
+/* Wide content scrolls inside its own box; the page body never scrolls sideways. */
+.table-scroll { overflow-x: auto; margin: 0 0 1.4rem; border: 1px solid var(--line); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+th, td { text-align: left; padding: .6rem .85rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { background: var(--sunk); font-weight: 600; white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+img { max-width: 100%; height: auto; }
+
+/* ---- chrome ---- */
+.bar {
+  position: sticky; top: 0; z-index: 5;
+  display: flex; flex-wrap: wrap; align-items: center; gap: .4rem 1rem;
+  padding: .7rem clamp(1.1rem,4vw,2rem);
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(12px); border-bottom: 1px solid var(--line);
+  font-size: .82rem;
+}
+@supports not (background: color-mix(in srgb, red 50%, transparent)) { .bar { background: var(--bg); } }
+.bar a { color: var(--soft); }
+.bar .sep { color: var(--muted); }
+.bar .here { color: var(--fg); font-weight: 600; }
+.eyebrow {
+  font: 500 .7rem/1 var(--mono); letter-spacing: .16em; text-transform: uppercase;
+  color: var(--muted); margin: 0 0 .9rem;
+}
+.pager {
+  display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between;
+  margin-top: 3.5rem; padding-top: 1.5rem; border-top: 1px solid var(--line); font-size: .9rem;
+}
+.pager span { display: block; font: 500 .65rem/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-bottom: .2rem; }
+.pager .next { text-align: right; margin-left: auto; }
+
+/* ---- index ---- */
+.lede { font-size: 1.06rem; color: var(--soft); margin-bottom: 2rem; }
+.part { margin-top: 2.6rem; }
+.part h2 { margin-top: 0; border-top: 0; padding-top: 0; }
+.part > p { color: var(--muted); font-size: .92rem; margin-bottom: 1.1rem; }
+.toc { list-style: none; padding: 0; margin: 0; display: grid; gap: .5rem; }
+.toc a {
+  display: grid; grid-template-columns: 2.4rem 1fr; gap: .8rem; align-items: baseline;
+  padding: .8rem 1rem; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--panel); color: var(--fg);
+}
+.toc a:hover { border-color: var(--accent); text-decoration: none; background: var(--accent-wash); }
+.toc .n { font: 500 .78rem/1.4 var(--mono); color: var(--accent); }
+.toc .t { font-weight: 600; font-size: .97rem; }
+.toc .d { display: block; color: var(--muted); font-size: .85rem; font-weight: 400; margin-top: .15rem; }
+.routes { display: grid; gap: .5rem; grid-template-columns: repeat(auto-fit,minmax(15rem,1fr)); margin-bottom: 2.5rem; }
+.route { padding: .9rem 1rem; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.route strong { display: block; font-size: .93rem; margin-bottom: .2rem; }
+.route span { color: var(--muted); font-size: .85rem; }
+</style>
+</head>
+<body>
+<nav class="bar">
+  <a href="../index.html">Arcade Library</a>
+  <span class="sep">/</span>
+  <a href="index.html">WebAssembly course</a> <span class="sep">/</span> <span class="here">Case study: giving each entity its own intent</span>
+</nav>
+<main class="wrap ">
+<h1>20 · Case study: giving each entity its own intent</h1>
+<p>Pixel Wave&#39;s swarm moves as a body. Every bot shares one patrol, and the
+formation is the behaviour — which is why <a href="16-entity-pools.html">chapter 16</a>
+could describe its bot record as mostly <em>position</em>, with a <code>wanderTimer</code> and a
+<code>cooldown</code> bolted on.</p>
+<p><a href="../games/sector-defense/">Sector Defense</a> puts the behaviour in the record
+instead. Each attacker holds a target column it is walking toward and a clock
+saying when it next shoots, and the wave has no state of its own at all. This
+chapter is about what that costs in memory, why it makes a formation
+unpredictable without making any single attacker unfair, and one design
+decision it enabled: an engine with no lives in it.</p>
+<p>Read it with
+<a href="../games/sector-defense/game.wat"><code>games/sector-defense/game.wat</code></a> open.</p>
+<hr>
+<h2>Intent is two fields</h2>
+<p>The whole of an attacker&#39;s mind:</p>
+<pre><code class="language-wat">;; enemies  @16   : stride 40, MAX_ENEMIES = 24
+;;                  x, y, vx, vy, hp, kind, active, phase, cd, targetX
+</code></pre>
+<p><code>targetX</code> is where it is going. <code>cd</code> is how long until it fires. Everything
+else is the same position-and-liveness a bullet has.</p>
+<p>Per frame, the entire decision is:</p>
+<pre><code class="language-wat">;; arrived? pick somewhere new
+(if (f32.lt (f32.abs (f32.sub (local.get $x) (local.get $tx))) (f32.const 10.0))
+  (then
+    (f32.store offset=36 (local.get $a)
+      (call $frand (global.get $MARGIN) (f32.sub (global.get $WORLD_W) (global.get $MARGIN))))
+    ...))
+;; then walk toward it
+(if (f32.gt (local.get $tx) (local.get $x))
+  (then (local.set $x (f32.add (local.get $x) (f32.mul (local.get $lat) (local.get $dt)))))
+  (else (local.set $x (f32.sub (local.get $x) (f32.mul (local.get $lat) (local.get $dt))))))
+</code></pre>
+<p>Eight bytes of state and a comparison, and the wave stops being a formation.</p>
+<p><strong>The cost is honest and small.</strong> Stride went from 32 to 40 bytes — 24
+attackers is 960 bytes rather than 768, on a 65,536-byte page. That is the
+trade this pattern always offers: per-entity behaviour costs per-entity memory,
+and in a fixed pool you pay it for every slot whether or not it is occupied.
+With 24 slots that is 192 bytes for a wave that is never fully populated. With
+24,000 it would be the design&#39;s central problem, and the answer would be a
+different one — behaviour indices into a shared table, or a separate array only
+for the entities that need it.</p>
+<hr>
+<h2>Unpredictable is not random</h2>
+<p>The interesting property is not that attackers move randomly. It is that they
+move <strong>in straight lines you can see, and change their minds at moments you
+cannot predict.</strong> Those are different things, and only one of them is fair.</p>
+<p>Compare two ways to get an &quot;unpredictable&quot; attacker:</p>
+<pre><code class="language-wat">;; (a) a new velocity every frame — genuinely random, and unplayable
+(f32.store offset=8 (local.get $a) (call $frand (f32.const -120.0) (f32.const 120.0)))
+
+;; (b) a target, walked toward at a fixed speed, re-rolled on arrival
+(if (f32.lt (f32.abs (f32.sub (local.get $x) (local.get $tx))) (f32.const 10.0)) ... )
+</code></pre>
+<p>(a) produces jitter. Nothing about it can be anticipated, so nothing about it
+can be played against — the player&#39;s only strategy is to be lucky. (b) produces
+motion that is locally <em>completely</em> predictable: at any instant, an attacker is
+travelling at a known speed toward a point you can infer from its heading. What
+you cannot predict is when it arrives and re-rolls.</p>
+<p>The variations between kinds are all variations on <em>when the mind changes</em>,
+not on how the body moves:</p>
+<pre><code class="language-wat">;; a weaver also re-rolls at random, ~0.9 times a second
+(if (f32.lt (call $rand_f32) (f32.mul (f32.const 0.9) (local.get $dt)))
+  (then (f32.store offset=36 ... )))
+</code></pre>
+<blockquote>
+<p><strong>A note on that test.</strong> <code>rand() &lt; rate * dt</code> is the standard way to express
+&quot;about <code>rate</code> times a second&quot; in a per-frame loop, and it is <em>frame-rate
+independent</em> to first order — halve <code>dt</code> and you halve the chance per frame,
+so the expected number of events per second is unchanged. It is not exact
+(the true form is <code>1 - exp(-rate*dt)</code>), but at the frame times a browser
+produces the difference is far below anything a player could perceive.</p>
+</blockquote>
+<p>Only the diver reacts to the player at all, and it does so with a single
+comparison:</p>
+<pre><code class="language-wat">(if (f32.lt (f32.abs (f32.sub (local.get $x) (call $player_x))) (f32.const 52.0))
+  (then (local.set $vy (f32.mul (call $descent_speed) (global.get $DIVE_MUL))))
+  (else (local.set $vy (call $descent_speed))))
+</code></pre>
+<p>One attacker in four that responds to where you are is enough to make the whole
+field feel attentive. Four kinds that all did it would feel like being hunted
+by one mind with four bodies, which is the thing per-entity intent was supposed
+to avoid.</p>
+<hr>
+<h2>Two meters instead of lives</h2>
+<p>Every other engine in this repository has a life counter and a respawn. This
+one has neither, and the defender cannot be destroyed:</p>
+<pre><code class="language-wat">(global $shield (mut f32) (f32.const 100.0))
+(global $sector (mut f32) (f32.const 100.0))
+</code></pre>
+<p>A hit lands on the shield if there is any left, and on the sector if there is
+not:</p>
+<pre><code class="language-wat">(func $take_hit
+  (global.set $calm (f32.const 0.0))
+  (global.set $combo (f32.const 0.0))
+  ...
+  (if (f32.gt (global.get $shield) (f32.const 0.0))
+    (then (global.set $shield (... subtract SHIELD_HIT ...)))
+    (else (call $damage_sector (global.get $LEAK_DAMAGE)))))
+</code></pre>
+<p>Three things follow, and they are worth noticing because they are all
+<em>absences</em>:</p>
+<ul>
+<li><strong>No respawn.</strong> No invulnerability window, no re-placement, no &quot;where does
+the player go back to&quot; question. Compare <code>$die</code> in
+<a href="../games/asteroid-miner/game.wat">asteroid-miner</a>, which has to spill cargo,
+reposition the ship, refill the tank and start a blink timer.</li>
+<li><strong>No death frame.</strong> Nothing in the renderer has to handle &quot;the player is
+currently not there&quot;, which in a lives-based game is a surprising amount of
+the presentation code.</li>
+<li><strong>Damage is continuous rather than discrete.</strong> A partial shield still absorbs
+a whole hit — deliberately, because a shield that let some through would make
+the player track two numbers to predict one outcome — but the <em>sector</em> takes
+real numbers, so &quot;how close am I to losing&quot; is a proportion rather than a
+count of three.</li>
+</ul>
+<p>The regeneration delay is where the design actually lives:</p>
+<pre><code class="language-wat">(func $step_shield (param $dt f32)
+  (global.set $calm (f32.add (global.get $calm) (local.get $dt)))
+  (if (f32.gt (global.get $calm) (global.get $SHIELD_DELAY))
+    (then (global.set $shield (... add SHIELD_REGEN * dt ...)))))
+</code></pre>
+<p><code>$calm</code> is reset by every hit, so pressure suppresses recovery for exactly as
+long as the pressure lasts. That single line converts &quot;do not get hit&quot; — a
+reflex — into &quot;break contact and recover&quot; — a decision. It is the same shape as
+Asteroid Miner&#39;s fuel: a resource whose <em>rate of change</em> is the thing the
+player is really managing.</p>
+<hr>
+<h2>The combo is a resource with a decay, not a counter</h2>
+<p>The obvious implementation of a combo is an integer that increments on a kill
+and resets on a miss. This one is a value with a clock:</p>
+<pre><code class="language-wat">(if (f32.gt (global.get $comboTimer) (f32.const 0.0))
+  (then
+    (global.set $comboTimer (f32.sub (global.get $comboTimer) (local.get $d)))
+    (if (f32.le (global.get $comboTimer) (f32.const 0.0))
+      (then (global.set $combo (f32.const 0.0))))))
+</code></pre>
+<p>Letting the window lapse costs the streak exactly as surely as being hit does,
+which means the multiplier measures <em>pressure maintained</em> rather than accuracy.
+It is a small change with a large effect on how the game is played: the
+scoreboard now rewards moving toward the fight.</p>
+<p>One detail worth copying: the score for a kill is paid at the multiplier the
+streak had <strong>before</strong> that kill extended it.</p>
+<pre><code class="language-wat">(call $add_score (f32.mul (global.get $SCORE_KILL) (call $multiplier)))
+(global.set $combo (... combo + 1 ...))
+</code></pre>
+<p>Pay first, then increment. The first kill of a streak is worth 1×, so the bonus
+is unambiguously for <em>keeping one going</em> rather than for starting one — and the
+number the HUD showed a moment before the kill is the number the player was
+paid.</p>
+<hr>
+<h2>Summary</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Question</th>
+<th>Answer here</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Where does behaviour live?</td>
+<td>In the entity record — a target and a clock, 8 bytes</td>
+</tr>
+<tr>
+<td>What does that cost?</td>
+<td>Stride 32 → 40; you pay it for every slot, occupied or not</td>
+</tr>
+<tr>
+<td>When is that the wrong trade?</td>
+<td>At tens of thousands of entities — then share a behaviour table instead</td>
+</tr>
+<tr>
+<td>How do you make motion unpredictable but fair?</td>
+<td>Straight lines the player can read, changing at moments they cannot predict</td>
+</tr>
+<tr>
+<td>&quot;About N times a second&quot; in a frame loop?</td>
+<td><code>rand() &lt; N * dt</code> — frame-rate independent to first order</td>
+</tr>
+<tr>
+<td>How many kinds should react to the player?</td>
+<td>Here, one in four. All four would read as a single mind with four bodies</td>
+</tr>
+<tr>
+<td>What replaces lives?</td>
+<td>Two meters, and a regeneration delay that turns a reflex into a decision</td>
+</tr>
+<tr>
+<td>How should a combo end?</td>
+<td>On a clock, so the multiplier measures pressure rather than accuracy</td>
+</tr>
+</tbody></table>
+</div>
+<nav class="pager">
+  <a href="19-pools-that-grow.html"><span>Previous</span>Case study: pools that grow their own contents</a>
+  <a href="index.html">Contents</a>
+  <a class="next" href="glossary.html"><span>Next</span>Glossary</a>
+</nav>
+</main>
+</body>
+</html>

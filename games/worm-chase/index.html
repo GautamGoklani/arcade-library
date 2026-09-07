@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>WORM CHASE</title>
+<link rel="icon" href="logo.svg">
+<link rel="stylesheet" href="worm-chase.css">
+<style>
+/* -----------------------------------------------------------------------
+   Standalone page shell.
+
+   Same shape as grid-breaker/index.html, and for the same reason. The widget
+   fills its container, which is what an embedder wants. This page is nothing
+   but the game, so the binding constraint is the window's *height*: at the
+   widget's full 1000px the 960x720 board needs roughly 760px, and on a laptop
+   window the bottom row ends up below the fold with nothing offering to
+   scroll it into view — which in this game is where the worm spends half its
+   time.
+
+   `--wc-max-width` is the widget's hook for exactly this. Cap it by the height
+   left over after the widget's own HUD and help line, converted through the
+   4:3 aspect ratio.
+   --------------------------------------------------------------------- */
+html, body { margin: 0; background: #05090b; min-height: 100%; }
+
+body {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100dvh;
+  padding: clamp(0.5rem, 2vw, 1.25rem);
+  box-sizing: border-box;
+}
+
+.wc-root {
+  --chrome: 9rem;                              /* HUD + widget help + padding */
+  --wc-max-width: min(1000px, calc((100dvh - var(--chrome)) * 1.3333));
+}
+
+/* Very short windows: drop the chrome allowance rather than shrinking the
+   board to a postage stamp. */
+@media (max-height: 32rem) {
+  .wc-root { --chrome: 6rem; }
+}
+</style>
+</head>
+<body>
+
+<div id="game"></div>
+
+<script src="worm-chase.js"></script>
+<script>
+  WormChase.mount('#game');
+</script>
+
+</body>
+</html>

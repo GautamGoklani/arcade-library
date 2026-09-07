@@ -1,13 +1,25 @@
 # WebAssembly, from first principles
 
-A course, not a changelog. It was written alongside two arcade engines in this
+A course, not a changelog. It was written alongside the arcade engines in this
 repository, but only the last third is about them — the rest is the language,
 the toolchain and the ecosystem, written the way I wish they had been explained
 to me.
 
 Every code sample is real WAT that compiles. Where a chapter draws on
-`games/pixel-wave/game.wat` or `games/vector-arena/game.wat` it says so, and you
-can open the file and check.
+`games/pixel-wave/game.wat`, `games/worm-chase/game.wat`,
+`games/asteroid-miner/game.wat` or `games/sector-defense/game.wat` it says so,
+and you can open the file and check.
+
+> **A note on Vector Arena.** Several chapters — 1, 2, 4, 5, 6, 7, 8, 14, 15,
+> 16 and 17 — teach from a second engine called Vector Arena: a wrap-around
+> dogfighting game with eight bots, a bare `.wasm` with no widget around it.
+> **That game has been removed from this repository**, so those `game.wat`
+> citations no longer resolve to a file you can open. The material is kept
+> because the points it makes — the import index space, closest-approach
+> dodging, shipping an engine without a renderer — are not made anywhere else
+> in the course, and the code quoted in them is quoted in full. (Grid Breaker is not covered — it arrived
+after the first seventeen chapters were written, and its own
+[README](../games/grid-breaker/README.md) documents it.)
 
 ---
 
@@ -55,6 +67,9 @@ willing to learn in about four paragraphs.
 | 15 | [Architecture of a wasm game loop](15-game-loop-architecture.md) | Who owns the clock, the fixed-timestep question, and the three-call frame |
 | 16 | [Case study: entity pools in linear memory](16-entity-pools.md) | Fixed offsets, strides, the free-slot scan, and why there is no allocator |
 | 17 | [Case study: maths without a standard library](17-math-without-a-stdlib.md) | xorshift RNG, why `sinf` is imported, distance without `sqrt`, and closest-approach dodging |
+| 18 | [Case study: a grid, and the flood fill that closes a loop](18-grids-and-flood-fill.md) | Byte-packed cells, a BFS queue with no allocator, two clocks, and a module with no imports |
+| 19 | [Case study: pools that grow their own contents](19-pools-that-grow.md) | Entities that spawn entities, what a full pool should do, resource state, and the resolution you draw at |
+| 20 | [Case study: giving each entity its own intent](20-per-entity-intent.md) | Behaviour stored in the record, why unpredictable is not random, and replacing lives with meters |
 
 ## Reference
 
@@ -75,8 +90,10 @@ almost always where the performance went), then 10 to choose a source language,
 then 13. You may never write a line of WAT, and that is the normal outcome.
 
 **"I want to hand-write WAT like these engines do."** Read Part I completely —
-you cannot skip chapter 5 — then Part III, with `game.wat` open beside it. Then
-write something small and awful. That step is not optional.
+you cannot skip chapter 5 — then Part III, with `game.wat` open beside it.
+Chapters 16 and 18–20 are the same problem — where does the world live, and
+what does a record hold? — answered for four different worlds, and reading them
+together is worth more than reading any one alone. Then write something small and awful. That step is not optional.
 
 ---
 

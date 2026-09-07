@@ -25,10 +25,10 @@ has the current values and what moved.
 applies it directly as a rate: `heading += rotDir * ROT_SPEED * dt`. The units
 are radians per second.
 
-**They describe v2 only.** Vector Arena has a different memory layout, different
-AI and no levels. Reading these while editing
-[`../../games/vector-arena/game.wat`](../../games/vector-arena/game.wat) will
-mislead you on every offset.
+**They describe v2 only** — that is, Pixel Wave's engine and no other. Every
+later title in `games/` has its own memory layout, its own AI and its own rules,
+and each documents them in its own README. Reading these while editing any of
+them will mislead you on every offset.
 
 For current, maintained documentation, use the [course](../README.md) —
 particularly [chapter 15](../15-game-loop-architecture.md),

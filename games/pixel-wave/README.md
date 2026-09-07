@@ -126,8 +126,8 @@ get_score() · get_lives() · get_level() · is_game_over() · bots_alive_count(
 ```
 
 `init()` takes no arguments — wave size is `1 + level` capped at 24, computed
-inside the engine. (Vector Arena takes the opposite approach; see
-[chapter 6](../../docs/06-functions-tables.md).)
+inside the engine — the opposite of taking the count as a parameter, which
+[chapter 6](../../docs/06-functions-tables.md) contrasts it with.
 
 ---
 

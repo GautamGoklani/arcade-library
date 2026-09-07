@@ -1,0 +1,387 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>18 · Case study: a grid, and the flood fill that closes a loop</title>
+<meta name="description" content="18 · Case study: a grid, and the flood fill that closes a loop — part of the WebAssembly course in the arcade-library repository.">
+<link rel="icon" href="../games/pixel-wave/logo.svg">
+<style>
+:root {
+  --bg: #fbfaf7; --panel: #ffffff; --sunk: #f2f0ea;
+  --fg: #14130f; --soft: #4a4842; --muted: #7a776e;
+  --line: rgba(20,19,15,.12); --accent: #b23a18; --accent-wash: rgba(178,58,24,.07);
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121110; --panel: #1a1917; --sunk: #232220;
+    --fg: #f4f2ed; --soft: #b5b1a8; --muted: #86827a;
+    --line: rgba(244,242,237,.14); --accent: #e0714b; --accent-wash: rgba(224,113,75,.12);
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 16px/1.7 var(--sans); -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 52rem; margin: 0 auto; padding: clamp(1.5rem,4vw,3rem) clamp(1.1rem,4vw,2rem) 5rem; }
+.wide { max-width: 64rem; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+h1 { font-size: clamp(1.8rem,4.5vw,2.6rem); line-height: 1.12; letter-spacing: -.025em; margin: 0 0 1.2rem; }
+h2 { font-size: clamp(1.3rem,3vw,1.6rem); letter-spacing: -.015em; margin: 3rem 0 1rem; padding-top: 1.4rem; border-top: 1px solid var(--line); }
+h3 { font-size: 1.12rem; margin: 2rem 0 .7rem; }
+h4 { font-size: 1rem; margin: 1.5rem 0 .5rem; }
+p, ul, ol { margin: 0 0 1.05rem; }
+ul, ol { padding-left: 1.4rem; }
+li { margin-bottom: .4rem; }
+li > ul, li > ol { margin-top: .4rem; }
+strong { font-weight: 650; }
+hr { border: 0; border-top: 1px solid var(--line); margin: 2.5rem 0; }
+blockquote {
+  margin: 0 0 1.05rem; padding: .1rem 0 .1rem 1.1rem;
+  border-left: 3px solid var(--accent); color: var(--soft);
+}
+code {
+  font: .87em/1.5 var(--mono);
+  background: var(--sunk); border: 1px solid var(--line); border-radius: 4px;
+  padding: .1em .35em; overflow-wrap: anywhere;
+}
+pre {
+  background: var(--sunk); border: 1px solid var(--line); border-radius: 10px;
+  padding: 1rem 1.15rem; overflow-x: auto; margin: 0 0 1.4rem;
+}
+pre code { background: none; border: 0; padding: 0; font-size: .84rem; line-height: 1.65; overflow-wrap: normal; }
+/* Wide content scrolls inside its own box; the page body never scrolls sideways. */
+.table-scroll { overflow-x: auto; margin: 0 0 1.4rem; border: 1px solid var(--line); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+th, td { text-align: left; padding: .6rem .85rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { background: var(--sunk); font-weight: 600; white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+img { max-width: 100%; height: auto; }
+
+/* ---- chrome ---- */
+.bar {
+  position: sticky; top: 0; z-index: 5;
+  display: flex; flex-wrap: wrap; align-items: center; gap: .4rem 1rem;
+  padding: .7rem clamp(1.1rem,4vw,2rem);
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(12px); border-bottom: 1px solid var(--line);
+  font-size: .82rem;
+}
+@supports not (background: color-mix(in srgb, red 50%, transparent)) { .bar { background: var(--bg); } }
+.bar a { color: var(--soft); }
+.bar .sep { color: var(--muted); }
+.bar .here { color: var(--fg); font-weight: 600; }
+.eyebrow {
+  font: 500 .7rem/1 var(--mono); letter-spacing: .16em; text-transform: uppercase;
+  color: var(--muted); margin: 0 0 .9rem;
+}
+.pager {
+  display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between;
+  margin-top: 3.5rem; padding-top: 1.5rem; border-top: 1px solid var(--line); font-size: .9rem;
+}
+.pager span { display: block; font: 500 .65rem/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-bottom: .2rem; }
+.pager .next { text-align: right; margin-left: auto; }
+
+/* ---- index ---- */
+.lede { font-size: 1.06rem; color: var(--soft); margin-bottom: 2rem; }
+.part { margin-top: 2.6rem; }
+.part h2 { margin-top: 0; border-top: 0; padding-top: 0; }
+.part > p { color: var(--muted); font-size: .92rem; margin-bottom: 1.1rem; }
+.toc { list-style: none; padding: 0; margin: 0; display: grid; gap: .5rem; }
+.toc a {
+  display: grid; grid-template-columns: 2.4rem 1fr; gap: .8rem; align-items: baseline;
+  padding: .8rem 1rem; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--panel); color: var(--fg);
+}
+.toc a:hover { border-color: var(--accent); text-decoration: none; background: var(--accent-wash); }
+.toc .n { font: 500 .78rem/1.4 var(--mono); color: var(--accent); }
+.toc .t { font-weight: 600; font-size: .97rem; }
+.toc .d { display: block; color: var(--muted); font-size: .85rem; font-weight: 400; margin-top: .15rem; }
+.routes { display: grid; gap: .5rem; grid-template-columns: repeat(auto-fit,minmax(15rem,1fr)); margin-bottom: 2.5rem; }
+.route { padding: .9rem 1rem; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.route strong { display: block; font-size: .93rem; margin-bottom: .2rem; }
+.route span { color: var(--muted); font-size: .85rem; }
+</style>
+</head>
+<body>
+<nav class="bar">
+  <a href="../index.html">Arcade Library</a>
+  <span class="sep">/</span>
+  <a href="index.html">WebAssembly course</a> <span class="sep">/</span> <span class="here">Case study: a grid, and the flood fill that closes a loop</span>
+</nav>
+<main class="wrap ">
+<h1>18 · Case study: a grid, and the flood fill that closes a loop</h1>
+<p><a href="16-entity-pools.html">Chapter 16</a> covered the layout the shooters use: a handful
+of fixed-size arrays of records, each entity a struct at <code>base + i * stride</code>,
+found by scanning for a free slot. That is the right shape when the world is a
+few hundred things moving through continuous space.</p>
+<p><a href="../games/worm-chase/">Worm Chase</a> is not that world. Its world is 768 cells
+that never move, and the interesting operation is not &quot;spawn a bullet&quot; but
+&quot;decide which cells a closed loop has sealed off&quot;. This chapter is about the
+layout that suits <em>that</em>, the breadth-first search that answers the question,
+and one module property the other engines do not have: it imports nothing at
+all.</p>
+<p>Read it with <a href="../games/worm-chase/game.wat"><code>games/worm-chase/game.wat</code></a> open.</p>
+<hr>
+<h2>An array with no <code>active</code> field</h2>
+<p>The whole board:</p>
+<pre><code class="language-wat">;; grid    @0     : stride 4, COLS*ROWS = 32*24 = 768 cells
+;;                  byte 0  state   0 = open, 1 = owned, 2 = trail
+;;                  byte 1  hazard  0 or 1
+;;                  byte 2  mark    flood-fill scratch
+;;                  byte 3  epoch   which capture claimed it, 1..6
+;;                  cell (c,r) is at (r*COLS + c)*4
+;;                  ends at 768*4 = 3072
+</code></pre>
+<p>Three differences from an entity pool, all of them consequences of the cells
+being fixed:</p>
+<p><strong>There is no free-slot scan, because there are no free slots.</strong> Every cell
+always exists. <code>$cell_addr</code> is the only lookup, and it is arithmetic rather than
+a search:</p>
+<pre><code class="language-wat">(func $cell_addr (param $c i32) (param $r i32) (result i32)
+  (i32.add (global.get $GRID_OFF)
+    (i32.mul (i32.add (i32.mul (local.get $r) (global.get $COLS)) (local.get $c))
+             (global.get $CELL_STRIDE))))
+</code></pre>
+<p>Row-major, exactly as C would lay out <code>cell[r][c]</code>. The inverse shows up in the
+BFS, where the queue stores flat indices and has to get back to coordinates:
+<code>c = idx % COLS</code>, <code>r = idx / COLS</code>, which in WAT is <code>i32.rem_u</code> and <code>i32.div_u</code>.
+Both are unsigned because the index cannot be negative and the signed forms
+would cost a check nothing needs.</p>
+<p><strong>The fields are bytes, not floats.</strong> A cell&#39;s state has three possible values
+and its hazard flag has two, so <code>i32.load8_u</code> / <code>i32.store8</code> is the right
+instruction and a four-byte cell holds four fields with nothing wasted:</p>
+<pre><code class="language-wat">(i32.load8_u offset=0 (local.get $a))    ;; state
+(i32.store8 offset=1 (local.get $a) (i32.const 1))   ;; set hazard
+</code></pre>
+<p>Alignment is not a concern — byte accesses have none — but the stride is kept at
+4 anyway so <code>i32.store</code> can clear a whole cell in one instruction, which is what
+<code>$clear_grid</code> does at the start of every level:</p>
+<pre><code class="language-wat">(i32.store (call $idx_addr (local.get $i)) (i32.const 0))
+</code></pre>
+<p>One instruction zeroes state, hazard, mark and epoch together. A 3-byte cell
+would have saved 768 bytes and cost that.</p>
+<blockquote>
+<p><strong>Post-MVP note.</strong> With the bulk-memory proposal, <code>memory.fill</code> clears the
+whole grid in one instruction instead of a 768-iteration loop. This engine
+stays strict-MVP on purpose — see <a href="14-post-mvp-features.html">chapter 14</a> — and
+the loop runs once per level, which is not a place where 768 stores matter.</p>
+</blockquote>
+<p><strong>One byte exists purely for the renderer.</strong> <code>epoch</code> is 1–6, cycling, stamped on
+each cell as a capture claims it; the widget shades territory by it, so the
+board shows which push took which ground. It is a good example of the boundary
+in <a href="07-javascript-interop.html">chapter 7</a> working in your favour: the renderer
+needs a per-cell value that the simulation does not care about, and the cheapest
+way to ship 768 of them across the boundary is to put them <em>in</em> the cell record
+that JavaScript is already walking.</p>
+<hr>
+<h2>The question: what does &quot;enclosed&quot; mean?</h2>
+<p>The rule of the game is that when the worm re-enters its own territory,
+everything its trail sealed off becomes territory too. That needs a definition
+of <em>sealed off</em>, and the obvious ones are all traps:</p>
+<ul>
+<li><strong>Point-in-polygon</strong> requires the trail to be a polygon. It is not, once it
+doubles back across itself or touches the board edge.</li>
+<li><strong>Tracing the loop&#39;s interior</strong> requires a consistent winding direction. A
+trail that leaves territory at one point and re-enters at an arbitrary other
+point does not have one.</li>
+<li><strong>Filling from a seed inside the loop</strong> requires knowing a cell that is
+inside, which is the original question again.</li>
+</ul>
+<p><code>$capture</code> inverts it. Convert the trail to territory, then flood <strong>inward from
+the four edges of the board</strong>, marking every cell the outside can still reach.
+Whatever is left unmarked and unowned is, by definition, fenced in:</p>
+<pre><code class="language-wat">(call $flood_outside)
+;; ... then, for every cell:
+(if (i32.and
+      (i32.ne (i32.load8_u offset=0 (local.get $a)) (global.get $OWNED))
+      (i32.eqz (i32.load8_u offset=2 (local.get $a))))     ;; not marked
+  (then
+    (i32.store8 offset=0 (local.get $a) (global.get $OWNED))
+    ...))
+</code></pre>
+<p>The inversion is the whole trick, and it is not a WebAssembly trick — it is the
+same reasoning behind flood-filling a mask from outside rather than inside in
+any image-processing library. What is worth noticing is that it makes the
+algorithm <em>indifferent to shape</em>: a figure-of-eight, a loop drawn back across
+old territory, a trail that runs along the board edge for ten cells all fall out
+correctly, because none of them can produce an outside-reachable cell that
+should have been captured.</p>
+<hr>
+<h2>A queue with no allocator</h2>
+<p>Breadth-first search needs a frontier queue. There is no allocator (<a href="16-entity-pools.html">chapter
+16</a> again: no <code>malloc</code>, no free list), so the queue is a
+region of linear memory sized for the worst case:</p>
+<pre><code class="language-wat">;; queue   @3072  : stride 4, one i32 cell index per slot, 768 slots
+</code></pre>
+<p>768 slots, because the worst case is every cell entering the queue once, and
+that bound is guaranteed by the mark-on-push discipline: a cell is marked at the
+moment it is pushed, never at the moment it is popped, so it can never be queued
+twice. Get that backwards and the queue overflows on a large open board — the
+classic BFS bug, and here it would not throw, it would write over the chaser
+records at 6144.</p>
+<p>Head and tail are two globals:</p>
+<pre><code class="language-wat">(global $qh (mut i32) (i32.const 0))
+(global $qt (mut i32) (i32.const 0))
+
+(func $qpush (param $idx i32)
+  (i32.store (i32.add (global.get $QUEUE_OFF) (i32.mul (global.get $qt) (i32.const 4)))
+             (local.get $idx))
+  (global.set $qt (i32.add (global.get $qt) (i32.const 1))))
+</code></pre>
+<p>No wraparound, because the queue is never reused within a search and both
+cursors reset at the start of the next one. A ring buffer would be strictly more
+code for a case that cannot arise.</p>
+<p>The search itself is the shape every structured-control-flow BFS takes in WAT —
+a <code>block</code> for the exit and a <code>loop</code> for the body, with <code>br_if</code> as the test, in
+exactly the pattern <a href="04-control-flow.html">chapter 4</a> describes:</p>
+<pre><code class="language-wat">(block $bfs
+  (loop $blp
+    (br_if $bfs (i32.ge_s (global.get $qh) (global.get $qt)))     ;; queue empty
+    (local.set $idx (i32.load (i32.add (global.get $QUEUE_OFF)
+                                       (i32.mul (global.get $qh) (i32.const 4)))))
+    (global.set $qh (i32.add (global.get $qh) (i32.const 1)))
+    (local.set $c (i32.rem_u (local.get $idx) (global.get $COLS)))
+    (local.set $r (i32.div_u (local.get $idx) (global.get $COLS)))
+    (call $visit (i32.sub (local.get $c) (i32.const 1)) (local.get $r))
+    (call $visit (i32.add (local.get $c) (i32.const 1)) (local.get $r))
+    (call $visit (local.get $c) (i32.sub (local.get $r) (i32.const 1)))
+    (call $visit (local.get $c) (i32.add (local.get $r) (i32.const 1)))
+    (br $blp)))
+</code></pre>
+<p>Four <code>$visit</code> calls rather than a neighbour loop with a lookup table. Unrolled,
+it is four calls; as a loop it would need the table in memory or a <code>br_table</code>
+dispatch, and would read worse for no gain at a fixed arity of four.</p>
+<p><strong>Cost.</strong> The fill clears 768 marks, seeds at most 112 border cells, and visits
+each cell at most once — a few thousand instructions, on the single tick that
+closes a loop and on no other. That is the shape to aim for with any expensive
+grid operation: not &quot;make it fast&quot;, but &quot;make it happen rarely, and prove when&quot;.</p>
+<hr>
+<h2>Two clocks, and the fraction between them</h2>
+<p><a href="15-game-loop-architecture.html">Chapter 15</a> worked through who owns the clock:
+JavaScript calls <code>step(dt)</code>, the engine integrates. Worm Chase does not
+integrate — it <em>ticks</em>. The worm advances one whole cell at a time, and the
+chasers advance on a second, slower clock:</p>
+<pre><code class="language-wat">(global.set $acc (f32.add (global.get $acc) (local.get $d)))
+(block $wdone
+  (loop $wlp
+    (br_if $wdone (f32.lt (global.get $acc) (call $tick_len)))
+    (br_if $wdone (i32.gt_s (local.get $guard) (i32.const 4)))
+    ...
+    (global.set $acc (f32.sub (global.get $acc) (call $tick_len)))
+    (call $tick_worm)
+    (br $wlp)))
+</code></pre>
+<p>This is the fixed-timestep accumulator from chapter 15, with the same guard
+against the spiral of death: at most 4 ticks per call, whatever <code>dt</code> says. Two
+independent accumulators is what lets the difficulty curve move the two speeds
+separately — and they are deliberately <em>not</em> multiples of each other, because a
+chaser ticking in lockstep with the worm is either always catchable or never,
+depending on parity.</p>
+<p>A tick at level 1 is 140ms. Drawing the worm only where the engine says it is
+would animate it at seven frames a second on a sixty-frame canvas. So the engine
+exports the leftover:</p>
+<pre><code class="language-wat">(func $get_tick_frac (export &quot;get_tick_frac&quot;) (result f32)
+  (call $clampf (f32.div (global.get $acc) (call $tick_len)) (f32.const 0.0) (f32.const 1.0)))
+</code></pre>
+<p>and keeps the previous cell alongside the current one, so the renderer can
+interpolate:</p>
+<pre><code class="language-js">var f  = e.get_tick_frac();
+var wx = e.get_prev_x() + (e.get_head_x() - e.get_prev_x()) * f;
+</code></pre>
+<p>This is the division of labour the whole repository is built on, in its clearest
+form. <strong>Where the worm <em>is</em> is simulation; where to draw it between two cells is
+presentation.</strong> The engine never rounds a position for the screen&#39;s benefit, and
+the renderer never decides anything the next tick depends on.</p>
+<hr>
+<h2>A module with no imports</h2>
+<p>Pixel Wave, Vector Arena and Grid Breaker all begin the same way:</p>
+<pre><code class="language-wat">(import &quot;env&quot; &quot;sinf&quot; (func $sinf (param f32) (result f32)))
+(import &quot;env&quot; &quot;cosf&quot; (func $cosf (param f32) (result f32)))
+</code></pre>
+<p>WebAssembly has no trigonometry instruction (<a href="17-math-without-a-stdlib.html">chapter
+17</a> explains why importing is the right answer
+there). Worm Chase imports nothing:</p>
+<pre><code class="language-js">WebAssembly.instantiate(bytes, {})   // the whole import object
+</code></pre>
+<p>Nothing here turns through an angle. Every heading is one of four <code>(dx, dy)</code>
+pairs, every collision test is <code>i32.eq</code>, and the one piece of real arithmetic —
+the difficulty curve — is integer multiply and clamp. The <code>sqrt</code> avoidance from
+chapter 17 does not even arise, because the AI steers by Manhattan distance,
+which is two <code>abs</code> and an add.</p>
+<p>Three things follow, and they are worth wanting:</p>
+<ul>
+<li><strong>The module is a pure function</strong> of <code>init</code>, the input stream and the <code>dt</code>
+sequence. Its RNG is an in-module xorshift seeded to a constant, so level 1 is
+the same board every run.</li>
+<li><strong>A headless bench can replay a run exactly</strong>, which is how the difficulty
+numbers in the game&#39;s README were arrived at: drive the compiled binary with a
+scripted pilot, count deaths, classify them.</li>
+<li><strong>There is no import surface to get wrong.</strong> Nothing in the linking step can
+fail, and the <code>LinkError</code> class of startup bug simply does not exist for this
+module.</li>
+</ul>
+<p>None of that is a reason to avoid imports when you need them. It <em>is</em> a reason
+to notice when you do not: an import is a boundary crossing, a dependency, and a
+place where determinism can leak out of your module without announcing itself.</p>
+<hr>
+<h2>Summary</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Question</th>
+<th>Entity pools (ch. 16)</th>
+<th>This grid</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Where is entity <em>i</em>?</td>
+<td><code>base + i * stride</code>, found by scanning <code>active</code></td>
+<td>Every cell exists; <code>(r*COLS + c) * stride</code></td>
+</tr>
+<tr>
+<td>Field width</td>
+<td><code>f32</code> — positions are continuous</td>
+<td><code>u8</code> — four flags in four bytes</td>
+</tr>
+<tr>
+<td>Clearing</td>
+<td>Set <code>active = 0</code> on one record</td>
+<td><code>i32.store</code> zeroes a whole cell</td>
+</tr>
+<tr>
+<td>Expensive operation</td>
+<td>Pairwise collision, every frame</td>
+<td>Flood fill, on the tick that closes a loop</td>
+</tr>
+<tr>
+<td>Scratch space</td>
+<td>None needed</td>
+<td>A fixed 768-slot BFS queue, sized for the worst case</td>
+</tr>
+<tr>
+<td>Imports</td>
+<td><code>sinf</code>, <code>cosf</code></td>
+<td>None</td>
+</tr>
+</tbody></table>
+</div><p>The general lesson is the one that keeps recurring in Part III: <strong>the layout is
+the design decision, and the algorithm follows from it.</strong> A pool of structs
+makes &quot;which of these is near that one?&quot; cheap and &quot;what region is enclosed?&quot;
+nearly impossible. A grid of bytes does the reverse. Neither is the better
+layout; they are answers to different questions, and choosing one is choosing
+which questions stay easy.</p>
+
+<nav class="pager">
+  <a href="17-math-without-a-stdlib.html"><span>Previous</span>Case study: maths without a standard library</a>
+  <a href="index.html">Contents</a>
+  <a class="next" href="19-pools-that-grow.html"><span>Next</span>Case study: pools that grow their own contents</a>
+</nav>
+</main>
+</body>
+</html>

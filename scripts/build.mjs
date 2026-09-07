@@ -28,12 +28,6 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
  */
 const TITLES = [
   {
-    slug: 'vector-arena',
-    wat: 'games/vector-arena/game.wat',
-    wasm: 'games/vector-arena/game.wasm',
-    embed: [],
-  },
-  {
     slug: 'pixel-wave',
     wat: 'games/pixel-wave/game.wat',
     wasm: 'games/pixel-wave/game.wasm',
@@ -60,6 +54,42 @@ const TITLES = [
     embed: [
       {
         file: 'games/grid-breaker/grid-breaker.js',
+        pattern: /var WASM_B64 = "[A-Za-z0-9+/=]*";/,
+        render: (b64) => `var WASM_B64 = "${b64}";`,
+      },
+    ],
+  },
+  {
+    slug: 'asteroid-miner',
+    wat: 'games/asteroid-miner/game.wat',
+    wasm: 'games/asteroid-miner/game.wasm',
+    embed: [
+      {
+        file: 'games/asteroid-miner/asteroid-miner.js',
+        pattern: /var WASM_B64 = "[A-Za-z0-9+/=]*";/,
+        render: (b64) => `var WASM_B64 = "${b64}";`,
+      },
+    ],
+  },
+  {
+    slug: 'sector-defense',
+    wat: 'games/sector-defense/game.wat',
+    wasm: 'games/sector-defense/game.wasm',
+    embed: [
+      {
+        file: 'games/sector-defense/sector-defense.js',
+        pattern: /var WASM_B64 = "[A-Za-z0-9+/=]*";/,
+        render: (b64) => `var WASM_B64 = "${b64}";`,
+      },
+    ],
+  },
+  {
+    slug: 'worm-chase',
+    wat: 'games/worm-chase/game.wat',
+    wasm: 'games/worm-chase/game.wasm',
+    embed: [
+      {
+        file: 'games/worm-chase/worm-chase.js',
         pattern: /var WASM_B64 = "[A-Za-z0-9+/=]*";/,
         render: (b64) => `var WASM_B64 = "${b64}";`,
       },

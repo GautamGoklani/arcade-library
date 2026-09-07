@@ -1,0 +1,210 @@
+/* Worm Chase — scoped styles. Every rule is namespaced under .wc-root so this
+   can be dropped into any page without clobbering existing CSS, and so it
+   cannot collide with another game's stylesheet on the same site. The `wc-`
+   prefix belongs to this title alone; no other game in games/ may use it. */
+
+/* `--wc-max-width` rather than a flat `max-width`, matching --gb-max-width in
+   grid-breaker.css and --pw-max-width in pixel-wave.css. The widget is
+   width-driven, which is what an embedder wants. A page that is nothing but
+   the game has the opposite constraint — see index.html, which caps the width
+   by the height still available. */
+.wc-root {
+  --wc-max-width: 1000px;
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-family: 'Courier New', monospace;
+  color: #5ef08a;
+  background: #05090b;
+  padding: 10px;
+  width: 100%;
+  max-width: var(--wc-max-width);
+  box-sizing: border-box;
+}
+
+.wc-stage {
+  position: relative;
+  line-height: 0;
+  width: 100%;
+  touch-action: none;          /* stop the browser scrolling/zooming mid-game */
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.wc-canvas {
+  background: #060c0e;
+  border: 3px solid #16292c;
+  image-rendering: pixelated;
+  display: block;
+  width: 100%;                 /* scales responsively; internal res stays 960x720 */
+  height: auto;
+  box-sizing: border-box;
+}
+
+.wc-hud {
+  display: flex;
+  align-items: center;
+  gap: 30px;
+  padding: 6px 22px;
+  margin-bottom: 4px;
+  background: #05090b;
+  border: 2px solid #5ef08a;
+  font-size: 15px;
+  letter-spacing: 2px;
+  text-shadow: 0 0 6px rgba(94, 240, 138, 0.75);
+  font-weight: bold;
+}
+.wc-hud .wc-a { color: #7cf2ff; text-shadow: 0 0 6px #7cf2ff; }
+.wc-hud .wc-r { color: #ff4d6d; text-shadow: 0 0 6px #ff4d6d; }
+.wc-hud .wc-v { color: #ffd166; text-shadow: 0 0 6px #ffd166; }
+
+.wc-mute {
+  margin-left: auto;
+  padding: 3px 10px;
+  border: 1px solid rgba(94, 240, 138, 0.6);
+  background: transparent;
+  color: #5ef08a;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: bold;
+  letter-spacing: 1px;
+  cursor: pointer;
+}
+.wc-mute:hover { background: rgba(94, 240, 138, 0.15); }
+
+.wc-overlay {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  pointer-events: none;
+  font-weight: bold;
+}
+
+.wc-msg {
+  font-size: 44px;
+  color: #ff4d6d;
+  text-shadow: 0 0 18px #ff4d6d, 3px 3px 0 #4a0713;
+  display: none;
+  letter-spacing: 6px;
+  pointer-events: auto;   /* tappable on mobile to restart */
+  cursor: pointer;
+}
+.wc-msg small {
+  display: block;
+  font-size: 15px;
+  color: #5ef08a;
+  margin-top: 14px;
+  letter-spacing: 3px;
+}
+
+.wc-banner {
+  font-size: 40px;
+  color: #ffd166;
+  text-shadow: 0 0 18px #ffd166, 3px 3px 0 #4a3405;
+  opacity: 0;
+  letter-spacing: 8px;
+  transition: opacity 0.2s;
+}
+
+/* Sits low so it never covers the middle of the board, which is where the
+   worm is parked whenever this is on screen. */
+.wc-idle {
+  top: auto;
+  bottom: 12%;
+  font-size: 19px;
+  color: #7cf2ff;
+  text-shadow: 0 0 12px #7cf2ff;
+  letter-spacing: 4px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+/* ---------------- touch controls (shown only on coarse-pointer devices) ---- */
+
+/* The overlay is always in the DOM and always interactive — only its
+   *visibility* is gated. It has to be able to receive the very first touch on
+   a device the media query guessed wrong about, and a mouse is filtered out in
+   JS by pointerType rather than by making this unreachable. Hiding it with
+   `display` would swallow that first touch and leave the stick unusable until
+   a second one. */
+.wc-touch {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.18s;
+}
+.wc-root.wc-is-touch .wc-touch { opacity: 1; }
+
+/* Unlike Grid Breaker's paddle rail, the steering zone here is the whole
+   board: a worm turns on both axes, and a thumb that had to find a corner
+   would cost the turn. The ring re-anchors under wherever the thumb lands. */
+.wc-stickzone {
+  position: absolute;
+  inset: 0;
+  pointer-events: auto;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.wc-stick {
+  position: absolute;
+  left: 26%; top: 74%;          /* resting home; JS overrides while held */
+  transform: translate(-50%, -50%);
+  width: 30%;
+  aspect-ratio: 1 / 1;
+  border: 2px solid rgba(94, 240, 138, 0.45);
+  border-radius: 50%;
+  background: rgba(4, 26, 16, 0.35);
+  opacity: 0.5;
+  transition: opacity 0.15s;
+}
+.wc-stick.wc-active { opacity: 1; border-color: rgba(94, 240, 138, 0.85); }
+
+/* Crosshair rather than Grid Breaker's single rail: this stick steers on both
+   axes, and the art has to say so before the first touch. */
+.wc-stick::before,
+.wc-stick::after {
+  content: '';
+  position: absolute;
+  background: rgba(94, 240, 138, 0.28);
+}
+.wc-stick::before { left: 8%; right: 8%; top: 50%; height: 2px; transform: translateY(-50%); }
+.wc-stick::after { top: 8%; bottom: 8%; left: 50%; width: 2px; transform: translateX(-50%); }
+
+.wc-stick-knob {
+  position: absolute;
+  left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
+  width: 42%;
+  aspect-ratio: 1 / 1;
+  border-radius: 50%;
+  background: rgba(94, 240, 138, 0.55);
+  box-shadow: 0 0 12px rgba(94, 240, 138, 0.6);
+}
+.wc-stick.wc-active .wc-stick-knob { background: rgba(94, 240, 138, 0.92); }
+
+.wc-help {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #3f7d59;
+  letter-spacing: 1px;
+  text-align: center;
+}
+
+.wc-fail {
+  color: #ff4d6d;
+  padding: 20px;
+  font-family: 'Courier New', monospace;
+}
+
+@media (max-width: 700px) {
+  .wc-msg { font-size: 7vw; }
+  .wc-banner { font-size: 6.5vw; }
+  .wc-idle { font-size: 3.2vw; }
+  .wc-hud { gap: 3.5vw; font-size: 2.9vw; padding: 4px 10px; letter-spacing: 1px; }
+  .wc-mute { font-size: 2.4vw; padding: 2px 6px; }
+}

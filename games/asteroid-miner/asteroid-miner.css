@@ -1,0 +1,329 @@
+/* Asteroid Miner — scoped styles. Every rule is namespaced under .am-root so
+   this can be dropped into any page without clobbering existing CSS, and so it
+   cannot collide with another game's stylesheet on the same site. The `am-`
+   prefix belongs to this title alone; no other game in games/ may use it. */
+
+/* `--am-max-width` rather than a flat `max-width`, matching --gb-max-width,
+   --wc-max-width and --pw-max-width in the other titles. The widget is
+   width-driven, which is what an embedder wants; index.html caps it by the
+   height still available. */
+.am-root {
+  --am-max-width: 1000px;
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-family: 'Courier New', monospace;
+  color: #ffb84d;
+  background: #04060c;
+  padding: 10px;
+  width: 100%;
+  max-width: var(--am-max-width);
+  box-sizing: border-box;
+}
+
+.am-stage {
+  position: relative;
+  line-height: 0;
+  width: 100%;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.am-canvas {
+  background: #05070f;
+  border: 3px solid #1a2136;
+  image-rendering: pixelated;
+  display: block;
+  width: 100%;                 /* scales responsively; internal res stays 960x720 */
+  height: auto;
+  box-sizing: border-box;
+}
+
+/* The CRT layer: scanlines and a corner-darkening vignette, over the canvas
+   and under everything interactive. Done in CSS rather than in the frame loop
+   because it never changes — a per-frame version would be 240 fill calls a
+   frame to draw the same thing, and it would also be scaled by the canvas's
+   responsive width instead of sitting at true display resolution, which is
+   where scanlines have to be to look like scanlines.
+
+   Pointer-events off, so it cannot swallow a touch meant for the stick. */
+.am-scan {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    repeating-linear-gradient(
+      to bottom,
+      rgba(0, 0, 0, 0.26) 0 1px,
+      rgba(0, 0, 0, 0) 1px 3px),
+    radial-gradient(
+      ellipse at center,
+      rgba(0, 0, 0, 0) 52%,
+      rgba(0, 0, 0, 0.5) 100%);
+}
+
+/* Someone who has asked the system to cut down on motion and effects does not
+   want a simulated failing monitor. */
+@media (prefers-reduced-motion: reduce) {
+  .am-scan { background: none; }
+  .am-bar.am-low { animation: none; }
+}
+
+.am-hud {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 6px 18px;
+  margin-bottom: 4px;
+  background: #04060c;
+  border: 2px solid #ffb84d;
+  font-size: 14px;
+  letter-spacing: 2px;
+  text-shadow: 0 0 6px rgba(255, 184, 77, 0.75);
+  font-weight: bold;
+  width: 100%;
+  box-sizing: border-box;
+}
+.am-hud .am-a { color: #6cf0ff; text-shadow: 0 0 6px #6cf0ff; }
+.am-hud .am-r { color: #ff5470; text-shadow: 0 0 6px #ff5470; }
+.am-hud .am-v { color: #b98cff; text-shadow: 0 0 6px #b98cff; }
+
+/* The fuel gauge is a bar rather than a number: what the player needs from it
+   is "can I get home", which is a proportion, not a value. */
+.am-gauge {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.am-bar {
+  position: relative;
+  width: 92px;
+  height: 11px;
+  border: 1px solid rgba(255, 184, 77, 0.7);
+  background: rgba(255, 184, 77, 0.09);
+  overflow: hidden;
+}
+.am-bar i {
+  position: absolute;
+  inset: 1px auto 1px 1px;
+  display: block;
+  width: 100%;
+  background: #ffb84d;
+  box-shadow: 0 0 8px rgba(255, 184, 77, 0.8);
+  transition: width 0.1s linear, background-color 0.2s;
+}
+.am-bar.am-low i { background: #ff5470; box-shadow: 0 0 8px rgba(255, 84, 112, 0.9); }
+.am-bar.am-low { border-color: rgba(255, 84, 112, 0.85); animation: am-pulse 0.7s infinite; }
+@keyframes am-pulse { 50% { opacity: 0.45; } }
+
+.am-mute {
+  margin-left: auto;
+  padding: 3px 10px;
+  border: 1px solid rgba(255, 184, 77, 0.6);
+  background: transparent;
+  color: #ffb84d;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: bold;
+  letter-spacing: 1px;
+  cursor: pointer;
+}
+.am-mute:hover { background: rgba(255, 184, 77, 0.15); }
+
+.am-overlay {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  pointer-events: none;
+  font-weight: bold;
+}
+
+.am-msg {
+  font-size: 44px;
+  color: #ff5470;
+  text-shadow: 0 0 18px #ff5470, 3px 3px 0 #4a0713;
+  display: none;
+  letter-spacing: 6px;
+  pointer-events: auto;   /* tappable on mobile to restart */
+  cursor: pointer;
+}
+.am-msg small {
+  display: block;
+  font-size: 15px;
+  color: #ffb84d;
+  margin-top: 14px;
+  letter-spacing: 3px;
+}
+
+.am-banner {
+  font-size: 38px;
+  color: #6cf0ff;
+  text-shadow: 0 0 18px #6cf0ff, 3px 3px 0 #063040;
+  opacity: 0;
+  letter-spacing: 7px;
+  transition: opacity 0.2s;
+}
+
+/* Sits high, clear of the ship, which is always near the middle of the action
+   when this is on screen. */
+.am-note {
+  top: 14%;
+  font-size: 18px;
+  color: #7dff9a;
+  text-shadow: 0 0 12px #7dff9a;
+  letter-spacing: 4px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+/* ---------------- touch controls (shown only on coarse-pointer devices) ---- */
+
+/* Always in the DOM and always interactive — only visibility is gated, for the
+   reason spelled out in grid-breaker.css: hiding with `display` would swallow
+   the first touch on a device the media query guessed wrong about. */
+.am-touch {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.18s;
+}
+.am-root.am-is-touch .am-touch { opacity: 1; }
+
+/* Left half aims. The stick names a heading rather than a turn rate, because a
+   thumb can point at where you want to face far faster than it can hold a
+   rotate button for the right number of milliseconds. */
+.am-stickzone {
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 50%;
+  pointer-events: auto;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.am-stick {
+  position: absolute;
+  left: 32%; top: 68%;          /* resting home; JS overrides while held */
+  transform: translate(-50%, -50%);
+  width: 40%;
+  aspect-ratio: 1 / 1;
+  border: 2px solid rgba(255, 184, 77, 0.45);
+  border-radius: 50%;
+  background: rgba(30, 18, 0, 0.35);
+  opacity: 0.5;
+  transition: opacity 0.15s;
+}
+.am-stick.am-active { opacity: 1; border-color: rgba(255, 184, 77, 0.85); }
+.am-stick::before,
+.am-stick::after {
+  content: '';
+  position: absolute;
+  background: rgba(255, 184, 77, 0.26);
+}
+.am-stick::before { left: 8%; right: 8%; top: 50%; height: 2px; transform: translateY(-50%); }
+.am-stick::after { top: 8%; bottom: 8%; left: 50%; width: 2px; transform: translateX(-50%); }
+
+.am-stick-knob {
+  position: absolute;
+  left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
+  width: 42%;
+  aspect-ratio: 1 / 1;
+  border-radius: 50%;
+  background: rgba(255, 184, 77, 0.55);
+  box-shadow: 0 0 12px rgba(255, 184, 77, 0.6);
+}
+.am-stick.am-active .am-stick-knob { background: rgba(255, 184, 77, 0.92); }
+
+/* Round, like Pixel Wave's — a circular button reads as a thumb target and has
+   no corner a thumb can sit on while missing the hit area. */
+.am-btn {
+  position: absolute;
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 2px solid rgba(108, 240, 255, 0.75);
+  background: rgba(0, 20, 30, 0.45);
+  color: #6cf0ff;
+  font-family: 'Courier New', monospace;
+  font-weight: bold;
+  text-shadow: 0 0 6px #6cf0ff;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+  aspect-ratio: 1 / 1;
+}
+.am-btn.am-active { background: rgba(108, 240, 255, 0.3); }
+
+.am-btn-fire { right: 5%; bottom: 9%; width: 22%; font-size: 3.2vw; }
+.am-btn-thrust {
+  right: 27%; bottom: 26%; width: 19%; font-size: 2.6vw;
+  border-color: rgba(255, 184, 77, 0.75);
+  color: #ffb84d;
+  text-shadow: 0 0 6px #ffb84d;
+}
+.am-btn-thrust.am-active { background: rgba(255, 184, 77, 0.3); }
+
+@media (min-width: 800px) {
+  .am-btn-fire { font-size: 19px; }
+  .am-btn-thrust { font-size: 15px; }
+}
+
+.am-help {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #8a6a34;
+  letter-spacing: 1px;
+  text-align: center;
+}
+
+.am-fail {
+  color: #ff5470;
+  padding: 20px;
+  font-family: 'Courier New', monospace;
+}
+
+@media (max-width: 700px) {
+  .am-msg { font-size: 7vw; }
+  .am-banner { font-size: 6vw; }
+  .am-note { font-size: 3vw; }
+  /* The CRT layer: scanlines and a corner-darkening vignette, over the canvas
+   and under everything interactive. Done in CSS rather than in the frame loop
+   because it never changes — a per-frame version would be 240 fill calls a
+   frame to draw the same thing, and it would also be scaled by the canvas's
+   responsive width instead of sitting at true display resolution, which is
+   where scanlines have to be to look like scanlines.
+
+   Pointer-events off, so it cannot swallow a touch meant for the stick. */
+.am-scan {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    repeating-linear-gradient(
+      to bottom,
+      rgba(0, 0, 0, 0.26) 0 1px,
+      rgba(0, 0, 0, 0) 1px 3px),
+    radial-gradient(
+      ellipse at center,
+      rgba(0, 0, 0, 0) 52%,
+      rgba(0, 0, 0, 0.5) 100%);
+}
+
+/* Someone who has asked the system to cut down on motion and effects does not
+   want a simulated failing monitor. */
+@media (prefers-reduced-motion: reduce) {
+  .am-scan { background: none; }
+  .am-bar.am-low { animation: none; }
+}
+
+.am-hud { gap: 2.4vw; font-size: 2.5vw; padding: 4px 8px; letter-spacing: 1px; }
+  .am-bar { width: 14vw; height: 2vw; }
+  .am-mute { font-size: 2.2vw; padding: 2px 5px; }
+}

@@ -1,0 +1,273 @@
+/* Sector Defense — scoped styles. Every rule is namespaced under .sd-root so
+   this can be dropped into any page without clobbering existing CSS, and so it
+   cannot collide with another game's stylesheet on the same site. The `sd-`
+   prefix belongs to this title alone; no other game in games/ may use it. */
+
+.sd-root {
+  --sd-max-width: 1000px;
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-family: 'Courier New', monospace;
+  color: #66e2ff;
+  background: #04070c;
+  padding: 10px;
+  width: 100%;
+  max-width: var(--sd-max-width);
+  box-sizing: border-box;
+}
+
+.sd-stage {
+  position: relative;
+  line-height: 0;
+  width: 100%;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.sd-canvas {
+  background: #060a12;
+  border: 3px solid #16283a;
+  image-rendering: pixelated;
+  display: block;
+  width: 100%;                 /* scales responsively; internal res stays 960x720 */
+  height: auto;
+  box-sizing: border-box;
+}
+
+/* The CRT layer, as in asteroid-miner.css: scanlines and a corner-darkening
+   vignette, over the canvas and under everything interactive. In CSS rather
+   than the frame loop because it never changes, and because at true display
+   resolution is the only place scanlines look like scanlines. */
+.sd-scan {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    repeating-linear-gradient(
+      to bottom,
+      rgba(0, 0, 0, 0.26) 0 1px,
+      rgba(0, 0, 0, 0) 1px 3px),
+    radial-gradient(
+      ellipse at center,
+      rgba(0, 0, 0, 0) 52%,
+      rgba(0, 0, 0, 0.5) 100%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sd-scan { background: none; }
+  .sd-bar.sd-crit { animation: none; }
+}
+
+.sd-hud {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 6px 16px;
+  margin-bottom: 4px;
+  background: #04070c;
+  border: 2px solid #66e2ff;
+  font-size: 14px;
+  letter-spacing: 2px;
+  text-shadow: 0 0 6px rgba(102, 226, 255, 0.75);
+  font-weight: bold;
+  width: 100%;
+  box-sizing: border-box;
+}
+.sd-hud .sd-a { color: #ffd166; text-shadow: 0 0 6px #ffd166; }
+.sd-hud .sd-v { color: #b98cff; text-shadow: 0 0 6px #b98cff; }
+.sd-hud .sd-c { color: #7dff9a; text-shadow: 0 0 6px #7dff9a; }
+
+/* Two meters, and they are the whole game state: what is absorbing damage now
+   and what is left if it stops. Bars, not numbers — the player needs a
+   proportion at a glance, not a value. */
+.sd-gauge { display: flex; align-items: center; gap: 6px; }
+.sd-bar {
+  position: relative;
+  width: 84px;
+  height: 11px;
+  border: 1px solid currentColor;
+  overflow: hidden;
+}
+.sd-bar i {
+  position: absolute;
+  inset: 1px auto 1px 1px;
+  display: block;
+  width: 100%;
+  background: currentColor;
+  transition: width 0.12s linear;
+}
+.sd-shield { color: #66e2ff; }
+/* Shield regeneration is suppressed while you are under fire, so the bar says
+   which of the two states it is in rather than leaving you to infer it. */
+.sd-shield.sd-regen i { background: #a8f0ff; }
+.sd-sector { color: #7dff9a; }
+.sd-bar.sd-crit { color: #ff5470; animation: sd-pulse 0.7s infinite; }
+@keyframes sd-pulse { 50% { opacity: 0.4; } }
+
+.sd-mute {
+  margin-left: auto;
+  padding: 3px 10px;
+  border: 1px solid rgba(102, 226, 255, 0.6);
+  background: transparent;
+  color: #66e2ff;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: bold;
+  letter-spacing: 1px;
+  cursor: pointer;
+}
+.sd-mute:hover { background: rgba(102, 226, 255, 0.15); }
+
+.sd-overlay {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  pointer-events: none;
+  font-weight: bold;
+}
+
+.sd-msg {
+  font-size: 42px;
+  color: #ff5470;
+  text-shadow: 0 0 18px #ff5470, 3px 3px 0 #4a0713;
+  display: none;
+  letter-spacing: 5px;
+  pointer-events: auto;   /* tappable on mobile to restart */
+  cursor: pointer;
+}
+.sd-msg small {
+  display: block;
+  font-size: 15px;
+  color: #66e2ff;
+  margin-top: 14px;
+  letter-spacing: 3px;
+}
+
+.sd-banner {
+  font-size: 38px;
+  color: #ffd166;
+  text-shadow: 0 0 18px #ffd166, 3px 3px 0 #4a3405;
+  opacity: 0;
+  letter-spacing: 7px;
+  transition: opacity 0.2s;
+}
+
+/* High, so it never sits over the defender's line. */
+.sd-note {
+  top: 16%;
+  font-size: 18px;
+  color: #ff5470;
+  text-shadow: 0 0 12px #ff5470;
+  letter-spacing: 4px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+/* ---------------- touch controls (shown only on coarse-pointer devices) ---- */
+
+.sd-touch {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.18s;
+}
+.sd-root.sd-is-touch .sd-touch { opacity: 1; }
+
+/* The defender has one axis, so this is Grid Breaker's rail rather than
+   Asteroid Miner's free stick: the knob travels horizontally only, and the
+   ring is drawn with a rail across it to say so before it is touched. */
+.sd-stickzone {
+  position: absolute;
+  left: 0; bottom: 0;
+  width: 52%; height: 48%;
+  pointer-events: auto;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.sd-stick {
+  position: absolute;
+  left: 34%; top: 58%;          /* resting home; JS overrides while held */
+  transform: translate(-50%, -50%);
+  width: 42%;
+  aspect-ratio: 1 / 1;
+  border: 2px solid rgba(102, 226, 255, 0.45);
+  border-radius: 50%;
+  background: rgba(4, 22, 32, 0.35);
+  opacity: 0.55;
+  transition: opacity 0.15s;
+}
+.sd-stick.sd-active { opacity: 1; border-color: rgba(102, 226, 255, 0.85); }
+.sd-stick::after {
+  content: '';
+  position: absolute;
+  left: 8%; right: 8%; top: 50%;
+  height: 2px;
+  transform: translateY(-50%);
+  background: rgba(102, 226, 255, 0.3);
+}
+
+.sd-stick-knob {
+  position: absolute;
+  left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
+  width: 44%;
+  aspect-ratio: 1 / 1;
+  border-radius: 50%;
+  background: rgba(102, 226, 255, 0.55);
+  box-shadow: 0 0 12px rgba(102, 226, 255, 0.6);
+}
+.sd-stick.sd-active .sd-stick-knob { background: rgba(102, 226, 255, 0.92); }
+
+.sd-btn {
+  position: absolute;
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  aspect-ratio: 1 / 1;
+  border: 2px solid rgba(255, 209, 102, 0.75);
+  background: rgba(30, 24, 0, 0.45);
+  color: #ffd166;
+  font-family: 'Courier New', monospace;
+  font-weight: bold;
+  text-shadow: 0 0 6px #ffd166;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.sd-btn.sd-active { background: rgba(255, 209, 102, 0.3); }
+.sd-btn-fire { right: 6%; bottom: 10%; width: 24%; font-size: 3.2vw; }
+
+@media (min-width: 800px) {
+  .sd-btn-fire { font-size: 19px; }
+}
+
+.sd-help {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #3f7d92;
+  letter-spacing: 1px;
+  text-align: center;
+}
+
+.sd-fail {
+  color: #ff5470;
+  padding: 20px;
+  font-family: 'Courier New', monospace;
+}
+
+@media (max-width: 700px) {
+  .sd-msg { font-size: 7vw; }
+  .sd-banner { font-size: 6vw; }
+  .sd-note { font-size: 3vw; }
+  .sd-hud { gap: 2.2vw; font-size: 2.5vw; padding: 4px 8px; letter-spacing: 1px; }
+  .sd-bar { width: 13vw; height: 2vw; }
+  .sd-mute { font-size: 2.2vw; padding: 2px 5px; }
+}

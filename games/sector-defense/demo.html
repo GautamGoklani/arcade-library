@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Sector Defense — demo</title>
+<!-- required on mobile so pinch-zoom doesn't fight the stick -->
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<link rel="stylesheet" href="sector-defense.css">
+<style>
+  body {
+    margin: 0;
+    padding: 24px 12px;
+    background: #04070c;
+    display: flex;
+    justify-content: center;
+    font-family: 'Courier New', monospace;
+  }
+</style>
+</head>
+<body>
+
+<!-- the widget builds its own HUD, canvas and overlays inside this container -->
+<div id="game"></div>
+
+<script src="sector-defense.js"></script>
+<script>
+  var game = SectorDefense.mount('#game');
+  // game.restart();  — start a fresh run
+  // game.getState(); — { score, level, shield, sector, combo, multiplier, bestCombo, gameOver }
+  // game.destroy();  — stop the loop, remove DOM + all listeners
+</script>
+
+</body>
+</html>

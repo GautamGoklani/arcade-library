@@ -1,6 +1,6 @@
 # 17 · Case study: maths without a standard library
 
-← [Entity pools](16-entity-pools.md) · [Contents](README.md) · [Glossary](glossary.md)
+← [Entity pools](16-entity-pools.md) · [Contents](README.md) · next: [A grid, and the flood fill that closes a loop](18-grids-and-flood-fill.md)
 
 ---
 
@@ -362,4 +362,4 @@ game maths without a stdlib is not much harder than with one.
 
 ---
 
-← [Entity pools](16-entity-pools.md) · [Contents](README.md) · [Glossary](glossary.md) · [Further reading](further-reading.md)
+← [Entity pools](16-entity-pools.md) · [Contents](README.md) · next: [A grid, and the flood fill that closes a loop](18-grids-and-flood-fill.md) · [Glossary](glossary.md)

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Arcade Library — games written in WebAssembly Text</title>
-<meta name="description" content="Two browser arcade games whose entire simulation is hand-written WebAssembly Text, and a WebAssembly course built around them.">
+<meta name="description" content="Five browser arcade games whose entire simulation is hand-written WebAssembly Text, and a WebAssembly course built around them.">
 <link rel="icon" href="games/pixel-wave/logo.svg">
 <style>
   :root {
@@ -96,10 +96,10 @@
   <p class="eyebrow">Arcade Library</p>
   <h1>Arcade games with no engine underneath them.</h1>
   <p class="lede">
-    Three browser games whose entire simulation — physics, enemy AI, bullet pools, collisions,
-    the level curve — is hand-written WebAssembly Text. No game framework, no compiler
-    front-end, no runtime dependency. JavaScript forwards input and draws what it reads back
-    out of linear memory, and that is all it does.
+    Five browser games whose entire simulation — physics, enemy AI, bullet pools, collisions,
+    territory capture, fuel and cargo, shield and combo state — is hand-written WebAssembly Text. No game framework,
+    no compiler front-end, no runtime dependency. JavaScript forwards input and draws what it
+    reads back out of linear memory, and that is all it does.
   </p>
 </header>
 
@@ -111,25 +111,37 @@
     <p>A retro wave shooter. The swarm patrols the upper half of the arena, asteroids fall, and every cleared level adds one more enemy.</p>
     <div class="tags"><span class="tag">3.5 KB engine</span><span class="tag">33 enemies</span><span class="tag">touch + keyboard</span></div>
   </a>
-  <a class="game" href="games/vector-arena/index.html">
-    <img src="games/vector-arena/logo.svg" alt="A cyan fighter breaking away from two red pursuers">
-    <h3>Vector Arena</h3>
-    <p>Vector-glow dogfighting in a wrap-around arena. The bots orbit at range, strafe, lead their shots, and dodge yours.</p>
-    <div class="tags"><span class="tag">2.7 KB engine</span><span class="tag">wrap-around</span><span class="tag">keyboard</span></div>
-  </a>
   <a class="game" href="games/grid-breaker/index.html">
     <img src="games/grid-breaker/logo.svg" alt="A paddle below a grid of coloured bricks, with the ball breaking through">
     <h3>Grid Breaker</h3>
     <p>Brick-breaking where the brick layout, the ball physics and the power-up drops all live in the engine. The paddle follows the pointer, or a stick on touch.</p>
     <div class="tags"><span class="tag">4.4 KB engine</span><span class="tag">power-ups</span><span class="tag">touch + keyboard</span></div>
   </a>
+  <a class="game" href="games/worm-chase/index.html">
+    <img src="games/worm-chase/logo.svg" alt="A worm drawing a trail out of its green territory, with a chaser nearby">
+    <h3>Worm Chase</h3>
+    <p>Leave your territory, loop back, and everything the loop sealed off becomes yours. A flood fill decides what counts as enclosed.</p>
+    <div class="tags"><span class="tag">3.8 KB engine</span><span class="tag">no imports</span><span class="tag">touch + keyboard</span></div>
+  </a>
+  <a class="game" href="games/asteroid-miner/index.html">
+    <img src="games/asteroid-miner/logo.svg" alt="A pixel-art ship mining a rock field above a depot pad">
+    <h3>Asteroid Miner</h3>
+    <p>Break rocks into smaller rocks, fill the hold, and fly it home before the tank runs dry. Drawn at 320x240 with scanlines, on purpose.</p>
+    <div class="tags"><span class="tag">4.2 KB engine</span><span class="tag">fuel + cargo</span><span class="tag">touch + keyboard</span></div>
+  </a>
+  <a class="game" href="games/sector-defense/index.html">
+    <img src="games/sector-defense/logo.svg" alt="A defender behind a hazard line, with four kinds of attacker descending">
+    <h3>Sector Defense</h3>
+    <p>Hold a line against attackers that each pick their own path. A shield that only recovers once the shooting stops, and a combo that decays.</p>
+    <div class="tags"><span class="tag">3.6 KB engine</span><span class="tag">no imports</span><span class="tag">touch + keyboard</span></div>
+  </a>
 </div>
 
 <h2>Learn WebAssembly</h2>
 <p class="lede" style="margin-bottom:1.25rem">
   A full course in <a href="docs/index.html">docs/</a> — the language from first principles, the
-  ecosystem around it, and then the Pixel Wave and Vector Arena engines as the worked
-  example. Seventeen chapters, a glossary and a reading list.
+  ecosystem around it, and then the Pixel Wave, Worm Chase, Asteroid Miner and
+  Sector Defense engines as the worked example. Twenty chapters, a glossary and a reading list.
 </p>
 <ul class="docs">
   <li><a href="docs/01-what-is-webassembly.html">01 · What WebAssembly actually is<span>And the four things it is usually mistaken for</span></a></li>
@@ -138,7 +150,8 @@
   <li><a href="docs/07-javascript-interop.html">07 · The JavaScript boundary<span>Imports, exports, and what crossing it costs</span></a></li>
   <li><a href="docs/12-security-model.html">12 · The security model<span>What the sandbox protects, and what it doesn't</span></a></li>
   <li><a href="docs/16-entity-pools.html">16 · Case study: entity pools<span>How these engines store 33 enemies and 160 bullets</span></a></li>
-  <li><a href="docs/index.html">Full contents →<span>All 17 chapters, plus the reference material</span></a></li>
+  <li><a href="docs/18-grids-and-flood-fill.html">18 · Case study: a grid and a flood fill<span>What "enclosed" means, and how to answer it with no allocator</span></a></li>
+  <li><a href="docs/index.html">Full contents →<span>All 20 chapters, plus the reference material</span></a></li>
 </ul>
 
 <h2>Build from source</h2>

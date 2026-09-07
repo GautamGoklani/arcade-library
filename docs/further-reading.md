@@ -97,7 +97,8 @@ send someone.
   free online. The Object Pool, Data Locality and Game Loop chapters are exactly
   the design space [chapter 16](16-entity-pools.md) operates in.
 - **Craig Reynolds, ["Steering Behaviors For Autonomous Characters"](https://www.red3d.com/cwr/steer/)** —
-  the 1999 paper that everything in Vector Arena's bot AI descends from.
+  the 1999 paper that the closest-approach dodging in [chapter
+  17](17-math-without-a-stdlib.md) descends from.
 - **[Marsaglia, "Xorshift RNGs"](https://www.jstatsoft.org/article/view/v008i14)** —
   the original paper, including the shift triples.
 - **[PCG](https://www.pcg-random.org/)** — if xorshift is not good enough. The

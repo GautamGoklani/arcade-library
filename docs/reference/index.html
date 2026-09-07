@@ -150,10 +150,10 @@ has the current values and what moved.</p>
 <p><strong>§7.1 calls <code>$ROT_SPEED</code> a &quot;rotation accel (rad/sec²)&quot;. It is not.</strong> The engine
 applies it directly as a rate: <code>heading += rotDir * ROT_SPEED * dt</code>. The units
 are radians per second.</p>
-<p><strong>They describe v2 only.</strong> Vector Arena has a different memory layout, different
-AI and no levels. Reading these while editing
-<a href="../../games/vector-arena/game.wat"><code>../../games/vector-arena/game.wat</code></a> will
-mislead you on every offset.</p>
+<p><strong>They describe v2 only</strong> — that is, Pixel Wave&#39;s engine and no other. Every
+later title in <code>games/</code> has its own memory layout, its own AI and its own rules,
+and each documents them in its own README. Reading these while editing any of
+them will mislead you on every offset.</p>
 <p>For current, maintained documentation, use the <a href="../index.html">course</a> —
 particularly <a href="../15-game-loop-architecture.html">chapter 15</a>,
 <a href="../16-entity-pools.html">16</a> and <a href="../17-math-without-a-stdlib.html">17</a>, which

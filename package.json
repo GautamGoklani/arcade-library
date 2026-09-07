@@ -8,9 +8,11 @@
     "build": "npm run build:engines && npm run build:docs",
     "build:engines": "node scripts/build.mjs",
     "build:docs": "node scripts/build-docs.mjs",
-    "build:vector-arena": "node scripts/build.mjs vector-arena",
     "build:pixel-wave": "node scripts/build.mjs pixel-wave",
     "build:grid-breaker": "node scripts/build.mjs grid-breaker",
+    "build:worm-chase": "node scripts/build.mjs worm-chase",
+    "build:asteroid-miner": "node scripts/build.mjs asteroid-miner",
+    "build:sector-defense": "node scripts/build.mjs sector-defense",
     "check": "node scripts/build.mjs --check && node scripts/build-docs.mjs --check",
     "serve": "node scripts/serve.mjs"
   },

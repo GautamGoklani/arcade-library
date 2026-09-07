@@ -12,9 +12,11 @@ arcade-library/
 ├── index.html          ← landing page; open it, or npm run serve
 ├── games/
 │   ├── pixel-wave/     ← retro wave shooter, 3.5 KB engine, keyboard + touch
-│   ├── vector-arena/   ← vector-glow dogfighting, 2.7 KB engine
-│   └── grid-breaker/   ← brick breaker, 4.4 KB engine, keyboard + pointer + touch
-├── docs/               ← the course: 17 chapters, glossary, cheatsheet
+│   ├── grid-breaker/   ← brick breaker, 4.4 KB engine, keyboard + pointer + touch
+│   ├── worm-chase/     ← grid territory capture, 3.8 KB engine, no imports
+│   ├── asteroid-miner/ ← mining run, 4.2 KB engine, fuel and cargo, 320x240
+│   └── sector-defense/ ← wave defence, 3.6 KB engine, shield + combo, 320x240
+├── docs/               ← the course: 20 chapters, glossary, cheatsheet
 └── scripts/            ← build.mjs (wat → wasm) and serve.mjs
 ```
 
@@ -43,17 +45,21 @@ npm run serve      # http://localhost:8080
 | | |
 |---|---|
 | **[Pixel Wave](games/pixel-wave/)** | The swarm patrols the upper half of the arena, asteroids fall, and every cleared level adds one more enemy. 33 enemies, 160 bullets, endless levels. Keyboard and touch |
-| **[Vector Arena](games/vector-arena/)** | Six bots that orbit at range, strafe, lead their shots against your velocity and dodge yours by computing closest approach. Wrap-around arena. Keyboard |
 | **[Grid Breaker](games/grid-breaker/)** | Brick breaking where the layout, the ball physics and the power-up drops all live in the engine. Paddle follows the pointer, or an on-screen stick on touch. Keyboard, pointer and touch |
+| **[Worm Chase](games/worm-chase/)** | Leave your territory, loop back, and a flood fill decides what your trail sealed off. Hazards, and chasers that cannot follow you home. Hold to move. Keyboard and touch |
+| **[Asteroid Miner](games/asteroid-miner/)** | Rocks split when shot and pebbles pay out in gems. Fuel burns while you thrust, the hold holds twelve, and only the depot turns either into progress. Drawn at 320x240 with scanlines. Keyboard and touch |
+| **[Sector Defense](games/sector-defense/)** | Hold a line against attackers that each pick their own path across the field. A shield that only recovers once the shooting stops, and a combo that decays. Keyboard and touch |
 
 ---
 
 ## Learn WebAssembly
 
 [**docs/**](docs/) is the substantial part of this repository: a course in three
-parts, written to be read in order, with the Pixel Wave and Vector Arena engines
-as the worked example in Part III. Grid Breaker arrived after the course was
-written and is not covered by it. The links below are the Markdown sources, which is what renders on
+parts, written to be read in order, with the Pixel Wave, Worm Chase, Asteroid
+Miner and Sector Defense engines as the worked example in Part III. Grid Breaker arrived after the
+first seventeen chapters were written and is not covered by it; its own
+[README](games/grid-breaker/README.md) documents it instead.
+The links below are the Markdown sources, which is what renders on
 GitHub; the same chapters are also built as browsable HTML at
 [`docs/index.html`](docs/index.html) for the served site.
 
@@ -76,7 +82,10 @@ features](docs/14-post-mvp-features.md)
 **Part III — these engines.** [Game loop
 architecture](docs/15-game-loop-architecture.md) · [Entity pools in linear
 memory](docs/16-entity-pools.md) · [Maths without a standard
-library](docs/17-math-without-a-stdlib.md)
+library](docs/17-math-without-a-stdlib.md) · [A grid, and the flood fill that
+closes a loop](docs/18-grids-and-flood-fill.md) · [Pools that grow their own
+contents](docs/19-pools-that-grow.md) · [Giving each entity its own
+intent](docs/20-per-entity-intent.md)
 
 **Reference.** [Glossary](docs/glossary.md) · [Instruction
 cheatsheet](docs/cheatsheet.md) · [Further reading](docs/further-reading.md)
@@ -109,9 +118,8 @@ Two things are committed that a build could regenerate, both deliberately:
 re-renders in memory, compares, and changes nothing. It also verifies every
 relative link in the generated pages resolves. Wire it into CI.
 
-Pixel Wave additionally carries its engine as base64 inside `pixel-wave.js`, so
-the widget is two files with no network requests at runtime. The build re-embeds
-it.
+Every title carries its engine as base64 inside its widget JS, so each is two
+files with no network requests at runtime. The build re-embeds it.
 
 ### Why the docs are rendered to HTML
 
@@ -119,7 +127,7 @@ Markdown reads fine on github.com, which is where the sources are meant to be
 read. But this repository is also *served* — from the landing page, from
 `npm run serve`, from GitHub Pages — and there a `.md` file arrives as
 `text/markdown` and the browser shows unstyled plain text with every `#` and
-`|` intact. Seventeen chapters of that is not documentation anyone will read.
+`|` intact. Twenty chapters of that is not documentation anyone will read.
 
 Rendering at build time gives real HTML that works with JavaScript disabled, is
 indexable, and supports find-in-page on first load — none of which a
@@ -145,10 +153,12 @@ Multiple instances on one page are independent. See
 [`games/pixel-wave/README.md`](games/pixel-wave/README.md) for the options and
 the memory layout.
 
-Vector Arena ships as a bare engine — see
-[`games/vector-arena/README.md`](games/vector-arena/README.md) for its exports
-and offsets, and [chapter 7](docs/07-javascript-interop.md) for the difference
-between the two integration shapes.
+Grid Breaker, Worm Chase, Asteroid Miner and Sector Defense ship the same way,
+as `GridBreaker.mount()`, `WormChase.mount()`, `AsteroidMiner.mount()` and
+`SectorDefense.mount()` — see their READMEs for options and memory layouts.
+
+See [chapter 7](docs/07-javascript-interop.md) for the difference between
+shipping a widget like these and shipping a bare engine for a host to render.
 
 ---
 
@@ -158,9 +168,10 @@ To learn the machine without a compiler in the way. It is explicitly **not** a
 recommendation — [chapter 10](docs/10-source-languages.md) is blunt about what
 it costs, and Rust, Zig or AssemblyScript are the right answers for real work.
 
-What the exercise produced, though, is a pair of complete games in **strict
-MVP WebAssembly**: four value types, one 64 KiB memory, structured control flow,
-two imports. No post-MVP feature, no feature detection, no fallback build. They
+What the exercise produced, though, is five complete games in **strict MVP
+WebAssembly**: four value types, one 64 KiB memory, structured control flow, and
+two imports — `sinf` and `cosf` — which Worm Chase and Sector Defense do not
+need at all. No post-MVP feature, no feature detection, no fallback build. They
 run on anything that has ever supported WebAssembly.
 
 The documentation is the deliverable. The games are the excuse.
