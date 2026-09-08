@@ -9,6 +9,7 @@ else — physics, enemy AI, bullet pools, collisions, the level curve — is WAT
 
 ```
 arcade-library/
+├── CLAUDE.md           ← how this repo is built: invariants, conventions, gotchas
 ├── index.html          ← landing page; open it, or npm run serve
 ├── games/
 │   ├── pixel-wave/     ← retro wave shooter, 3.5 KB engine, keyboard + touch
@@ -103,7 +104,8 @@ npm install                  # wabt (assembler) and marked (docs renderer)
 npm run build                # engines + documentation
 npm run build:engines        # every game.wat → game.wasm
 npm run build:docs           # every docs/*.md → docs/*.html
-npm run check                # verify all build output matches its sources
+npm run check                # verify all build output matches its sources,
+                             #   and that each widget agrees with its engine
 npm run serve                # static server with the right wasm MIME type
 ```
 
