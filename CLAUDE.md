@@ -36,6 +36,7 @@ this repo is committed that a build could regenerate:
 ## Layout
 
 ```
+TASKS.md                the open backlog — read it before picking up work
 index.html              landing page / arcade hub — a card per game
 games/<slug>/           one self-contained game each (see below)
 games/plans-for-other-games.md    roadmap: shipped, still to build, build order
@@ -269,6 +270,10 @@ per game:
 ---
 
 ## Roadmap status
+
+**[`TASKS.md`](TASKS.md) is the backlog** — verification debt, missing CI, the
+two titles that predate the retro renderer, and the library goals not yet built.
+Read it before starting anything; it is written to be picked up cold.
 
 Shipped: Pixel Wave, Grid Breaker, Worm Chase, Asteroid Miner, Sector Defense,
 Circuit Runner. The original build order is complete. Remaining concepts:

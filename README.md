@@ -10,6 +10,7 @@ else — physics, enemy AI, bullet pools, collisions, the level curve — is WAT
 ```
 arcade-library/
 ├── CLAUDE.md           ← how this repo is built: invariants, conventions, gotchas
+├── TASKS.md            ← the open backlog
 ├── index.html          ← landing page; open it, or npm run serve
 ├── games/
 │   ├── pixel-wave/     ← retro wave shooter, 3.5 KB engine, keyboard + touch
