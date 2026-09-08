@@ -27,6 +27,7 @@ for the reasoning behind keeping designs original.
 | **[Worm Chase](worm-chase/)** | Grid territory capture: leave your land, loop back, and everything the loop sealed off becomes yours. Hazards, and chasers that cannot follow you home. | 3.8 KB |
 | **[Asteroid Miner](asteroid-miner/)** | Mine a drifting rock field for gems. Rocks split when shot; fuel and cargo make every run a round trip. | 4.2 KB |
 | **[Sector Defense](sector-defense/)** | Wave defence on one axis. Attackers with individual intent, a shield that regenerates only out of contact, and a decaying combo. | 3.6 KB |
+| **[Circuit Runner](circuit-runner/)** | Endless lane runner on a circuit board. Nothing to shoot, one draining meter, and a board generated so it is always passable. | 3.0 KB |
 
 ---
 
@@ -34,7 +35,6 @@ for the reasoning behind keeping designs original.
 
 | Working Title | Concept | Complexity |
 |---|---|---|
-| **Circuit Runner** | Endless lane-runner across a circuit board; dodge components, collect current, speed scales with survival time. | Low–Medium |
 | **Pulse** | Abstract tube shooter driven by rhythm — enemy spawns sync to the beat of the soundtrack. | Medium–High |
 | **Starfield Runner** | Vertical endless scroller through dense obstacle fields with tight-squeeze bonus scoring. | Low–Medium |
 | **Tower Defense Lite** | Minimal tower placement and wave defense with original tower types and enemy roles. | Medium–High |
@@ -43,7 +43,11 @@ for the reasoning behind keeping designs original.
 
 ## Remaining Build Order
 
-1. **Pulse** — most ambitious; depends on the audio system planned for Pixel
+1. **Starfield Runner** — the cheapest remaining, and the one that most needs a
+   reason to exist alongside Circuit Runner: both scroll toward the player. Its
+   distinguishing idea is meant to be tight-squeeze bonus scoring, so build that
+   first or do not build it.
+2. **Pulse** — most ambitious; depends on the audio system planned for Pixel
    Wave v1.x.
 
 All four steps of the original order are done, and between them they did the
@@ -59,8 +63,13 @@ all.
 
 It also set the visual bar. Asteroid Miner renders at 320x240 with scanlines
 and no glow anywhere, which reads as a machine of the period rather than a
-modern game with pixel sprites in it. New titles should assume that treatment;
-the earlier titles have not been retrofitted.
+modern game with pixel sprites in it. Sector Defense and Circuit Runner follow
+it; Pixel Wave and Grid Breaker have not been retrofitted.
+
+Circuit Runner was taken next out of order because it was the cheapest of the
+four remaining and the only one with a genuinely new shape: it is the first
+title here with **nothing to shoot**, and the first whose world is generated
+rather than placed.
 
 ---
 

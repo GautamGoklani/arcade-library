@@ -1,7 +1,7 @@
 # arcade-library — working notes
 
 Browser arcade games whose entire simulation is **hand-written WebAssembly
-Text**, plus a 20-chapter WebAssembly course built around them. No game engine,
+Text**, plus a 21-chapter WebAssembly course built around them. No game engine,
 no compiler front-end, no runtime dependency. JavaScript forwards input and
 draws what it reads out of linear memory; everything else is WAT.
 
@@ -39,7 +39,7 @@ this repo is committed that a build could regenerate:
 index.html              landing page / arcade hub — a card per game
 games/<slug>/           one self-contained game each (see below)
 games/plans-for-other-games.md    roadmap: shipped, still to build, build order
-docs/                   the course: 20 chapters + glossary, cheatsheet, reading list
+docs/                   the course: 21 chapters + glossary, cheatsheet, reading list
 docs/reference/         original .docx project documents, kept as a historical record
 scripts/build.mjs       wat → wasm, and re-embeds base64 into each widget
 scripts/build-docs.mjs  md → html, generates docs/index.html, checks links
@@ -56,6 +56,7 @@ scripts/serve.mjs       dev server
 | `worm-chase` | 3.9 KB | grid territory capture | **no imports**; hold-to-move |
 | `asteroid-miner` | 4.2 KB | mining run | splitting entities, fuel/cargo; first with the retro renderer |
 | `sector-defense` | 3.6 KB | wave defence | **no imports**; per-entity intent, two meters instead of lives |
+| `circuit-runner` | 3.0 KB | endless lane runner | **no imports**; nothing to shoot, generated board, tap-zone touch |
 
 Vector Arena was removed in `e90bc03`. Chapters 6, 7 and 17 still teach
 techniques drawn from it and say so inline; do not "fix" those by deleting the
@@ -75,7 +76,7 @@ Break these and the repository stops being what it is.
    single exception — one builder, so `--check` can cover every title at once.
 
 2. **Every game owns a CSS prefix, and no other game may use it.**
-   `pw-` `gb-` `wc-` `am-` `sd-`. Every rule is namespaced under `.<prefix>-root`
+   `pw-` `gb-` `wc-` `am-` `sd-` `cr-`. Every rule is namespaced under `.<prefix>-root`
    so a widget can be dropped into someone else's page.
 
 3. **JavaScript owns no game state.** It forwards input, calls `step(dt)`, and
@@ -88,7 +89,7 @@ Break these and the repository stops being what it is.
    what happened, so sound, particles and shake can never disagree.
 
 5. **Strict MVP WebAssembly.** Four value types, one 64 KiB page, structured
-   control flow, at most two imports (`sinf`/`cosf`; two engines need none). No
+   control flow, at most two imports (`sinf`/`cosf`; three engines need none). No
    post-MVP feature, no feature detection, no fallback build. If a proposal
    would help, say so in a comment and don't use it — chapter 14 does exactly
    that for `memory.fill`.
@@ -151,7 +152,10 @@ the arithmetic showing where each region ends.
 
 Everything from Asteroid Miner onward draws into a **320×240 buffer blown up 3×
 with smoothing off**. New titles should assume it; Pixel Wave and Grid Breaker
-have not been retrofitted.
+have not been retrofitted. Circuit Runner adds one wrinkle worth copying when it
+applies: variable-width things (its 1- and 2-lane components) are drawn
+procedurally with `fillRect` on the low-res grid rather than from ASCII sprites,
+because an ASCII grid has one width.
 
 ```js
 var low = document.createElement('canvas');
@@ -244,6 +248,7 @@ per game:
 | 18 | a fixed grid, and a flood fill with no allocator |
 | 19 | pools that grow their own contents; the resolution you draw at |
 | 20 | per-entity intent; meters instead of lives |
+| 21 | generating a world that is always winnable |
 
 ---
 
@@ -265,11 +270,12 @@ per game:
 
 ## Roadmap status
 
-Shipped: Pixel Wave, Grid Breaker, Worm Chase, Asteroid Miner, Sector Defense.
-The original build order is complete. Remaining concepts, none of them ordered:
-**Circuit Runner**, **Starfield Runner** (both Low–Medium and the cheapest next
-steps), **Pulse** (needs an audio system that does not exist yet), **Tower
-Defense Lite**.
+Shipped: Pixel Wave, Grid Breaker, Worm Chase, Asteroid Miner, Sector Defense,
+Circuit Runner. The original build order is complete. Remaining concepts:
+**Starfield Runner** (cheapest, but it scrolls toward the player like Circuit
+Runner does — build its tight-squeeze scoring idea first or do not build it),
+**Pulse** (needs an audio system that does not exist yet), **Tower Defense
+Lite**.
 
 Deliberately not built: shared high-score storage, and the "shared engine
 template / sprite toolkit" the original plan called for — see the note in

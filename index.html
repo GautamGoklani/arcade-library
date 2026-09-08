@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Arcade Library — games written in WebAssembly Text</title>
-<meta name="description" content="Five browser arcade games whose entire simulation is hand-written WebAssembly Text, and a WebAssembly course built around them.">
+<meta name="description" content="Six browser arcade games whose entire simulation is hand-written WebAssembly Text, and a WebAssembly course built around them.">
 <link rel="icon" href="games/pixel-wave/logo.svg">
 <style>
   :root {
@@ -96,8 +96,8 @@
   <p class="eyebrow">Arcade Library</p>
   <h1>Arcade games with no engine underneath them.</h1>
   <p class="lede">
-    Five browser games whose entire simulation — physics, enemy AI, bullet pools, collisions,
-    territory capture, fuel and cargo, shield and combo state — is hand-written WebAssembly Text. No game framework,
+    Six browser games whose entire simulation — physics, enemy AI, bullet pools, collisions,
+    territory capture, fuel and cargo, a procedurally generated board — is hand-written WebAssembly Text. No game framework,
     no compiler front-end, no runtime dependency. JavaScript forwards input and draws what it
     reads back out of linear memory, and that is all it does.
   </p>
@@ -135,13 +135,19 @@
     <p>Hold a line against attackers that each pick their own path. A shield that only recovers once the shooting stops, and a combo that decays.</p>
     <div class="tags"><span class="tag">3.6 KB engine</span><span class="tag">no imports</span><span class="tag">touch + keyboard</span></div>
   </a>
+  <a class="game" href="games/circuit-runner/index.html">
+    <img src="games/circuit-runner/logo.svg" alt="A charge running one of six copper traces past resistors and capacitors">
+    <h3>Circuit Runner</h3>
+    <p>Six traces, components coming at you, and current draining the whole time. Nothing to shoot — the only verb is which trace you are on.</p>
+    <div class="tags"><span class="tag">3.0 KB engine</span><span class="tag">endless</span><span class="tag">touch + keyboard</span></div>
+  </a>
 </div>
 
 <h2>Learn WebAssembly</h2>
 <p class="lede" style="margin-bottom:1.25rem">
   A full course in <a href="docs/index.html">docs/</a> — the language from first principles, the
-  ecosystem around it, and then the Pixel Wave, Worm Chase, Asteroid Miner and
-  Sector Defense engines as the worked example. Twenty chapters, a glossary and a reading list.
+  ecosystem around it, and then the Pixel Wave, Worm Chase, Asteroid Miner,
+  Sector Defense and Circuit Runner engines as the worked example. Twenty-one chapters, a glossary and a reading list.
 </p>
 <ul class="docs">
   <li><a href="docs/01-what-is-webassembly.html">01 · What WebAssembly actually is<span>And the four things it is usually mistaken for</span></a></li>
@@ -151,7 +157,7 @@
   <li><a href="docs/12-security-model.html">12 · The security model<span>What the sandbox protects, and what it doesn't</span></a></li>
   <li><a href="docs/16-entity-pools.html">16 · Case study: entity pools<span>How these engines store 33 enemies and 160 bullets</span></a></li>
   <li><a href="docs/18-grids-and-flood-fill.html">18 · Case study: a grid and a flood fill<span>What "enclosed" means, and how to answer it with no allocator</span></a></li>
-  <li><a href="docs/index.html">Full contents →<span>All 20 chapters, plus the reference material</span></a></li>
+  <li><a href="docs/index.html">Full contents →<span>All 21 chapters, plus the reference material</span></a></li>
 </ul>
 
 <h2>Build from source</h2>

@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>21 · Case study: generating a world that is always winnable</title>
+<meta name="description" content="21 · Case study: generating a world that is always winnable — part of the WebAssembly course in the arcade-library repository.">
+<link rel="icon" href="../games/pixel-wave/logo.svg">
+<style>
+:root {
+  --bg: #fbfaf7; --panel: #ffffff; --sunk: #f2f0ea;
+  --fg: #14130f; --soft: #4a4842; --muted: #7a776e;
+  --line: rgba(20,19,15,.12); --accent: #b23a18; --accent-wash: rgba(178,58,24,.07);
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121110; --panel: #1a1917; --sunk: #232220;
+    --fg: #f4f2ed; --soft: #b5b1a8; --muted: #86827a;
+    --line: rgba(244,242,237,.14); --accent: #e0714b; --accent-wash: rgba(224,113,75,.12);
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 16px/1.7 var(--sans); -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 52rem; margin: 0 auto; padding: clamp(1.5rem,4vw,3rem) clamp(1.1rem,4vw,2rem) 5rem; }
+.wide { max-width: 64rem; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+h1 { font-size: clamp(1.8rem,4.5vw,2.6rem); line-height: 1.12; letter-spacing: -.025em; margin: 0 0 1.2rem; }
+h2 { font-size: clamp(1.3rem,3vw,1.6rem); letter-spacing: -.015em; margin: 3rem 0 1rem; padding-top: 1.4rem; border-top: 1px solid var(--line); }
+h3 { font-size: 1.12rem; margin: 2rem 0 .7rem; }
+h4 { font-size: 1rem; margin: 1.5rem 0 .5rem; }
+p, ul, ol { margin: 0 0 1.05rem; }
+ul, ol { padding-left: 1.4rem; }
+li { margin-bottom: .4rem; }
+li > ul, li > ol { margin-top: .4rem; }
+strong { font-weight: 650; }
+hr { border: 0; border-top: 1px solid var(--line); margin: 2.5rem 0; }
+blockquote {
+  margin: 0 0 1.05rem; padding: .1rem 0 .1rem 1.1rem;
+  border-left: 3px solid var(--accent); color: var(--soft);
+}
+code {
+  font: .87em/1.5 var(--mono);
+  background: var(--sunk); border: 1px solid var(--line); border-radius: 4px;
+  padding: .1em .35em; overflow-wrap: anywhere;
+}
+pre {
+  background: var(--sunk); border: 1px solid var(--line); border-radius: 10px;
+  padding: 1rem 1.15rem; overflow-x: auto; margin: 0 0 1.4rem;
+}
+pre code { background: none; border: 0; padding: 0; font-size: .84rem; line-height: 1.65; overflow-wrap: normal; }
+/* Wide content scrolls inside its own box; the page body never scrolls sideways. */
+.table-scroll { overflow-x: auto; margin: 0 0 1.4rem; border: 1px solid var(--line); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+th, td { text-align: left; padding: .6rem .85rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { background: var(--sunk); font-weight: 600; white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+img { max-width: 100%; height: auto; }
+
+/* ---- chrome ---- */
+.bar {
+  position: sticky; top: 0; z-index: 5;
+  display: flex; flex-wrap: wrap; align-items: center; gap: .4rem 1rem;
+  padding: .7rem clamp(1.1rem,4vw,2rem);
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(12px); border-bottom: 1px solid var(--line);
+  font-size: .82rem;
+}
+@supports not (background: color-mix(in srgb, red 50%, transparent)) { .bar { background: var(--bg); } }
+.bar a { color: var(--soft); }
+.bar .sep { color: var(--muted); }
+.bar .here { color: var(--fg); font-weight: 600; }
+.eyebrow {
+  font: 500 .7rem/1 var(--mono); letter-spacing: .16em; text-transform: uppercase;
+  color: var(--muted); margin: 0 0 .9rem;
+}
+.pager {
+  display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between;
+  margin-top: 3.5rem; padding-top: 1.5rem; border-top: 1px solid var(--line); font-size: .9rem;
+}
+.pager span { display: block; font: 500 .65rem/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-bottom: .2rem; }
+.pager .next { text-align: right; margin-left: auto; }
+
+/* ---- index ---- */
+.lede { font-size: 1.06rem; color: var(--soft); margin-bottom: 2rem; }
+.part { margin-top: 2.6rem; }
+.part h2 { margin-top: 0; border-top: 0; padding-top: 0; }
+.part > p { color: var(--muted); font-size: .92rem; margin-bottom: 1.1rem; }
+.toc { list-style: none; padding: 0; margin: 0; display: grid; gap: .5rem; }
+.toc a {
+  display: grid; grid-template-columns: 2.4rem 1fr; gap: .8rem; align-items: baseline;
+  padding: .8rem 1rem; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--panel); color: var(--fg);
+}
+.toc a:hover { border-color: var(--accent); text-decoration: none; background: var(--accent-wash); }
+.toc .n { font: 500 .78rem/1.4 var(--mono); color: var(--accent); }
+.toc .t { font-weight: 600; font-size: .97rem; }
+.toc .d { display: block; color: var(--muted); font-size: .85rem; font-weight: 400; margin-top: .15rem; }
+.routes { display: grid; gap: .5rem; grid-template-columns: repeat(auto-fit,minmax(15rem,1fr)); margin-bottom: 2.5rem; }
+.route { padding: .9rem 1rem; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.route strong { display: block; font-size: .93rem; margin-bottom: .2rem; }
+.route span { color: var(--muted); font-size: .85rem; }
+</style>
+</head>
+<body>
+<nav class="bar">
+  <a href="../index.html">Arcade Library</a>
+  <span class="sep">/</span>
+  <a href="index.html">WebAssembly course</a> <span class="sep">/</span> <span class="here">Case study: generating a world that is always winnable</span>
+</nav>
+<main class="wrap ">
+<h1>21 · Case study: generating a world that is always winnable</h1>
+<p>Every engine so far has placed things at random and left it there. Pixel Wave
+scatters a wave; Asteroid Miner drops boulders anywhere but the depot; Sector
+Defense picks a lateral target per attacker. In all three, a bad roll produces a
+harder moment and nothing worse, because the player can always move in two
+dimensions and the threat eventually leaves.</p>
+<p><a href="../games/circuit-runner/">Circuit Runner</a> cannot do that. It is a lane runner:
+the board arrives in rows, the runner has one axis and limited speed on it, and
+a row that cannot be threaded is not &quot;hard&quot;, it is a wall. This chapter is about
+generating a world under that constraint — and about the class of bug where
+every individual decision is fair and the sequence of them is not.</p>
+<p>Read it with
+<a href="../games/circuit-runner/game.wat"><code>games/circuit-runner/game.wat</code></a> open.</p>
+<hr>
+<h2>The bug: locally fair, globally impossible</h2>
+<p>The first generator built each row independently. Pick how many traces to
+block, place components in traces that are still free, done. Every row left at
+least two of six traces open, which sounds unimpossible-to-fail.</p>
+<p>The bench took a hit every two seconds while playing correctly.</p>
+<p>The reason is a constraint that lives <em>between</em> rows rather than in any of them.
+At the speed cap the board moves 640 px/s and rows are 172px apart, so a row
+arrives every 0.27 seconds. The runner slides at 900 px/s across 160px traces:
+0.18 seconds each. That is time to cross <strong>about one and a half traces between
+rows</strong>. Two consecutive rows whose only gaps are three traces apart are
+individually generous and jointly impossible, and no amount of skill closes the
+distance.</p>
+<p>This is worth naming because it recurs everywhere procedural generation meets a
+movement budget: <strong>the reachability of a state is a property of the sequence,
+not of the state.</strong> A generator that validates each step in isolation cannot see
+it.</p>
+<hr>
+<h2>The fix: reserve a path, and make it wander slowly</h2>
+<pre><code class="language-wat">(global $pathLane (mut i32) (i32.const 2))
+
+(func $spawn_row
+  ...
+  (global.set $pathLane
+    (call $clampi
+      (i32.add (global.get $pathLane) (i32.sub (call $rand_below (i32.const 3)) (i32.const 1)))
+      (i32.const 0) (i32.sub (global.get $LANES) (i32.const 1))))
+  ...)
+</code></pre>
+<p>One lane, remembered across rows, moving by at most one per row. Then no
+component may ever cover it:</p>
+<pre><code class="language-wat">;; Never cover the path lane, and never overlap a lane this row has
+;; already taken — the second would spend the budget twice.
+(br_if $lp (i32.ne (i32.and (call $span_mask (local.get $lane) (local.get $span))
+                            (i32.shl (i32.const 1) (global.get $pathLane)))
+                   (i32.const 0)))
+</code></pre>
+<p>The board is now passable <strong>by construction</strong>. Not &quot;almost always&quot;, not &quot;we
+tested it&quot; — there is a continuous path down the board, and the runner can
+always follow it because it never moves further in one row than the runner can
+travel in one row.</p>
+<p>Three things worth noticing about this shape of fix:</p>
+<p><strong>It is a guarantee, not a probability.</strong> The alternative — generate, then
+validate, then regenerate on failure — is tempting and much worse here. It needs
+a reachability search per row, it can loop, and it has to answer &quot;what if I
+cannot generate a valid row?&quot; at the exact moment the player is watching. A
+constructive invariant has no failure branch.</p>
+<p><strong>It costs one global and one bit test.</strong> The whole guarantee is a lane index
+and a mask check inside a loop that was already running. Difficulty did not have
+to be lowered to buy it — <code>$max_blocked</code> still climbs, components still get
+faster and denser.</p>
+<p><strong>It moves the difficulty rather than removing it.</strong> The player now always
+<em>can</em> follow the path; what is hard is reading which trace it is, and deciding
+what it costs to leave it. Which is the second half of the design.</p>
+<hr>
+<h2>Making the reward compete with the safe answer</h2>
+<p>A guaranteed path with a guaranteed reward on it would be a corridor. The
+charges are what make it a game, and where they are placed turned out to matter
+more than how much they give.</p>
+<p>The first build put each charge in a <strong>uniformly random open trace</strong>. The bench
+collected two out of ten. That is not a difficult economy — the charge was
+usually four traces away, which is not a decision, it is a lottery ticket the
+player watches expire.</p>
+<pre><code class="language-wat">;; An open lane for this row&#39;s pickup, searched outward from wherever the
+;; runner is standing.
+(func $free_lane_near_runner (result i32)
+  (local $d i32) (local $home i32) (local $l i32)
+  (local.set $home (i32.trunc_f32_s (f32.load offset=4 (global.get $RUNNER_OFF))))
+  ...
+  ;; left then right at each distance, so ties do not always resolve the
+  ;; same way and a wall of rows does not drag the runner to one edge
+</code></pre>
+<p>Searching outward from the runner puts the charge one or two traces away almost
+always — close enough to be a real option, so it <em>competes</em> with the safe trace
+instead of being a gift or a tease. The interesting rows are now the ones where
+the charge is on the far side of a component.</p>
+<p>The bench confirms the tension is real rather than decorative: the pilot that
+detours for charges takes <strong>roughly twice as many hits</strong> and <strong>survives longer</strong>.
+If those two had not both moved, the reward would be either free or pointless.</p>
+<hr>
+<h2>Geometry is a rule, not a look</h2>
+<p>One more failure from the same build, and it is the one most likely to catch you
+somewhere else: components were drawn — and collided — 16px inset into a 160px
+trace. Half-width 64. The runner&#39;s half-width is 22.</p>
+<p>A runner sliding between two traces passes through the boundary, <strong>80px from the
+blocked trace&#39;s centre</strong>. And 64 + 22 = 86 &gt; 80, so <em>passing</em> a component hit it.</p>
+<p>The consequence was invisible in any single frame and structural in play: a free
+trace two across with a blocked one between was unreachable, so the path
+guarantee above was necessary but not sufficient. The inset is now 26 — 54 + 22
+= 76, four pixels of margin — and it is documented in the code as an arithmetic
+constraint rather than a styling choice:</p>
+<pre><code class="language-wat">;; The 26px inset is a geometry constraint, not a style choice. A runner
+;; sliding between two lanes passes through the boundary, 80px from the
+;; blocked lane&#39;s centre; for that crossing not to clip, the part&#39;s half-width
+;; plus the runner&#39;s 22 must stay under 80.
+</code></pre>
+<p>The general lesson: <strong>in a game with discrete positions and a continuous slide
+between them, the hitbox width and the lane width are one equation.</strong> Choosing
+them independently, which is what &quot;make the sprite look right&quot; amounts to, will
+eventually produce a move the rules permit and the geometry forbids.</p>
+<hr>
+<h2>Difficulty as a function of distance</h2>
+<p>Circuit Runner has no levels. Everything scales off one number:</p>
+<pre><code class="language-wat">(func $km (result f32)
+  (f32.div (global.get $dist) (f32.const 1000.0)))
+
+(func $speed (result f32)
+  (call $clampf
+    (f32.add (global.get $SPEED_BASE) (f32.mul (call $km) (global.get $SPEED_PER_KM)))
+    (global.get $SPEED_BASE) (global.get $SPEED_CAP)))
+</code></pre>
+<p>Speed, row spacing, how many traces a row may block, and which component kinds
+are in play are all <code>f(distance)</code>, each clamped. Compare Sector Defense, where
+the same job is done by a wave counter. Neither is better; they answer different
+questions. A wave counter gives you <em>discrete</em> steps you can balance one at a
+time and announce to the player. A continuous function gives you a curve with no
+seams, which is what an endless runner wants — there is no moment to announce.</p>
+<p>Two details that only show up once the curve is continuous:</p>
+<ul>
+<li><strong>Rows arrive on a distance clock, not a wall clock.</strong> <code>$nextRow</code> is a
+distance, not a timer. On a time interval a faster board would space
+components <em>further apart</em> — the game would get easier as it sped up.</li>
+<li><strong>The capacitor flips on a wall clock, deliberately breaking that rule.</strong> Its
+1.35s period is real seconds, so a faster board gives you <em>fewer</em> flips to
+read on approach rather than the same number compressed. One clock in the
+engine is in the other unit, and that is the point of it.</li>
+</ul>
+<hr>
+<h2>Summary</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Question</th>
+<th>Answer here</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Row generated fairly, still unplayable?</td>
+<td>Reachability is a property of the <em>sequence</em>. Validate across rows, or make it impossible by construction</td>
+</tr>
+<tr>
+<td>Generate-and-validate, or generate-correct?</td>
+<td>Correct by construction: no retry loop, no failure branch, one global and a bit test</td>
+</tr>
+<tr>
+<td>Where does a reward go?</td>
+<td>Near enough to compete with the safe option. Uniformly random is a lottery, not a decision</td>
+</tr>
+<tr>
+<td>Is the tension real?</td>
+<td>Measure it. The greedy pilot should take more hits <em>and</em> last longer — if only one moves, the reward is broken</td>
+</tr>
+<tr>
+<td>Hitbox width?</td>
+<td>One equation with the lane width and the slide. Not a styling choice</td>
+</tr>
+<tr>
+<td>Levels or a curve?</td>
+<td>A counter gives balanceable steps to announce; <code>f(distance)</code> gives a seamless ramp. An endless runner has nothing to announce</td>
+</tr>
+</tbody></table>
+</div>
+<nav class="pager">
+  <a href="20-per-entity-intent.html"><span>Previous</span>Case study: giving each entity its own intent</a>
+  <a href="index.html">Contents</a>
+  <a class="next" href="glossary.html"><span>Next</span>Glossary</a>
+</nav>
+</main>
+</body>
+</html>

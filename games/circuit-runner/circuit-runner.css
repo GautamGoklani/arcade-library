@@ -1,0 +1,222 @@
+/* Circuit Runner — scoped styles. Every rule is namespaced under .cr-root so
+   this can be dropped into any page without clobbering existing CSS, and so it
+   cannot collide with another game's stylesheet on the same site. The `cr-`
+   prefix belongs to this title alone; no other game in games/ may use it. */
+
+.cr-root {
+  --cr-max-width: 1000px;
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-family: 'Courier New', monospace;
+  color: #6ee7a8;
+  background: #050b09;
+  padding: 10px;
+  width: 100%;
+  max-width: var(--cr-max-width);
+  box-sizing: border-box;
+}
+
+.cr-stage {
+  position: relative;
+  line-height: 0;
+  width: 100%;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.cr-canvas {
+  background: #071a12;
+  border: 3px solid #14352a;
+  image-rendering: pixelated;
+  display: block;
+  width: 100%;                 /* scales responsively; internal res stays 960x720 */
+  height: auto;
+  box-sizing: border-box;
+}
+
+/* The CRT layer, as in asteroid-miner.css and sector-defense.css. In CSS
+   rather than the frame loop because it never changes, and because true
+   display resolution is the only place scanlines look like scanlines. */
+.cr-scan {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    repeating-linear-gradient(
+      to bottom,
+      rgba(0, 0, 0, 0.26) 0 1px,
+      rgba(0, 0, 0, 0) 1px 3px),
+    radial-gradient(
+      ellipse at center,
+      rgba(0, 0, 0, 0) 52%,
+      rgba(0, 0, 0, 0.5) 100%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cr-scan { background: none; }
+  .cr-bar.cr-crit { animation: none; }
+}
+
+.cr-hud {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 6px 18px;
+  margin-bottom: 4px;
+  background: #050b09;
+  border: 2px solid #6ee7a8;
+  font-size: 14px;
+  letter-spacing: 2px;
+  text-shadow: 0 0 6px rgba(110, 231, 168, 0.75);
+  font-weight: bold;
+  width: 100%;
+  box-sizing: border-box;
+}
+.cr-hud .cr-a { color: #ffd166; text-shadow: 0 0 6px #ffd166; }
+.cr-hud .cr-v { color: #7cc7ff; text-shadow: 0 0 6px #7cc7ff; }
+
+/* One meter, and it only goes down unless you collect. It is the clock, the
+   health and the score pressure at once, so it gets the space. */
+.cr-gauge { display: flex; align-items: center; gap: 7px; }
+.cr-bar {
+  position: relative;
+  width: 118px;
+  height: 12px;
+  border: 1px solid currentColor;
+  overflow: hidden;
+  color: #6ee7a8;
+}
+.cr-bar i {
+  position: absolute;
+  inset: 1px auto 1px 1px;
+  display: block;
+  width: 100%;
+  background: currentColor;
+  transition: width 0.1s linear;
+}
+.cr-bar.cr-crit { color: #ff5470; animation: cr-pulse 0.6s infinite; }
+@keyframes cr-pulse { 50% { opacity: 0.4; } }
+
+.cr-over { color: #ffd166; text-shadow: 0 0 8px #ffd166; opacity: 0; transition: opacity .15s; }
+.cr-over.cr-on { opacity: 1; }
+
+.cr-mute {
+  margin-left: auto;
+  padding: 3px 10px;
+  border: 1px solid rgba(110, 231, 168, 0.6);
+  background: transparent;
+  color: #6ee7a8;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: bold;
+  letter-spacing: 1px;
+  cursor: pointer;
+}
+.cr-mute:hover { background: rgba(110, 231, 168, 0.15); }
+
+.cr-overlay {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  pointer-events: none;
+  font-weight: bold;
+}
+
+.cr-msg {
+  font-size: 40px;
+  color: #ff5470;
+  text-shadow: 0 0 18px #ff5470, 3px 3px 0 #4a0713;
+  display: none;
+  letter-spacing: 5px;
+  pointer-events: auto;   /* tappable on mobile to restart */
+  cursor: pointer;
+}
+.cr-msg small {
+  display: block;
+  font-size: 15px;
+  color: #6ee7a8;
+  margin-top: 14px;
+  letter-spacing: 3px;
+}
+
+.cr-note {
+  top: 18%;
+  font-size: 18px;
+  color: #ffd166;
+  text-shadow: 0 0 12px #ffd166;
+  letter-spacing: 4px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+/* ---------------- touch controls (shown only on coarse-pointer devices) ---- */
+
+/* Two tap halves rather than a stick, and this is the one title where that is
+   the right answer: the input is *discrete*. Every other game here steers
+   along a continuum, so an analog stick maps onto it; a lane change is one
+   press, and a stick would mean pushing, waiting, and re-centring for each
+   one. Tapping a side of the board is the whole gesture.
+
+   Always in the DOM and always interactive — only visibility is gated, for the
+   reason grid-breaker.css spells out. */
+.cr-touch {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.18s;
+}
+.cr-root.cr-is-touch .cr-touch { opacity: 1; }
+
+.cr-tap {
+  position: absolute;
+  top: 0; bottom: 0;
+  width: 34%;
+  pointer-events: auto;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 7vw;
+  color: rgba(110, 231, 168, 0.34);
+  text-shadow: 0 0 10px rgba(110, 231, 168, 0.5);
+  background: linear-gradient(to right, rgba(110, 231, 168, 0.07), rgba(110, 231, 168, 0));
+}
+.cr-tap-right {
+  right: 0;
+  background: linear-gradient(to left, rgba(110, 231, 168, 0.07), rgba(110, 231, 168, 0));
+}
+.cr-tap-left { left: 0; }
+.cr-tap.cr-active { color: rgba(110, 231, 168, 0.85); }
+
+@media (min-width: 800px) {
+  .cr-tap { font-size: 44px; }
+}
+
+.cr-help {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #3f7d63;
+  letter-spacing: 1px;
+  text-align: center;
+}
+
+.cr-fail {
+  color: #ff5470;
+  padding: 20px;
+  font-family: 'Courier New', monospace;
+}
+
+@media (max-width: 700px) {
+  .cr-msg { font-size: 6.5vw; }
+  .cr-note { font-size: 3vw; }
+  .cr-hud { gap: 2.4vw; font-size: 2.5vw; padding: 4px 8px; letter-spacing: 1px; }
+  .cr-bar { width: 18vw; height: 2vw; }
+  .cr-mute { font-size: 2.2vw; padding: 2px 5px; }
+}

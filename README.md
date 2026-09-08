@@ -16,8 +16,9 @@ arcade-library/
 │   ├── grid-breaker/   ← brick breaker, 4.4 KB engine, keyboard + pointer + touch
 │   ├── worm-chase/     ← grid territory capture, 3.8 KB engine, no imports
 │   ├── asteroid-miner/ ← mining run, 4.2 KB engine, fuel and cargo, 320x240
-│   └── sector-defense/ ← wave defence, 3.6 KB engine, shield + combo, 320x240
-├── docs/               ← the course: 20 chapters, glossary, cheatsheet
+│   ├── sector-defense/ ← wave defence, 3.6 KB engine, shield + combo, 320x240
+│   └── circuit-runner/ ← endless lane runner, 3.0 KB engine, generated board
+├── docs/               ← the course: 21 chapters, glossary, cheatsheet
 └── scripts/            ← build.mjs (wat → wasm) and serve.mjs
 ```
 
@@ -50,6 +51,7 @@ npm run serve      # http://localhost:8080
 | **[Worm Chase](games/worm-chase/)** | Leave your territory, loop back, and a flood fill decides what your trail sealed off. Hazards, and chasers that cannot follow you home. Hold to move. Keyboard and touch |
 | **[Asteroid Miner](games/asteroid-miner/)** | Rocks split when shot and pebbles pay out in gems. Fuel burns while you thrust, the hold holds twelve, and only the depot turns either into progress. Drawn at 320x240 with scanlines. Keyboard and touch |
 | **[Sector Defense](games/sector-defense/)** | Hold a line against attackers that each pick their own path across the field. A shield that only recovers once the shooting stops, and a combo that decays. Keyboard and touch |
+| **[Circuit Runner](games/circuit-runner/)** | Six copper traces, components sliding at you, current draining the whole time. Nothing to shoot; the board is generated so it is always passable. Keyboard and touch |
 
 ---
 
@@ -57,7 +59,8 @@ npm run serve      # http://localhost:8080
 
 [**docs/**](docs/) is the substantial part of this repository: a course in three
 parts, written to be read in order, with the Pixel Wave, Worm Chase, Asteroid
-Miner and Sector Defense engines as the worked example in Part III. Grid Breaker arrived after the
+Miner, Sector Defense and Circuit Runner engines as the worked example in
+Part III. Grid Breaker arrived after the
 first seventeen chapters were written and is not covered by it; its own
 [README](games/grid-breaker/README.md) documents it instead.
 The links below are the Markdown sources, which is what renders on
@@ -86,7 +89,8 @@ memory](docs/16-entity-pools.md) · [Maths without a standard
 library](docs/17-math-without-a-stdlib.md) · [A grid, and the flood fill that
 closes a loop](docs/18-grids-and-flood-fill.md) · [Pools that grow their own
 contents](docs/19-pools-that-grow.md) · [Giving each entity its own
-intent](docs/20-per-entity-intent.md)
+intent](docs/20-per-entity-intent.md) · [Generating a world that is always
+winnable](docs/21-generated-worlds.md)
 
 **Reference.** [Glossary](docs/glossary.md) · [Instruction
 cheatsheet](docs/cheatsheet.md) · [Further reading](docs/further-reading.md)
@@ -129,7 +133,7 @@ Markdown reads fine on github.com, which is where the sources are meant to be
 read. But this repository is also *served* — from the landing page, from
 `npm run serve`, from GitHub Pages — and there a `.md` file arrives as
 `text/markdown` and the browser shows unstyled plain text with every `#` and
-`|` intact. Twenty chapters of that is not documentation anyone will read.
+`|` intact. Twenty-one chapters of that is not documentation anyone will read.
 
 Rendering at build time gives real HTML that works with JavaScript disabled, is
 indexable, and supports find-in-page on first load — none of which a
@@ -155,9 +159,9 @@ Multiple instances on one page are independent. See
 [`games/pixel-wave/README.md`](games/pixel-wave/README.md) for the options and
 the memory layout.
 
-Grid Breaker, Worm Chase, Asteroid Miner and Sector Defense ship the same way,
-as `GridBreaker.mount()`, `WormChase.mount()`, `AsteroidMiner.mount()` and
-`SectorDefense.mount()` — see their READMEs for options and memory layouts.
+Every other title ships the same way — `GridBreaker.mount()`,
+`WormChase.mount()`, `AsteroidMiner.mount()`, `SectorDefense.mount()` and
+`CircuitRunner.mount()`. See their READMEs for options and memory layouts.
 
 See [chapter 7](docs/07-javascript-interop.md) for the difference between
 shipping a widget like these and shipping a bare engine for a host to render.
@@ -170,10 +174,9 @@ To learn the machine without a compiler in the way. It is explicitly **not** a
 recommendation — [chapter 10](docs/10-source-languages.md) is blunt about what
 it costs, and Rust, Zig or AssemblyScript are the right answers for real work.
 
-What the exercise produced, though, is five complete games in **strict MVP
+What the exercise produced, though, is six complete games in **strict MVP
 WebAssembly**: four value types, one 64 KiB memory, structured control flow, and
-two imports — `sinf` and `cosf` — which Worm Chase and Sector Defense do not
-need at all. No post-MVP feature, no feature detection, no fallback build. They
+two imports — `sinf` and `cosf` — which three of the six do not need at all. No post-MVP feature, no feature detection, no fallback build. They
 run on anything that has ever supported WebAssembly.
 
 The documentation is the deliverable. The games are the excuse.

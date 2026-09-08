@@ -72,6 +72,18 @@ const TITLES = [
     ],
   },
   {
+    slug: 'circuit-runner',
+    wat: 'games/circuit-runner/game.wat',
+    wasm: 'games/circuit-runner/game.wasm',
+    embed: [
+      {
+        file: 'games/circuit-runner/circuit-runner.js',
+        pattern: /var WASM_B64 = "[A-Za-z0-9+/=]*";/,
+        render: (b64) => `var WASM_B64 = "${b64}";`,
+      },
+    ],
+  },
+  {
     slug: 'sector-defense',
     wat: 'games/sector-defense/game.wat',
     wasm: 'games/sector-defense/game.wasm',

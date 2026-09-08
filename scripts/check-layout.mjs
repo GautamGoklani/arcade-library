@@ -62,6 +62,12 @@ const TITLES = [
             'MAX_BULLETS', 'PICKUPS_OFF', 'PICKUP_STRIDE', 'MAX_PICKUPS'],
   },
   {
+    slug: 'circuit-runner',
+    js: 'circuit-runner.js',
+    names: ['RUNNER_OFF', 'PARTS_OFF', 'PART_STRIDE', 'MAX_PARTS',
+            'PICKUPS_OFF', 'PICKUP_STRIDE', 'MAX_PICKUPS'],
+  },
+  {
     slug: 'sector-defense',
     js: 'sector-defense.js',
     names: ['ENEMIES_OFF', 'ENEMY_STRIDE', 'MAX_ENEMIES', 'PB_OFF', 'PB_STRIDE',

@@ -1,6 +1,6 @@
 # 20 · Case study: giving each entity its own intent
 
-← [Pools that grow their own contents](19-pools-that-grow.md) · [Contents](README.md) · [Glossary](glossary.md)
+← [Pools that grow their own contents](19-pools-that-grow.md) · [Contents](README.md) · next: [Generating a world that is always winnable](21-generated-worlds.md)
 
 ---
 
@@ -219,4 +219,4 @@ paid.
 
 ---
 
-← [Pools that grow their own contents](19-pools-that-grow.md) · [Contents](README.md) · [Glossary](glossary.md) · [Further reading](further-reading.md)
+← [Pools that grow their own contents](19-pools-that-grow.md) · [Contents](README.md) · next: [Generating a world that is always winnable](21-generated-worlds.md) · [Glossary](glossary.md)

@@ -13,6 +13,7 @@
     "build:worm-chase": "node scripts/build.mjs worm-chase",
     "build:asteroid-miner": "node scripts/build.mjs asteroid-miner",
     "build:sector-defense": "node scripts/build.mjs sector-defense",
+    "build:circuit-runner": "node scripts/build.mjs circuit-runner",
     "check": "node scripts/build.mjs --check && node scripts/build-docs.mjs --check && node scripts/check-layout.mjs",
     "serve": "node scripts/serve.mjs"
   },

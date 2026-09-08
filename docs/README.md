@@ -7,8 +7,9 @@ to me.
 
 Every code sample is real WAT that compiles. Where a chapter draws on
 `games/pixel-wave/game.wat`, `games/worm-chase/game.wat`,
-`games/asteroid-miner/game.wat` or `games/sector-defense/game.wat` it says so,
-and you can open the file and check. (Grid Breaker is not covered — it arrived
+`games/asteroid-miner/game.wat`, `games/sector-defense/game.wat` or
+`games/circuit-runner/game.wat` it says so, and you can open the file and
+check. (Grid Breaker is not covered — it arrived
 after the first seventeen chapters were written, and its own
 [README](../games/grid-breaker/README.md) documents it.)
 
@@ -61,6 +62,7 @@ willing to learn in about four paragraphs.
 | 18 | [Case study: a grid, and the flood fill that closes a loop](18-grids-and-flood-fill.md) | Byte-packed cells, a BFS queue with no allocator, two clocks, and a module with no imports |
 | 19 | [Case study: pools that grow their own contents](19-pools-that-grow.md) | Entities that spawn entities, what a full pool should do, resource state, and the resolution you draw at |
 | 20 | [Case study: giving each entity its own intent](20-per-entity-intent.md) | Behaviour stored in the record, why unpredictable is not random, and replacing lives with meters |
+| 21 | [Case study: generating a world that is always winnable](21-generated-worlds.md) | Rows that are locally fair and globally impossible, reserving a path, and hitboxes as arithmetic |
 
 ## Reference
 
