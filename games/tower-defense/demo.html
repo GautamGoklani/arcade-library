@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Tower Defense Lite — demo</title>
+<!-- required on mobile so pinch-zoom does not fight tapping squares -->
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<link rel="stylesheet" href="tower-defense.css">
+<style>
+  body {
+    margin: 0;
+    padding: 24px 12px;
+    background: #0d0b08;
+    display: flex;
+    justify-content: center;
+    font-family: 'Courier New', monospace;
+  }
+</style>
+</head>
+<body>
+
+<!-- the widget builds its own HUD, canvas, toolbar and overlays inside this container -->
+<div id="game"></div>
+
+<script src="tower-defense.js"></script>
+<script>
+  var game = TowerDefense.mount('#game');
+  // game.restart();  — start a fresh run
+  // game.getState(); — { score, scrap, core, level, phase, kills, leaks, gameOver }
+  // game.destroy();  — stop the loop, remove DOM + all listeners
+</script>
+
+</body>
+</html>

@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>TOWER DEFENSE LITE</title>
+<link rel="icon" href="logo.svg">
+<link rel="stylesheet" href="tower-defense.css">
+<style>
+/* -----------------------------------------------------------------------
+   Standalone page shell.
+
+   Same shape as the other titles' index.html, and for the same reason: the
+   widget fills its container, which is what an embedder wants, and this page
+   is nothing but the game, so the binding constraint is the window's *height*.
+
+   This one needs a taller chrome allowance than the rest, because it has a
+   toolbar under the board as well as a HUD above it — and the toolbar is not
+   optional furniture, it is how the game is played.
+   --------------------------------------------------------------------- */
+html, body { margin: 0; background: #0d0b08; min-height: 100%; }
+
+body {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100dvh;
+  padding: clamp(0.5rem, 2vw, 1.25rem);
+  box-sizing: border-box;
+}
+
+.td-root {
+  --chrome: 12rem;                             /* HUD + toolbar + help + padding */
+  --td-max-width: min(1000px, calc((100dvh - var(--chrome)) * 1.3333));
+}
+
+@media (max-height: 34rem) {
+  .td-root { --chrome: 8.5rem; }
+}
+</style>
+</head>
+<body>
+
+<div id="game"></div>
+
+<script src="tower-defense.js"></script>
+<script>
+  TowerDefense.mount('#game');
+</script>
+
+</body>
+</html>

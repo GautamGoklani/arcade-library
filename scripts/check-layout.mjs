@@ -73,6 +73,13 @@ const TITLES = [
     names: ['SHIP_OFF', 'ROCKS_OFF', 'ROCK_STRIDE', 'MAX_ROCKS'],
   },
   {
+    slug: 'tower-defense',
+    js: 'tower-defense.js',
+    names: ['GRID_OFF', 'CELL_STRIDE', 'COLS', 'ROWS', 'TOWERS_OFF', 'TOWER_STRIDE',
+            'MAX_TOWERS', 'ENEMIES_OFF', 'ENEMY_STRIDE', 'MAX_ENEMIES',
+            'SHELLS_OFF', 'SHELL_STRIDE', 'MAX_SHELLS', 'PATH_OFF', 'PATH_STRIDE'],
+  },
+  {
     slug: 'sector-defense',
     js: 'sector-defense.js',
     names: ['ENEMIES_OFF', 'ENEMY_STRIDE', 'MAX_ENEMIES', 'PB_OFF', 'PB_STRIDE',

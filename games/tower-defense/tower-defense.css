@@ -1,0 +1,223 @@
+/* Tower Defense Lite — scoped styles. Every rule is namespaced under .td-root
+   so this can be dropped into any page without clobbering existing CSS, and so
+   it cannot collide with another game's stylesheet on the same site. The `td-`
+   prefix belongs to this title alone; no other game in games/ may use it. */
+
+.td-root {
+  --td-max-width: 1000px;
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-family: 'Courier New', monospace;
+  color: #d8c48a;
+  background: #0d0b08;
+  padding: 10px;
+  width: 100%;
+  max-width: var(--td-max-width);
+  box-sizing: border-box;
+}
+
+.td-stage {
+  position: relative;
+  line-height: 0;
+  width: 100%;
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: crosshair;
+}
+
+.td-canvas {
+  background: #16130d;
+  border: 3px solid #3a3122;
+  image-rendering: pixelated;
+  display: block;
+  width: 100%;                 /* scales responsively; internal res stays 960x720 */
+  height: auto;
+  box-sizing: border-box;
+}
+
+/* The CRT layer, as in the other 320x240 titles. In CSS rather than the frame
+   loop because it never changes, and because true display resolution is the
+   only place scanlines look like scanlines. */
+.td-scan {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    repeating-linear-gradient(
+      to bottom,
+      rgba(0, 0, 0, 0.24) 0 1px,
+      rgba(0, 0, 0, 0) 1px 3px),
+    radial-gradient(
+      ellipse at center,
+      rgba(0, 0, 0, 0) 54%,
+      rgba(0, 0, 0, 0.5) 100%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .td-scan { background: none; }
+  .td-core-bar.td-crit { animation: none; }
+}
+
+/* ---------------- HUD ---------------- */
+
+.td-hud {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 6px 14px;
+  margin-bottom: 4px;
+  background: #0d0b08;
+  border: 2px solid #d8c48a;
+  font-size: 14px;
+  letter-spacing: 2px;
+  text-shadow: 0 0 6px rgba(216, 196, 138, 0.6);
+  font-weight: bold;
+  width: 100%;
+  box-sizing: border-box;
+}
+.td-hud .td-a { color: #ffd166; text-shadow: 0 0 6px #ffd166; }
+.td-hud .td-g { color: #6ee7a8; text-shadow: 0 0 6px #6ee7a8; }
+
+.td-core { display: flex; align-items: center; gap: 6px; }
+.td-core-bar {
+  position: relative;
+  width: 94px;
+  height: 12px;
+  border: 1px solid #6ee7a8;
+  overflow: hidden;
+  color: #6ee7a8;
+}
+.td-core-bar i {
+  position: absolute;
+  inset: 1px auto 1px 1px;
+  display: block;
+  background: currentColor;
+  transition: width 0.12s linear;
+}
+.td-core-bar.td-crit { color: #ff5470; border-color: #ff5470; animation: td-pulse 0.6s infinite; }
+@keyframes td-pulse { 50% { opacity: 0.4; } }
+
+.td-mute {
+  margin-left: auto;
+  padding: 3px 10px;
+  border: 1px solid rgba(216, 196, 138, 0.6);
+  background: transparent;
+  color: #d8c48a;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: bold;
+  letter-spacing: 1px;
+  cursor: pointer;
+}
+.td-mute:hover { background: rgba(216, 196, 138, 0.15); }
+
+/* ---------------- the toolbar ----------------
+
+   Real buttons, not a canvas-drawn palette. They are the only part of this
+   game that is a *tool* rather than a picture: they have to be reachable by
+   keyboard, they have to say what they cost, and they have to be able to look
+   unaffordable — three things HTML does for free and a canvas does not. The
+   selection is UI, not game state, so it is the one thing here the widget is
+   allowed to own. */
+
+.td-tools {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  width: 100%;
+  margin-top: 6px;
+  box-sizing: border-box;
+}
+.td-tool {
+  flex: 1;
+  padding: 6px 4px;
+  border: 2px solid #4a3f2b;
+  background: #16130d;
+  color: #d8c48a;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: bold;
+  letter-spacing: 1px;
+  cursor: pointer;
+  line-height: 1.35;
+  text-align: center;
+}
+.td-tool b { display: block; font-size: 13px; }
+.td-tool span { display: block; font-size: 10px; opacity: 0.75; font-weight: normal; }
+.td-tool:hover { border-color: #8a7550; }
+.td-tool.td-on { border-color: #ffd166; color: #ffd166; background: #241d10; }
+.td-tool.td-poor { opacity: 0.42; }
+.td-tool.td-sell.td-on { border-color: #ff5470; color: #ff5470; background: #2a1015; }
+.td-go { flex: 1.2; }
+.td-go.td-armed { border-color: #6ee7a8; color: #6ee7a8; }
+
+/* ---------------- overlays ---------------- */
+
+.td-overlay {
+  /* The stage sets line-height: 0 to kill the inline gap under the canvas, and
+     an overlay inside it inherits that, so a message that wraps draws both
+     lines on one baseline. See the same note in the other stylesheets. */
+  line-height: 1.15;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  pointer-events: none;
+  font-weight: bold;
+}
+
+.td-msg {
+  font-size: 40px;
+  color: #ff5470;
+  text-shadow: 0 0 18px #ff5470, 3px 3px 0 #4a0713;
+  display: none;
+  letter-spacing: 5px;
+  pointer-events: auto;   /* tappable on mobile to restart */
+  cursor: pointer;
+}
+.td-msg small {
+  display: block;
+  font-size: 15px;
+  color: #d8c48a;
+  margin-top: 14px;
+  letter-spacing: 3px;
+}
+
+.td-note {
+  top: 15%;
+  font-size: 20px;
+  color: #ffd166;
+  text-shadow: 0 0 12px #ffd166;
+  letter-spacing: 4px;
+  opacity: 0;
+  transition: opacity 0.14s;
+}
+
+.td-help {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #7a6a4a;
+  letter-spacing: 1px;
+  text-align: center;
+}
+
+.td-fail {
+  color: #ff5470;
+  padding: 20px;
+  font-family: 'Courier New', monospace;
+}
+
+@media (max-width: 700px) {
+  .td-msg { font-size: 6.5vw; }
+  .td-note { font-size: 3.2vw; }
+  .td-hud { gap: 2.2vw; font-size: 2.4vw; padding: 4px 8px; letter-spacing: 1px; }
+  .td-core-bar { width: 14vw; height: 2vw; }
+  .td-mute { font-size: 2.2vw; padding: 2px 5px; }
+  .td-tool { font-size: 2.1vw; padding: 1.2vw 0.4vw; }
+  .td-tool b { font-size: 2.3vw; }
+  .td-tool span { font-size: 1.8vw; }
+}

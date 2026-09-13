@@ -29,6 +29,7 @@ for the reasoning behind keeping designs original.
 | **[Sector Defense](sector-defense/)** | Wave defence on one axis. Attackers with individual intent, a shield that regenerates only out of contact, and a decaying combo. | 3.6 KB |
 | **[Circuit Runner](circuit-runner/)** | Endless lane runner on a circuit board. Nothing to shoot, one draining meter, and a board generated so it is always passable. | 3.0 KB |
 | **[Starfield Runner](starfield-runner/)** | Free flight through a debris field. Nothing to shoot and nothing to collect: close passes are the only score and the only repair. | 3.0 KB |
+| **[Tower Defense Lite](tower-defense/)** | A generated route, a core at the end, and twenty-eight tower slots. Guns overheat; a vent shoots nothing and cools its eight neighbours. | 5.1 KB |
 
 ---
 
@@ -37,16 +38,13 @@ for the reasoning behind keeping designs original.
 | Working Title | Concept | Complexity |
 |---|---|---|
 | **Pulse** | Abstract tube shooter driven by rhythm — enemy spawns sync to the beat of the soundtrack. | Medium–High |
-| **Tower Defense Lite** | Minimal tower placement and wave defense with original tower types and enemy roles. | Medium–High |
 
 ---
 
 ## Remaining Build Order
 
-1. **Tower Defense Lite** — unblocked, and the most different in shape from
-   anything shipped: the player places rather than steers.
-2. **Pulse** — most ambitious; depends on the audio system planned for Pixel
-   Wave v1.x.
+1. **Pulse** — the last one, and the most ambitious; depends on the audio
+   system planned for Pixel Wave v1.x.
 
 All four steps of the original order are done, and between them they did the
 job that order was designed to do. Grid Breaker proved the widget template
@@ -80,6 +78,17 @@ close passes bank, so playing safe is not a slower strategy but a losing one.
 The bench put a number on that: a pilot that always takes the widest gap scores
 **23 points a second and never repairs a plate**, against 200-plus for one that
 threads.
+
+Tower Defense Lite came last of the unblocked three, and it is the one that
+most needed to be different in *shape* rather than in theme: it is the only
+title here where the player places rather than steers, and where the
+interesting state is the board instead of a position. Its own idea is that the
+binding resource is heat rather than money — guns trip and stop firing, and a
+vent shoots nothing and cools the eight squares around it. The bench found
+something about that worth keeping: a third of the slots given over to vents
+cut overheating by half on every board it tried, and bought **nothing at all**
+on a board of cheap guns while buying three whole waves on a board that also
+had mortars. Support only pays in proportion to what it is supporting.
 
 ---
 

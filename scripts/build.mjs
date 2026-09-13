@@ -108,6 +108,18 @@ const TITLES = [
     ],
   },
   {
+    slug: 'tower-defense',
+    wat: 'games/tower-defense/game.wat',
+    wasm: 'games/tower-defense/game.wasm',
+    embed: [
+      {
+        file: 'games/tower-defense/tower-defense.js',
+        pattern: /var WASM_B64 = "[A-Za-z0-9+/=]*";/,
+        render: (b64) => `var WASM_B64 = "${b64}";`,
+      },
+    ],
+  },
+  {
     slug: 'worm-chase',
     wat: 'games/worm-chase/game.wat',
     wasm: 'games/worm-chase/game.wasm',
