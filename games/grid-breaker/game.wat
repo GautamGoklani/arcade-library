@@ -68,6 +68,33 @@
   ;; How wide WIDE makes it, and how far a caught ball can be deflected.
   (global $WIDE_MUL f32 (f32.const 1.55))
   (global $MAX_DEFLECT f32 (f32.const 1.05))
+  ;; And how *little* it may be deflected. The serve already refuses to send a
+  ;; ball straight up (see $serve); the bounce did not, and that was the hole:
+  ;; a paddle that keeps the ball on its centre returns it near-vertical every
+  ;; time, so the ball drills one column and then rings between the ceiling and
+  ;; the paddle. The headless bench, whose pilot tracks perfectly, sat on level
+  ;; 2 with one tile left for 153 seconds — no agency, nothing happening, which
+  ;; is the dead-time case this repo goes looking for.
+  ;;
+  ;; 0.15 rad is the same number $serve treats as "too vertical", so there is
+  ;; one threshold in this file rather than two.
+  ;;
+  ;; The floor is a *band*, not a value, and that is the whole fix. A fixed
+  ;; 0.15 was tried first and made the stall worse — 645 seconds instead of
+  ;; 153 — because a fixed angle off a perfectly-tracking paddle is a
+  ;; perfectly periodic orbit: the ball rang between the left wall and the same
+  ;; four pixels of paddle for eleven minutes. Anything the player cannot vary
+  ;; has to be varied for them. Drawing the magnitude from a band breaks the
+  ;; cycle on the first bounce, and the *sign* still comes from where the ball
+  ;; landed, so the paddle reads as slightly curved rather than as disobeying.
+  ;;
+  ;; Over the same 900-second bench, the perfect-tracking pilot went from level
+  ;; 2 to level 7. The upper edge was chosen by measuring: 0.33 left a worst
+  ;; stall of 54s, 0.45 of 35s, 0.60 of 63s. What is left at 0.45 is not a lock
+  ;; but the last-two-tiles hunt every game of this shape has, and MULTI is the
+  ;; answer the player already has for it.
+  (global $MIN_DEFLECT f32 (f32.const 0.15))
+  (global $MIN_DEFLECT_HI f32 (f32.const 0.45))
 
   (global $BALL_R f32 (f32.const 9.0))
   ;; Speed is set against the arena, not in the abstract: at 330 the ball took
@@ -570,15 +597,34 @@
 
   ;; Bounce a ball off the paddle, steering it by where it landed: the edges
   ;; throw it out at up to $MAX_DEFLECT from vertical, the middle sends it
-  ;; straight back. Speed is preserved exactly, so control is the only thing
-  ;; the paddle gives you.
+  ;; nearly straight back — but never *exactly* straight back, see
+  ;; $MIN_DEFLECT. Speed is preserved exactly, so control is the only thing the
+  ;; paddle gives you.
   (func $paddle_bounce (param $a i32) (param $half f32)
-    (local $off f32) (local $ang f32) (local $sp f32)
+    (local $off f32) (local $ang f32) (local $sp f32) (local $sgn f32)
     (local.set $off (call $clampf
       (f32.div (f32.sub (f32.load offset=0 (local.get $a)) (f32.load offset=0 (i32.const 0)))
                (local.get $half))
       (f32.const -1.0) (f32.const 1.0)))
     (local.set $ang (f32.mul (local.get $off) (global.get $MAX_DEFLECT)))
+
+    ;; Too close to vertical: keep the magnitude off the floor. Which way it
+    ;; goes is still the player's, in order of what is known — where on the
+    ;; paddle it landed, then which way it was already travelling, then a coin
+    ;; toss for the one case where neither says anything.
+    (if (f32.lt (f32.abs (local.get $ang)) (global.get $MIN_DEFLECT))
+      (then
+        (if (f32.ne (local.get $off) (f32.const 0.0))
+          (then (local.set $sgn (f32.copysign (f32.const 1.0) (local.get $off))))
+          (else
+            (if (f32.ne (f32.load offset=8 (local.get $a)) (f32.const 0.0))
+              (then (local.set $sgn
+                (f32.copysign (f32.const 1.0) (f32.load offset=8 (local.get $a)))))
+              (else (local.set $sgn
+                (if (result f32) (f32.lt (call $rand_f32) (f32.const 0.5))
+                  (then (f32.const -1.0)) (else (f32.const 1.0))))))))
+        (local.set $ang (f32.mul (local.get $sgn)
+          (call $frand (global.get $MIN_DEFLECT) (global.get $MIN_DEFLECT_HI))))))
     (local.set $sp (f32.sqrt
       (f32.add (f32.mul (f32.load offset=8 (local.get $a)) (f32.load offset=8 (local.get $a)))
                (f32.mul (f32.load offset=12 (local.get $a)) (f32.load offset=12 (local.get $a))))))

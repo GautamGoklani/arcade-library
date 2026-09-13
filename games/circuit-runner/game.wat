@@ -178,8 +178,19 @@
   (func $frand (param $lo f32) (param $hi f32) (result f32)
     (f32.add (local.get $lo) (f32.mul (call $rand_f32) (f32.sub (local.get $hi) (local.get $lo)))))
 
+  ;; The clamp is not belt and braces. $rand_f32 divides a u32 by 2^32 in f32,
+  ;; and f32 has 24 bits of mantissa: the top 128 states round *up* to exactly
+  ;; 1.0, so one call in ~33 million returns n instead of n-1. Everything that
+  ;; number reaches here is an index — a lane, a kind — and one of them is the
+  ;; guarantee this whole engine is built on: $spawn_row walks $pathLane by
+  ;; `rand_below(3) - 1`, and a 2 there moves the path two lanes in one row,
+  ;; which is the sequence the board is specifically constructed never to
+  ;; produce. Clamping here rather than in $rand_f32 leaves the RNG stream
+  ;; untouched, so every tuning number measured against it still holds.
   (func $rand_below (param $n i32) (result i32)
-    (i32.trunc_f32_s (call $frand (f32.const 0.0) (f32.convert_i32_s (local.get $n)))))
+    (call $clampi
+      (i32.trunc_f32_s (call $frand (f32.const 0.0) (f32.convert_i32_s (local.get $n))))
+      (i32.const 0) (i32.sub (local.get $n) (i32.const 1))))
 
   (func $clampf (param $v f32) (param $lo f32) (param $hi f32) (result f32)
     (local $r f32)
@@ -300,8 +311,10 @@
         (br $lp))))
 
   ;; How many lanes a row is allowed to block. Two of six at the start, rising
-  ;; to four — never five, because a row that leaves one gap and a row that
-  ;; leaves none are the same row to a player who cannot reach the gap.
+  ;; to three — never four, because at 2200px of ramp per step a fourth blocked
+  ;; lane arrives at a board speed where the two open lanes left are further
+  ;; apart than the slide can cross between rows, and a gap that cannot be
+  ;; reached is not a gap.
   (func $max_blocked (result i32)
     (call $clampi
       (i32.add (i32.const 2) (i32.trunc_f32_s (f32.div (call $km) (f32.const 2.2))))

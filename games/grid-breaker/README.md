@@ -145,8 +145,9 @@ slides off it.
 - Clear every breakable tile to advance. There is no last level.
 - **5 lives.** Losing the last ball in play costs one.
 - The paddle steers the ball: the **ends deflect hardest** (up to 1.05 rad off
-  vertical), the middle sends it straight back. Speed is never changed by a
-  bounce, so aim is the only thing the paddle gives you.
+  vertical), the middle sends it *almost* straight back — never exactly, see
+  the degenerate-state note under Tuning. Speed is never changed by a bounce,
+  so aim is the only thing the paddle gives you.
 - **Tough tiles** (steel, cracked once hit) take two hits. **Bombs** take out
   every neighbour, and a neighbouring bomb chains. **Solid tiles** (riveted)
   never break and never block a level from being cleared.
@@ -245,6 +246,7 @@ The constants worth touching are all at the top of `game.wat`:
 | `$BALL_SPEED_STEP` / `$BALL_SPEED_CAP` | per-level increase, ceiling | 14 / 620 |
 | `$PADDLE_HALF_BASE` | half-width at level 1 (floor is 44) | 70 |
 | `$MAX_DEFLECT` | how far the paddle's edge throws the ball, in radians | 1.05 |
+| `$MIN_DEFLECT` / `$MIN_DEFLECT_HI` | the band a too-vertical return is pushed into | 0.15 / 0.45 |
 | `$DROP_CHANCE` | chance a broken tile drops a capsule | 0.16 |
 | `$START_LIVES` | starting lives | 5 |
 
@@ -257,11 +259,40 @@ Two findings from benching, both commented in place:
    first-time player reaches a level-up before deciding whether the game is
    worth their time.
 
-There is also a deliberate guard against a degenerate state: **a ball is never
-served vertically.** A serve with `vx == 0` drills a single column, and if the
-paddle simply tracks it the ball stays vertical for the rest of the run. The
-headless pilot centres perfectly and found exactly that; a launch angle within
-0.15 rad of vertical is nudged to a random 0.22–0.5 rad instead.
+### The degenerate state, and the two goes it took to close it
+
+**A ball is never sent vertically — not on the serve, and not off the paddle.**
+A ball with `vx == 0` drills a single column, and if the paddle simply tracks
+it, it stays vertical for the rest of the run.
+
+The serve was guarded first: a launch angle within 0.15 rad of vertical is
+nudged to a random 0.22–0.5 rad instead. That closed one door and left the
+other open, because a *bounce* recomputes the angle from where the ball landed
+on the paddle, and a paddle that keeps the ball on its centre computes zero
+every time. The headless pilot centres perfectly, so it walked straight into
+it: **level 2, one tile left, 153 seconds with nothing happening.** No agency,
+no threat, no progress — the dead-time case, arrived at from the other side.
+
+The first fix was a fixed floor of 0.15 rad, and it made things *worse* — 645
+seconds, because a constant angle off a perfectly-tracking paddle is a
+perfectly periodic orbit. The ball rang between the left wall and the same four
+pixels of paddle for eleven minutes. What ships is a **band**: the magnitude is
+drawn from 0.15–0.45 rad, which cannot resonate, while the *sign* still comes
+from where the ball landed, so the paddle reads as slightly curved rather than
+as disobeying.
+
+Measured over the same 900-second bench with the perfect-tracking pilot:
+
+| paddle-bounce floor | level reached | worst stall |
+|---|---|---|
+| none (as shipped before) | 2 | 153s |
+| fixed 0.15 rad | 2 | 645s |
+| band 0.15–0.33 | 7 | 54s |
+| **band 0.15–0.45** | **7** | **35s** |
+| band 0.15–0.60 | 7 | 63s |
+
+What is left at 0.45 is not a lock — it is the last-two-tiles hunt every game
+of this shape has, and MULTI is the answer the player already has for it.
 
 ## Rebuilding the engine
 

@@ -289,7 +289,10 @@
     var explosions = [];
     var prevBotAlive = new Array(MAX_BOTS).fill(0);
     var prevAstActive = new Array(MAX_AST).fill(0);
-    var prevLives = 3, screenFlash = 0;
+    // Seeded from the engine on restart, never from a literal: the engine
+    // raised the starting lives from 3 to 5 and this copy was not updated,
+    // which left the first death after mount unable to flash the screen.
+    var prevLives = 0, screenFlash = 0;
     var rafId = 0;
 
     // ---------- keyboard ----------
@@ -300,22 +303,38 @@
       return k === 'a' || k === 'd' || k === 'w' || k === 'r' || k === 'R' || k === ' ' ||
              k === 'ArrowLeft' || k === 'ArrowRight' || k === 'ArrowUp';
     }
+    // Every key the game claims is also swallowed. Arrow keys and space scroll
+    // the host page otherwise, which on an embedded widget means the arena
+    // walks off the top of the screen the moment anyone plays. Only the keys
+    // listed above are taken; everything else still reaches the page.
     function onKeyDown(e) {
-      if (isGameKey(e.key)) setTouchMode(false);
+      if (!isGameKey(e.key)) return;
+      setTouchMode(false);
       if (e.key === 'a' || e.key === 'ArrowLeft') input.left = true;
       if (e.key === 'd' || e.key === 'ArrowRight') input.right = true;
       if (e.key === 'w' || e.key === 'ArrowUp') input.thrust = true;
-      if (e.key === ' ') { input.fire = true; e.preventDefault(); }
+      if (e.key === ' ') input.fire = true;
       if (e.key === 'r' || e.key === 'R') restart();
+      e.preventDefault();
     }
     function onKeyUp(e) {
+      if (!isGameKey(e.key)) return;
       if (e.key === 'a' || e.key === 'ArrowLeft') input.left = false;
       if (e.key === 'd' || e.key === 'ArrowRight') input.right = false;
       if (e.key === 'w' || e.key === 'ArrowUp') input.thrust = false;
       if (e.key === ' ') input.fire = false;
+      e.preventDefault();
+    }
+    // Alt-tabbing away never delivers the keyup, so without this the ship
+    // keeps thrusting and firing while the tab is in the background and the
+    // player comes back to a wreck. Every other title in games/ does this; this
+    // one predates the convention.
+    function releaseAll() {
+      input.left = input.right = input.thrust = input.fire = false;
     }
     global.addEventListener('keydown', onKeyDown);
     global.addEventListener('keyup', onKeyUp);
+    global.addEventListener('blur', releaseAll);
 
     // ---------- touch: one stick, two buttons ----------
     // Everything routes through a single set of listeners on the stage, keyed by
@@ -618,7 +637,7 @@
       lastLevel = 1;
       prevBotAlive.fill(0);
       prevAstActive.fill(0);
-      prevLives = 3;
+      prevLives = wasm.exports.get_lives();
       explosions.length = 0;
       running = true;
     }
@@ -773,6 +792,7 @@
         cancelAnimationFrame(rafId);
         global.removeEventListener('keydown', onKeyDown);
         global.removeEventListener('keyup', onKeyUp);
+        global.removeEventListener('blur', releaseAll);
         global.removeEventListener('pointermove', onPointerMove);
         global.removeEventListener('pointerup', onPointerUp);
         global.removeEventListener('pointercancel', onPointerUp);

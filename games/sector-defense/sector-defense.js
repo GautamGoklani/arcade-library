@@ -403,8 +403,15 @@
 
     stickZone.addEventListener('pointerdown', onStickDown);
     stickZone.addEventListener('pointermove', onStickMove);
-    global.addEventListener('pointerup', function () { if (stick.active) releaseStick(); });
-    global.addEventListener('pointercancel', function () { releaseStick(); });
+    // Named, not inline, because destroy() has to be able to take them off
+    // again: an anonymous listener on window closes over the whole widget, so
+    // a mounted-and-destroyed instance kept its wasm module, its sprites and
+    // its particle array alive for the life of the page, and went on calling
+    // releaseStick() on a stick nobody could see.
+    function onWindowPointerUp() { if (stick.active) releaseStick(); }
+    function onWindowPointerCancel() { releaseStick(); }
+    global.addEventListener('pointerup', onWindowPointerUp);
+    global.addEventListener('pointercancel', onWindowPointerCancel);
     global.addEventListener('keydown', onKeyDown);
     global.addEventListener('keyup', onKeyUp);
     global.addEventListener('blur', releaseAll);
@@ -708,6 +715,8 @@
         global.removeEventListener('keydown', onKeyDown);
         global.removeEventListener('keyup', onKeyUp);
         global.removeEventListener('blur', releaseAll);
+        global.removeEventListener('pointerup', onWindowPointerUp);
+        global.removeEventListener('pointercancel', onWindowPointerCancel);
         sound.close();
         root.remove();
       },

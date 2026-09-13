@@ -14,7 +14,7 @@ arcade-library/
 ├── index.html          ← landing page; open it, or npm run serve
 ├── games/
 │   ├── pixel-wave/     ← retro wave shooter, 3.5 KB engine, keyboard + touch
-│   ├── grid-breaker/   ← brick breaker, 4.4 KB engine, keyboard + pointer + touch
+│   ├── grid-breaker/   ← brick breaker, 4.5 KB engine, keyboard + pointer + touch
 │   ├── worm-chase/     ← grid territory capture, 3.8 KB engine, no imports
 │   ├── asteroid-miner/ ← mining run, 4.2 KB engine, fuel and cargo, 320x240
 │   ├── sector-defense/ ← wave defence, 3.6 KB engine, shield + combo, 320x240
