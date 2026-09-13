@@ -1,0 +1,377 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>22 · Case study: the engine that owns time</title>
+<meta name="description" content="22 · Case study: the engine that owns time — part of the WebAssembly course in the arcade-library repository.">
+<link rel="icon" href="../games/pixel-wave/logo.svg">
+<style>
+:root {
+  --bg: #fbfaf7; --panel: #ffffff; --sunk: #f2f0ea;
+  --fg: #14130f; --soft: #4a4842; --muted: #7a776e;
+  --line: rgba(20,19,15,.12); --accent: #b23a18; --accent-wash: rgba(178,58,24,.07);
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121110; --panel: #1a1917; --sunk: #232220;
+    --fg: #f4f2ed; --soft: #b5b1a8; --muted: #86827a;
+    --line: rgba(244,242,237,.14); --accent: #e0714b; --accent-wash: rgba(224,113,75,.12);
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 16px/1.7 var(--sans); -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 52rem; margin: 0 auto; padding: clamp(1.5rem,4vw,3rem) clamp(1.1rem,4vw,2rem) 5rem; }
+.wide { max-width: 64rem; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+h1 { font-size: clamp(1.8rem,4.5vw,2.6rem); line-height: 1.12; letter-spacing: -.025em; margin: 0 0 1.2rem; }
+h2 { font-size: clamp(1.3rem,3vw,1.6rem); letter-spacing: -.015em; margin: 3rem 0 1rem; padding-top: 1.4rem; border-top: 1px solid var(--line); }
+h3 { font-size: 1.12rem; margin: 2rem 0 .7rem; }
+h4 { font-size: 1rem; margin: 1.5rem 0 .5rem; }
+p, ul, ol { margin: 0 0 1.05rem; }
+ul, ol { padding-left: 1.4rem; }
+li { margin-bottom: .4rem; }
+li > ul, li > ol { margin-top: .4rem; }
+strong { font-weight: 650; }
+hr { border: 0; border-top: 1px solid var(--line); margin: 2.5rem 0; }
+blockquote {
+  margin: 0 0 1.05rem; padding: .1rem 0 .1rem 1.1rem;
+  border-left: 3px solid var(--accent); color: var(--soft);
+}
+code {
+  font: .87em/1.5 var(--mono);
+  background: var(--sunk); border: 1px solid var(--line); border-radius: 4px;
+  padding: .1em .35em; overflow-wrap: anywhere;
+}
+pre {
+  background: var(--sunk); border: 1px solid var(--line); border-radius: 10px;
+  padding: 1rem 1.15rem; overflow-x: auto; margin: 0 0 1.4rem;
+}
+pre code { background: none; border: 0; padding: 0; font-size: .84rem; line-height: 1.65; overflow-wrap: normal; }
+/* Wide content scrolls inside its own box; the page body never scrolls sideways. */
+.table-scroll { overflow-x: auto; margin: 0 0 1.4rem; border: 1px solid var(--line); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+th, td { text-align: left; padding: .6rem .85rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { background: var(--sunk); font-weight: 600; white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+img { max-width: 100%; height: auto; }
+
+/* ---- chrome ---- */
+.bar {
+  position: sticky; top: 0; z-index: 5;
+  display: flex; flex-wrap: wrap; align-items: center; gap: .4rem 1rem;
+  padding: .7rem clamp(1.1rem,4vw,2rem);
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(12px); border-bottom: 1px solid var(--line);
+  font-size: .82rem;
+}
+@supports not (background: color-mix(in srgb, red 50%, transparent)) { .bar { background: var(--bg); } }
+.bar a { color: var(--soft); }
+.bar .sep { color: var(--muted); }
+.bar .here { color: var(--fg); font-weight: 600; }
+.eyebrow {
+  font: 500 .7rem/1 var(--mono); letter-spacing: .16em; text-transform: uppercase;
+  color: var(--muted); margin: 0 0 .9rem;
+}
+.pager {
+  display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between;
+  margin-top: 3.5rem; padding-top: 1.5rem; border-top: 1px solid var(--line); font-size: .9rem;
+}
+.pager span { display: block; font: 500 .65rem/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-bottom: .2rem; }
+.pager .next { text-align: right; margin-left: auto; }
+
+/* ---- index ---- */
+.lede { font-size: 1.06rem; color: var(--soft); margin-bottom: 2rem; }
+.part { margin-top: 2.6rem; }
+.part h2 { margin-top: 0; border-top: 0; padding-top: 0; }
+.part > p { color: var(--muted); font-size: .92rem; margin-bottom: 1.1rem; }
+.toc { list-style: none; padding: 0; margin: 0; display: grid; gap: .5rem; }
+.toc a {
+  display: grid; grid-template-columns: 2.4rem 1fr; gap: .8rem; align-items: baseline;
+  padding: .8rem 1rem; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--panel); color: var(--fg);
+}
+.toc a:hover { border-color: var(--accent); text-decoration: none; background: var(--accent-wash); }
+.toc .n { font: 500 .78rem/1.4 var(--mono); color: var(--accent); }
+.toc .t { font-weight: 600; font-size: .97rem; }
+.toc .d { display: block; color: var(--muted); font-size: .85rem; font-weight: 400; margin-top: .15rem; }
+.routes { display: grid; gap: .5rem; grid-template-columns: repeat(auto-fit,minmax(15rem,1fr)); margin-bottom: 2.5rem; }
+.route { padding: .9rem 1rem; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.route strong { display: block; font-size: .93rem; margin-bottom: .2rem; }
+.route span { color: var(--muted); font-size: .85rem; }
+</style>
+</head>
+<body>
+<nav class="bar">
+  <a href="../index.html">Arcade Library</a>
+  <span class="sep">/</span>
+  <a href="index.html">WebAssembly course</a> <span class="sep">/</span> <span class="here">Case study: the engine that owns time</span>
+</nav>
+<main class="wrap ">
+<h1>22 · Case study: the engine that owns time</h1>
+<p>Every chapter of Part III so far has been about the engine owning <em>space</em> — a
+pool of positions, a grid of cells, a route across a board. This one is about
+the engine owning <em>time</em>, which sounds like the same claim and is not, because
+time in a browser game already has an owner and it is not you.</p>
+<p><a href="15-game-loop-architecture.html">Chapter 15</a> settled the first half of that: the
+host owns the frame clock, hands the engine a <code>dt</code>, and the engine advances
+whatever it advances. That is enough for every title in this repository except
+one. <a href="../games/pulse/">Pulse</a> is a rhythm game, and a rhythm game has a second
+clock — the musical one — which has to agree with the simulation exactly,
+because the whole mechanic is that a shot landing on a beat is worth more than
+one that does not.</p>
+<p>Where that clock lives turns out to be a real architectural decision with a
+wrong answer that is very easy to reach.</p>
+<hr>
+<h2>The obvious design, and why it fails</h2>
+<p>Web Audio has a good clock. <code>AudioContext.currentTime</code> is sample-accurate,
+monotone, and unaffected by a dropped frame. Every guide to sequencing in the
+browser tells you — correctly — to use it, and to <strong>schedule ahead</strong>: run a
+timer every 25ms, look a couple of hundred milliseconds into the future, and
+book every note that falls in that window with <code>oscillator.start(when)</code>. The
+audio thread plays them at exactly the right moment whatever the main thread is
+doing.</p>
+<p>So the obvious design for a rhythm game is:</p>
+<pre><code class="language-js">// the obvious design
+function scheduler() {
+  while (nextNoteTime &lt; audio.currentTime + LOOKAHEAD) {
+    playNote(nextNoteTime);
+    if (patternHasSpawn(step)) wasm.exports.spawn(segment, kind);  // &lt;-- here
+    nextNoteTime += stepDuration;
+    step = (step + 1) % 16;
+  }
+}
+</code></pre>
+<p>It sounds perfect. It is also three separate problems.</p>
+<p><strong>The first is the invariant.</strong> <code>patternHasSpawn</code>, <code>step</code>, <code>stepDuration</code> and
+<code>nextNoteTime</code> are all in JavaScript, and between them they decide what enemies
+exist and when. That is game state, and
+<a href="../CLAUDE.md">the third invariant of this repository</a> says JavaScript does not
+get to have any:</p>
+<blockquote>
+<p><strong>JavaScript owns no game state.</strong> It forwards input, calls <code>step(dt)</code>, and
+reads entity records out of linear memory to draw them. If a rule lives in
+the widget, it is in the wrong file.</p>
+</blockquote>
+<p>That is not pedantry about file layout. It is the reason
+<a href="15-game-loop-architecture.html"><code>getState()</code></a> can be one line, the reason the
+engine can be benched headlessly with no DOM, and the reason there is exactly
+one place to look when a spawn happens at the wrong time.</p>
+<p><strong>The second is that lookahead is a lie about the present.</strong> Scheduling books
+notes for a future that has not happened in the simulation yet. Restart the
+game and 200ms of the old bar is already in the audio graph. Pause it and the
+music plays on. Let a frame take 90ms — which happens — and the simulation is
+now behind music that was written when it was not.</p>
+<p><strong>The third is the one that actually kills it.</strong> Even if you keep the two
+clocks perfectly in step, you now have two of them, and the player is being
+judged against one while listening to the other. &quot;The beat and the spawn were
+forty milliseconds apart&quot; is not a bug you can find, because there is no single
+place where it is decided that they were the same moment.</p>
+<hr>
+<h2>The inversion</h2>
+<p>There is a cleaner answer, and it falls straight out of the invariant once you
+stop trying to work around it.</p>
+<blockquote>
+<p><strong>The engine is the sequencer. The widget is the instrument.</strong></p>
+</blockquote>
+<p>The engine owns the tempo, the bar, the step counter and the pattern. It
+decides what spawns and when. It does not make a sound, because it cannot — it
+has no imports and nothing to call. Instead it does what every other engine in
+this repository does with an event: it <strong>increments a counter</strong>.</p>
+<pre><code class="language-wat">;; games/pulse/game.wat
+(global $songT (mut f32) (f32.const 0.0))    ;; seconds into the current step
+(global $stepIdx (mut i32) (i32.const 0))    ;; which of the sixteen
+(global $steps (mut i32) (i32.const 0))      ;; monotonic, never resets
+
+(func $step_dur (export &quot;get_step_dur&quot;) (result f32)
+  (f32.div (f32.const 60.0) (f32.mul (call $bpm) (f32.const 4.0))))
+</code></pre>
+<p>and the widget plays whatever it finds:</p>
+<pre><code class="language-js">// games/pulse/pulse.js
+var st = e.get_steps();
+if (st &gt; prevSteps) {
+  var n = Math.min(4, st - prevSteps);
+  for (var i = 0; i &lt; n; i++) sound.step(e.get_step_idx());
+  prevSteps = st;
+}
+</code></pre>
+<p>That is the same three lines as <code>get_kills</code> or <code>get_hits</code> in every other title
+in <code>games/</code>. The soundtrack is not a subsystem. <strong>It is an event counter with a
+synthesiser attached</strong>, and the reason that works is that a sixteenth note and
+a spawn are not two things that have to be synchronised — they are one thing,
+read off one counter.</p>
+<hr>
+<h2>What it costs</h2>
+<p>Be honest about this, because it is a real trade and the guides are not wrong.</p>
+<p>A note is played on the frame the counter moves, so it lands with up to one
+frame of jitter: <strong>16ms at 60fps</strong>, against a sixteenth note of 156ms at
+Pulse&#39;s opening tempo. That is about a tenth of a note. It is audible if you
+listen for it, and it is worse on a machine that is dropping frames — which is
+exactly when a scheduled design would be smoothest.</p>
+<p>What is bought for it:</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th></th>
+<th>scheduled ahead</th>
+<th>played off the counter</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Timing precision</td>
+<td>sample-accurate</td>
+<td>±1 frame</td>
+</tr>
+<tr>
+<td>Who decides a spawn</td>
+<td>JavaScript</td>
+<td>the engine</td>
+</tr>
+<tr>
+<td>Restart / pause</td>
+<td>music outlives the simulation</td>
+<td>nothing to flush</td>
+</tr>
+<tr>
+<td>Can the two drift?</td>
+<td>yes, and silently</td>
+<td>no — there is one clock</td>
+</tr>
+<tr>
+<td>Headless bench</td>
+<td>must stub the audio clock</td>
+<td>nothing to stub</td>
+</tr>
+<tr>
+<td><code>getState()</code></td>
+<td>must include the song</td>
+<td>already includes it</td>
+</tr>
+</tbody></table>
+</div><p>The last row is the one to hold on to. Because the song clock is engine state,
+the headless bench in
+<a href="../games/pulse/README.md"><code>games/pulse/README.md</code></a> can drive the whole thing
+from Node with no <code>AudioContext</code> at all — and that is how the beat window got
+tuned, by measuring what fraction of a button-masher&#39;s shots landed inside it.</p>
+<p>For a music <em>application</em> — a DAW, a metronome, a backing track — schedule
+ahead. For a game where the beat is a <strong>rule</strong>, the rule belongs where the rest
+of the rules are.</p>
+<hr>
+<h2>Advancing a clock you cannot trust</h2>
+<p>One detail that looks like an implementation note and is not.</p>
+<pre><code class="language-wat">(global.set $songT (f32.add (global.get $songT) (local.get $d)))
+(local.set $sd (call $step_dur))
+(block $ticked
+  (loop $tlp
+    (br_if $ticked (f32.lt (global.get $songT) (local.get $sd)))
+    (global.set $songT (f32.sub (global.get $songT) (local.get $sd)))
+    (global.set $stepIdx (i32.add (global.get $stepIdx) (i32.const 1)))
+    ...
+    (br $tlp)))
+</code></pre>
+<p>A loop, not a single subtraction. At 168 BPM a sixteenth note is 89ms, and a
+frame that took 90ms is not exotic — a garbage collection, a tab regaining
+focus, a laptop switching GPUs. If the clock advanced one step per frame, that
+frame would swallow a step, and the step it swallowed might have had a spawn on
+it. The player would hear a bar with a hole in it, and the hole would be
+different every time.</p>
+<p><code>dt</code> is clamped to 50ms at the top of <code>step</code>, exactly as
+<a href="15-game-loop-architecture.html">chapter 15</a> argues it should be, so the loop can
+run at most a handful of times. The widget does the same thing on its side —
+<code>Math.min(4, st - prevSteps)</code> — for the same reason and with the same cap:
+<strong>two notes close together are better than a missing one.</strong></p>
+<hr>
+<h2>Where the pattern lives, and who is allowed to read ahead</h2>
+<p>Pulse writes the coming bar into linear memory rather than into globals:</p>
+<pre><code class="language-wat">;; bar @0 : stride 4, 16 steps
+;;          byte 0  seg + 1, or 0 for no spawn on this step
+;;          byte 1  kind
+</code></pre>
+<p>That is a deliberate exception to the habit of the recent engines, which put
+scalars in globals because
+<a href="08-globals-and-state.html">the <code>get_*</code> readers are the only consumer</a>. Here they
+are not: the <strong>widget reads the plan ahead of the simulation</strong>, and draws the
+sixteen steps of the coming bar as a ring of ticks outside the tube, coloured
+by what will arrive on each.</p>
+<p>That is worth being precise about, because it looks like a violation of the
+invariant and is the opposite of one. The widget is not <em>deciding</em> anything —
+the plan was written by <code>$plan_bar</code> at the bar boundary and the widget cannot
+change it. It is reading state that the engine has already committed to, which
+is the same thing it does when it reads an enemy&#39;s position. The difference is
+only that this particular state describes the future.</p>
+<p>And it changes the game. Without it, a rhythm game is whack-a-mole with a
+soundtrack: things appear, you react. With it, the pattern is <em>legible</em> two
+seconds before it happens, and the skill becomes reading it.</p>
+<hr>
+<h2>Making the music sound like music</h2>
+<p>A last note that is not about architecture but is about why this works at all.</p>
+<p>The first version of <code>$plan_bar</code> picked spawn steps uniformly at random out of
+the sixteen. Every position was equally likely, which a listener hears as a
+stuttering machine and a player cannot anticipate at all — and the whole point
+of putting the pattern on screen is that it can be anticipated.</p>
+<p>What ships is rejection sampling against a weight:</p>
+<pre><code class="language-wat">(func $step_weight (param $s i32) (result i32)
+  (if (i32.eqz (i32.rem_u (local.get $s) (i32.const 4))) (then (return (i32.const 9))))
+  (if (i32.eqz (i32.rem_u (local.get $s) (i32.const 2))) (then (return (i32.const 4))))
+  (i32.const 1))
+</code></pre>
+<p>Nine for the four quarter notes, four for the off-eighths, one for the
+sixteenths in between. Three integers, and the difference between a drum
+pattern and a random-number generator with a speaker attached.</p>
+<p>The same idea runs through <a href="21-generated-worlds.html">chapter 21</a>: a generator
+that is <em>correct</em> is not the same as a generator that is <em>good</em>, and the gap
+between them is usually a weighting nobody thought to write down.</p>
+<hr>
+<h2>What to take from this</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Question</th>
+<th>Answer here</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Two clocks that must agree?</td>
+<td>Do not have two. Make one of them derived state of the other</td>
+</tr>
+<tr>
+<td>Where does musical time live?</td>
+<td>Wherever the rules that depend on it live</td>
+</tr>
+<tr>
+<td>Scheduled audio, or reactive?</td>
+<td>Scheduled for a music app; reactive for a game where the beat is scored</td>
+</tr>
+<tr>
+<td>What does reactive cost?</td>
+<td>One frame of jitter. Measure it against a note length before deciding it matters</td>
+</tr>
+<tr>
+<td>Frame longer than a step?</td>
+<td>Loop the clock, cap the loop, and never silently drop a step</td>
+</tr>
+<tr>
+<td>Can the widget read ahead?</td>
+<td>Of state the engine has already committed to, yes — reading a decision is not making one</td>
+</tr>
+<tr>
+<td>Random pattern sounds wrong?</td>
+<td>It is uniform. Weight the strong beats; three integers is enough</td>
+</tr>
+</tbody></table>
+</div>
+<nav class="pager">
+  <a href="21-generated-worlds.html"><span>Previous</span>Case study: generating a world that is always winnable</a>
+  <a href="index.html">Contents</a>
+  <a class="next" href="glossary.html"><span>Next</span>Glossary</a>
+</nav>
+</main>
+</body>
+</html>

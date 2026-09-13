@@ -80,6 +80,7 @@ const PARTS = [
       ['19-pools-that-grow', 'Case study: pools that grow their own contents', 'Entities that spawn entities, what a full pool should do, and the resolution you draw at'],
       ['20-per-entity-intent', 'Case study: giving each entity its own intent', 'Behaviour that lives in the record, why unpredictable is not random, and meters instead of lives'],
       ['21-generated-worlds', 'Case study: generating a world that is always winnable', 'Locally fair and globally impossible, reserving a path, and hitboxes as arithmetic'],
+      ['22-engine-owned-time', 'Case study: the engine that owns time', 'Two clocks that must agree, why scheduled audio is the wrong shape here, and reading a decision without making one'],
     ],
   },
   {

@@ -22,7 +22,7 @@ arcade-library/
 │   ├── starfield-runner/ ← graze scoring, 3.0 KB engine, no imports, 320x240
 │   ├── tower-defense/  ← place, don't steer; 5.1 KB engine, generated route
 │   └── pulse/          ← rhythm tube shooter, 3.4 KB engine, the engine is the sequencer
-├── docs/               ← the course: 21 chapters, glossary, cheatsheet
+├── docs/               ← the course: 22 chapters, glossary, cheatsheet
 └── scripts/            ← build.mjs (wat → wasm) and serve.mjs
 ```
 
@@ -140,7 +140,7 @@ Markdown reads fine on github.com, which is where the sources are meant to be
 read. But this repository is also *served* — from the landing page, from
 `npm run serve`, from GitHub Pages — and there a `.md` file arrives as
 `text/markdown` and the browser shows unstyled plain text with every `#` and
-`|` intact. Twenty-one chapters of that is not documentation anyone will read.
+`|` intact. Twenty-two chapters of that is not documentation anyone will read.
 
 Rendering at build time gives real HTML that works with JavaScript disabled, is
 indexable, and supports find-in-page on first load — none of which a

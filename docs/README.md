@@ -7,11 +7,20 @@ to me.
 
 Every code sample is real WAT that compiles. Where a chapter draws on
 `games/pixel-wave/game.wat`, `games/worm-chase/game.wat`,
-`games/asteroid-miner/game.wat`, `games/sector-defense/game.wat` or
-`games/circuit-runner/game.wat` it says so, and you can open the file and
-check. (Grid Breaker is not covered — it arrived
-after the first seventeen chapters were written, and its own
-[README](../games/grid-breaker/README.md) documents it.)
+`games/asteroid-miner/game.wat`, `games/sector-defense/game.wat`,
+`games/circuit-runner/game.wat` or `games/pulse/game.wat` it says so, and you
+can open the file and check.
+
+Three of the nine engines are not covered here, and each has a reason rather
+than an oversight. **Grid Breaker** arrived after the first seventeen chapters
+were written. **Starfield Runner** and **Tower Defense Lite** are worked
+variations on ideas the course already has a chapter for — reserving a path
+([21](21-generated-worlds.md)) and pools in linear memory
+([16](16-entity-pools.md)) — and a chapter that restates one is worse than no
+chapter. All three are documented at length by their own READMEs:
+[Grid Breaker](../games/grid-breaker/README.md),
+[Starfield Runner](../games/starfield-runner/README.md),
+[Tower Defense Lite](../games/tower-defense/README.md).
 
 ---
 
@@ -63,6 +72,7 @@ willing to learn in about four paragraphs.
 | 19 | [Case study: pools that grow their own contents](19-pools-that-grow.md) | Entities that spawn entities, what a full pool should do, resource state, and the resolution you draw at |
 | 20 | [Case study: giving each entity its own intent](20-per-entity-intent.md) | Behaviour stored in the record, why unpredictable is not random, and replacing lives with meters |
 | 21 | [Case study: generating a world that is always winnable](21-generated-worlds.md) | Rows that are locally fair and globally impossible, reserving a path, and hitboxes as arithmetic |
+| 22 | [Case study: the engine that owns time](22-engine-owned-time.md) | Two clocks that must agree, why scheduled audio is the wrong shape for a rhythm *game*, and reading a decision without making one |
 
 ## Reference
 

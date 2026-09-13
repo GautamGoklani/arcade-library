@@ -1,6 +1,6 @@
 # 21 · Case study: generating a world that is always winnable
 
-← [Giving each entity its own intent](20-per-entity-intent.md) · [Contents](README.md) · [Glossary](glossary.md)
+← [Giving each entity its own intent](20-per-entity-intent.md) · [Contents](README.md) · next: [The engine that owns time](22-engine-owned-time.md)
 
 ---
 
@@ -201,4 +201,4 @@ Two details that only show up once the curve is continuous:
 
 ---
 
-← [Giving each entity its own intent](20-per-entity-intent.md) · [Contents](README.md) · [Glossary](glossary.md) · [Further reading](further-reading.md)
+← [Giving each entity its own intent](20-per-entity-intent.md) · [Contents](README.md) · next: [The engine that owns time](22-engine-owned-time.md) · [Glossary](glossary.md)

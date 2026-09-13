@@ -1,7 +1,7 @@
 # arcade-library — working notes
 
 Browser arcade games whose entire simulation is **hand-written WebAssembly
-Text**, plus a 21-chapter WebAssembly course built around them. No game engine,
+Text**, plus a 22-chapter WebAssembly course built around them. No game engine,
 no compiler front-end, no runtime dependency. JavaScript forwards input and
 draws what it reads out of linear memory; everything else is WAT.
 
@@ -40,7 +40,7 @@ TASKS.md                the open backlog — read it before picking up work
 index.html              landing page / arcade hub — a card per game
 games/<slug>/           one self-contained game each (see below)
 games/plans-for-other-games.md    roadmap: shipped, still to build, build order
-docs/                   the course: 21 chapters + glossary, cheatsheet, reading list
+docs/                   the course: 22 chapters + glossary, cheatsheet, reading list
 docs/reference/         original .docx project documents, kept as a historical record
 scripts/build.mjs       wat → wasm, and re-embeds base64 into each widget
 scripts/build-docs.mjs  md → html, generates docs/index.html, checks links
@@ -246,8 +246,8 @@ or linked), add a row to the table in `docs/README.md`, update the previous
 chapter's forward nav link and both nav lines in the new one, and bump the
 chapter count in `index.html` and root `README.md`.
 
-Part III (15–20) is the case-study half, one chapter per idea rather than one
-per game:
+Part III (15–22) is the case-study half, one chapter per idea rather than one
+per game — three engines have no chapter because they would restate one:
 
 | | |
 |---|---|
@@ -258,6 +258,7 @@ per game:
 | 19 | pools that grow their own contents; the resolution you draw at |
 | 20 | per-entity intent; meters instead of lives |
 | 21 | generating a world that is always winnable |
+| 22 | who owns musical time, and what a second clock costs |
 
 ---
 
