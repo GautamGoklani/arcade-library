@@ -58,6 +58,7 @@ scripts/serve.mjs       dev server
 | `asteroid-miner` | 4.2 KB | mining run | splitting entities, fuel/cargo; first with the retro renderer |
 | `sector-defense` | 3.6 KB | wave defence | **no imports**; per-entity intent, two meters instead of lives |
 | `circuit-runner` | 3.0 KB | endless lane runner | **no imports**; nothing to shoot, generated board, tap-zone touch |
+| `starfield-runner` | 3.0 KB | graze-scoring runner | **no imports**; free flight, close passes are the only score and the only repair |
 
 Vector Arena was removed in `e90bc03`. Chapters 6, 7 and 17 still teach
 techniques drawn from it and say so inline; do not "fix" those by deleting the
@@ -77,8 +78,13 @@ Break these and the repository stops being what it is.
    single exception — one builder, so `--check` can cover every title at once.
 
 2. **Every game owns a CSS prefix, and no other game may use it.**
-   `pw-` `gb-` `wc-` `am-` `sd-` `cr-`. Every rule is namespaced under `.<prefix>-root`
-   so a widget can be dropped into someone else's page.
+   `ss-` `gb-` `wc-` `am-` `sd-` `cr-` `sr-`. Every rule is namespaced under
+   `.<prefix>-root` so a widget can be dropped into someone else's page.
+
+   Pixel Wave's is `ss-`, not `pw-`: the title shipped as *Sky Skirmish* in the
+   original plan and the prefix is what survived the rename. It stays `ss-`
+   because it is a published API — anything already embedding the widget styles
+   against it — and because renaming a prefix buys tidiness and nothing else.
 
 3. **JavaScript owns no game state.** It forwards input, calls `step(dt)`, and
    reads entity records out of linear memory to draw them. If a rule lives in
@@ -276,11 +282,9 @@ two titles that predate the retro renderer, and the library goals not yet built.
 Read it before starting anything; it is written to be picked up cold.
 
 Shipped: Pixel Wave, Grid Breaker, Worm Chase, Asteroid Miner, Sector Defense,
-Circuit Runner. The original build order is complete. Remaining concepts:
-**Starfield Runner** (cheapest, but it scrolls toward the player like Circuit
-Runner does — build its tight-squeeze scoring idea first or do not build it),
-**Pulse** (needs an audio system that does not exist yet), **Tower Defense
-Lite**.
+Circuit Runner, Starfield Runner. The original build order is complete.
+Remaining concepts: **Pulse** (needs an audio system that does not exist yet),
+**Tower Defense Lite**.
 
 Deliberately not built: shared high-score storage, and the "shared engine
 template / sprite toolkit" the original plan called for — see the note in

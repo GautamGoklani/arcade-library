@@ -25,7 +25,7 @@ The reason is the one [Grid Breaker's README](../grid-breaker/README.md) gives:
 a shared engine library would mean a change made for one game could break
 another. Tooling is the exception — the shared
 [`scripts/build.mjs`](../../scripts/build.mjs) builds every title, so
-`npm run check` verifies all six committed binaries in one pass.
+`npm run check` verifies all seven committed binaries in one pass.
 
 At **2,967 bytes** this is the smallest engine in the library, which is what
 happens when a game has one verb.

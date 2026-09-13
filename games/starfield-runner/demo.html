@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Starfield Runner — demo</title>
+<!-- required on mobile so pinch-zoom does not fight the thumbstick -->
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<link rel="stylesheet" href="starfield-runner.css">
+<style>
+  body {
+    margin: 0;
+    padding: 24px 12px;
+    background: #03060f;
+    display: flex;
+    justify-content: center;
+    font-family: 'Courier New', monospace;
+  }
+</style>
+</head>
+<body>
+
+<!-- the widget builds its own HUD, canvas and overlays inside this container -->
+<div id="game"></div>
+
+<script src="starfield-runner.js"></script>
+<script>
+  var game = StarfieldRunner.mount('#game');
+  // game.restart();  — start a fresh run
+  // game.getState(); — { score, distance, speed, hull, charge, multiplier,
+  //                      grazes, squeezes, gameOver }
+  // game.destroy();  — stop the loop, remove DOM + all listeners
+</script>
+
+</body>
+</html>

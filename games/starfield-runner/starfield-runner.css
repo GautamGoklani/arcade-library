@@ -1,0 +1,271 @@
+/* Starfield Runner — scoped styles. Every rule is namespaced under .sr-root so
+   this can be dropped into any page without clobbering existing CSS, and so it
+   cannot collide with another game's stylesheet on the same site. The `sr-`
+   prefix belongs to this title alone; no other game in games/ may use it. */
+
+.sr-root {
+  --sr-max-width: 1000px;
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  font-family: 'Courier New', monospace;
+  color: #8fd7ff;
+  background: #03060f;
+  padding: 10px;
+  width: 100%;
+  max-width: var(--sr-max-width);
+  box-sizing: border-box;
+}
+
+.sr-stage {
+  position: relative;
+  line-height: 0;
+  width: 100%;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.sr-canvas {
+  background: #050916;
+  border: 3px solid #16233f;
+  image-rendering: pixelated;
+  display: block;
+  width: 100%;                 /* scales responsively; internal res stays 960x720 */
+  height: auto;
+  box-sizing: border-box;
+}
+
+/* The CRT layer, as in asteroid-miner.css, sector-defense.css and
+   circuit-runner.css. In CSS rather than the frame loop because it never
+   changes, and because true display resolution is the only place scanlines
+   look like scanlines. */
+.sr-scan {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    repeating-linear-gradient(
+      to bottom,
+      rgba(0, 0, 0, 0.26) 0 1px,
+      rgba(0, 0, 0, 0) 1px 3px),
+    radial-gradient(
+      ellipse at center,
+      rgba(0, 0, 0, 0) 52%,
+      rgba(0, 0, 0, 0.55) 100%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sr-scan { background: none; }
+  .sr-plate.sr-lost { animation: none; }
+  .sr-note { transition: none; }
+}
+
+.sr-hud {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 6px 18px;
+  margin-bottom: 4px;
+  background: #03060f;
+  border: 2px solid #8fd7ff;
+  font-size: 14px;
+  letter-spacing: 2px;
+  text-shadow: 0 0 6px rgba(143, 215, 255, 0.7);
+  font-weight: bold;
+  width: 100%;
+  box-sizing: border-box;
+}
+.sr-hud .sr-a { color: #ffd166; text-shadow: 0 0 6px #ffd166; }
+
+/* Hull is three discrete plates rather than a bar, because it is three
+   discrete plates: a bar would suggest the ship can be at 40% of a plate, and
+   the only thing that ever moves it is a whole one at a time. */
+.sr-hull { display: flex; align-items: center; gap: 5px; }
+.sr-plates { display: flex; gap: 3px; }
+.sr-plate {
+  width: 13px;
+  height: 13px;
+  border: 1px solid #6ee7a8;
+  background: #6ee7a8;
+  box-shadow: 0 0 6px rgba(110, 231, 168, 0.6);
+}
+.sr-plate.sr-off { background: transparent; border-color: #2b4a3c; box-shadow: none; }
+.sr-plate.sr-lost { animation: sr-flash 0.35s 2; }
+@keyframes sr-flash { 50% { background: #ff5470; border-color: #ff5470; } }
+
+/* Charge is the only thing that ever buys a plate back, so it sits next to
+   them and fills toward them. */
+.sr-gauge { display: flex; align-items: center; gap: 7px; }
+.sr-bar {
+  position: relative;
+  width: 108px;
+  height: 12px;
+  border: 1px solid currentColor;
+  overflow: hidden;
+  color: #ffd166;
+}
+.sr-bar i {
+  position: absolute;
+  inset: 1px auto 1px 1px;
+  display: block;
+  width: 0;
+  background: currentColor;
+  transition: width 0.08s linear;
+}
+
+/* The multiplier, with the distance left before it bleeds a step drawn as a
+   draining underline. It is the only warning the player gets that a stretch of
+   safe flying is costing them, so it is not a number on its own. */
+.sr-mult { position: relative; color: #ff8bd0; text-shadow: 0 0 8px #ff8bd0; }
+.sr-mult u {
+  position: absolute;
+  left: 0; right: 0; bottom: -4px;
+  height: 2px;
+  display: block;
+  background: currentColor;
+  transform-origin: left center;
+  transform: scaleX(1);
+}
+.sr-mult.sr-one { color: #3f5f7d; text-shadow: none; }
+
+.sr-mute {
+  margin-left: auto;
+  padding: 3px 10px;
+  border: 1px solid rgba(143, 215, 255, 0.6);
+  background: transparent;
+  color: #8fd7ff;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: bold;
+  letter-spacing: 1px;
+  cursor: pointer;
+}
+.sr-mute:hover { background: rgba(143, 215, 255, 0.15); }
+
+.sr-overlay {
+  /* The stage sets line-height: 0 to kill the inline gap under the canvas, and
+     an overlay inside it inherits that. A single line still paints, so this
+     went unnoticed on a desktop window — but the moment the field is narrow
+     enough for the message to wrap, the two lines land on the same baseline
+     and "POWER LOST" renders as "PLOOWSETR". Found at 375px. */
+  line-height: 1.15;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  pointer-events: none;
+  font-weight: bold;
+}
+
+.sr-msg {
+  font-size: 40px;
+  color: #ff5470;
+  text-shadow: 0 0 18px #ff5470, 3px 3px 0 #4a0713;
+  display: none;
+  letter-spacing: 5px;
+  pointer-events: auto;   /* tappable on mobile to restart */
+  cursor: pointer;
+}
+.sr-msg small {
+  display: block;
+  font-size: 15px;
+  color: #8fd7ff;
+  margin-top: 14px;
+  letter-spacing: 3px;
+}
+
+.sr-note {
+  top: 26%;
+  font-size: 22px;
+  color: #ffd166;
+  text-shadow: 0 0 14px #ffd166;
+  letter-spacing: 5px;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+/* ---------------- touch controls (shown only on coarse-pointer devices) ---- */
+
+/* An analogue rail, as in sector-defense.css, and for the same reason: the
+   ship has one axis and set_input takes an f32, so a nudge drifts and a full
+   push commits. This is the title where that distinction matters most — the
+   whole scoring rule is about how many pixels you left, and a two-state tap
+   control cannot ask for thirty of them.
+
+   Always in the DOM and always interactive; only visibility is gated. */
+.sr-touch {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.18s;
+}
+.sr-root.sr-is-touch .sr-touch { opacity: 1; }
+
+.sr-stickzone {
+  position: absolute;
+  left: 0; right: 0; bottom: 0;
+  height: 46%;
+  pointer-events: auto;
+  touch-action: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.sr-stick {
+  position: absolute;
+  left: 26%; top: 56%;          /* resting home; JS overrides while held */
+  transform: translate(-50%, -50%);
+  width: 30%;
+  aspect-ratio: 1 / 1;
+  border: 2px solid rgba(143, 215, 255, 0.45);
+  border-radius: 50%;
+  background: rgba(6, 14, 30, 0.35);
+  opacity: 0.5;
+  transition: opacity 0.15s;
+}
+.sr-stick.sr-active { opacity: 1; border-color: rgba(143, 215, 255, 0.85); }
+.sr-stick::after {
+  content: '';
+  position: absolute;
+  left: 8%; right: 8%; top: 50%;
+  height: 2px;
+  transform: translateY(-50%);
+  background: rgba(143, 215, 255, 0.3);
+}
+
+.sr-stick-knob {
+  position: absolute;
+  left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
+  width: 44%;
+  aspect-ratio: 1 / 1;
+  border-radius: 50%;
+  background: rgba(143, 215, 255, 0.55);
+}
+.sr-stick.sr-active .sr-stick-knob { background: rgba(143, 215, 255, 0.92); }
+
+.sr-help {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #4a6c8c;
+  letter-spacing: 1px;
+  text-align: center;
+}
+
+.sr-fail {
+  color: #ff5470;
+  padding: 20px;
+  font-family: 'Courier New', monospace;
+}
+
+@media (max-width: 700px) {
+  .sr-msg { font-size: 6.5vw; }
+  .sr-note { font-size: 3.4vw; }
+  .sr-hud { gap: 2.2vw; font-size: 2.4vw; padding: 4px 8px; letter-spacing: 1px; }
+  .sr-bar { width: 16vw; height: 2vw; }
+  .sr-plate { width: 2vw; height: 2vw; }
+  .sr-mute { font-size: 2.2vw; padding: 2px 5px; }
+}

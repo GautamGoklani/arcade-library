@@ -122,6 +122,12 @@
 .sd-mute:hover { background: rgba(102, 226, 255, 0.15); }
 
 .sd-overlay {
+  /* The stage sets line-height: 0 to kill the inline gap under the canvas, and
+     an overlay inside it inherits that. A single line still paints, so this
+     went unnoticed on a desktop window — but the moment the field is narrow
+     enough for the message to wrap, the two lines land on the same baseline
+     and "POWER LOST" renders as "PLOOWSETR". Found at 375px. */
+  line-height: 1.15;
   position: absolute;
   top: 50%;
   left: 50%;

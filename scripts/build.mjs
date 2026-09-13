@@ -96,6 +96,18 @@ const TITLES = [
     ],
   },
   {
+    slug: 'starfield-runner',
+    wat: 'games/starfield-runner/game.wat',
+    wasm: 'games/starfield-runner/game.wasm',
+    embed: [
+      {
+        file: 'games/starfield-runner/starfield-runner.js',
+        pattern: /var WASM_B64 = "[A-Za-z0-9+/=]*";/,
+        render: (b64) => `var WASM_B64 = "${b64}";`,
+      },
+    ],
+  },
+  {
     slug: 'worm-chase',
     wat: 'games/worm-chase/game.wat',
     wasm: 'games/worm-chase/game.wasm',
@@ -144,9 +156,14 @@ for (const title of TITLES) {
 
   const bytes = compile(title.wat);
   const b64 = bytes.toString('base64');
-  const onDisk = readFileSync(join(ROOT, title.wasm));
 
   if (check) {
+    // Only --check needs to read what is already there. Reading it
+    // unconditionally meant a brand-new title could not be built at all until
+    // somebody hand-created an empty game.wasm for the builder to overwrite,
+    // which is a rake to leave lying across the one path in "Adding a game"
+    // that nobody walks twice.
+    const onDisk = readFileSync(join(ROOT, title.wasm));
     if (!onDisk.equals(bytes)) {
       console.error(`stale: ${title.wasm} does not match ${title.wat}`);
       failed = true;

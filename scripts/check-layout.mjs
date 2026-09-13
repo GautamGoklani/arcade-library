@@ -68,6 +68,11 @@ const TITLES = [
             'PICKUPS_OFF', 'PICKUP_STRIDE', 'MAX_PICKUPS'],
   },
   {
+    slug: 'starfield-runner',
+    js: 'starfield-runner.js',
+    names: ['SHIP_OFF', 'ROCKS_OFF', 'ROCK_STRIDE', 'MAX_ROCKS'],
+  },
+  {
     slug: 'sector-defense',
     js: 'sector-defense.js',
     names: ['ENEMIES_OFF', 'ENEMY_STRIDE', 'MAX_ENEMIES', 'PB_OFF', 'PB_STRIDE',
