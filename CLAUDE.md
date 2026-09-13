@@ -60,6 +60,7 @@ scripts/serve.mjs       dev server
 | `circuit-runner` | 3.0 KB | endless lane runner | **no imports**; nothing to shoot, generated board, tap-zone touch |
 | `starfield-runner` | 3.0 KB | graze-scoring runner | **no imports**; free flight, close passes are the only score and the only repair |
 | `tower-defense` | 5.1 KB | wave defence, placed | **no imports**; the player places rather than steers; guns overheat, vents cool their neighbours |
+| `pulse` | 3.4 KB | rhythm tube shooter | **no imports**; the engine is the sequencer — it owns the tempo and the bar, and the widget plays notes off its step counter |
 
 Vector Arena was removed in `e90bc03`. Chapters 6, 7 and 17 still teach
 techniques drawn from it and say so inline; do not "fix" those by deleting the
@@ -79,7 +80,7 @@ Break these and the repository stops being what it is.
    single exception — one builder, so `--check` can cover every title at once.
 
 2. **Every game owns a CSS prefix, and no other game may use it.**
-   `ss-` `gb-` `wc-` `am-` `sd-` `cr-` `sr-` `td-`. Every rule is namespaced under
+   `ss-` `gb-` `wc-` `am-` `sd-` `cr-` `sr-` `td-` `pl-`. Every rule is namespaced under
    `.<prefix>-root` so a widget can be dropped into someone else's page.
 
    Pixel Wave's is `ss-`, not `pw-`: the title shipped as *Sky Skirmish* in the
@@ -282,10 +283,13 @@ per game:
 two titles that predate the retro renderer, and the library goals not yet built.
 Read it before starting anything; it is written to be picked up cold.
 
-Shipped: Pixel Wave, Grid Breaker, Worm Chase, Asteroid Miner, Sector Defense,
-Circuit Runner, Starfield Runner, Tower Defense Lite. The original build order
-is complete. Remaining concept: **Pulse**, which needs an audio system that
-does not exist yet.
+Shipped: all nine — Pixel Wave, Grid Breaker, Worm Chase, Asteroid Miner,
+Sector Defense, Circuit Runner, Starfield Runner, Tower Defense Lite, Pulse.
+**Every concept on the roadmap is built.** Pulse was the last, and the audio
+system it was said to be blocked on turned out to be an architecture question
+rather than a synthesiser: the engine is the sequencer, and the widget plays
+notes off its step counter. Anything new from here is a new idea, not a
+backlog item — see `games/plans-for-other-games.md`.
 
 Deliberately not built: shared high-score storage, and the "shared engine
 template / sprite toolkit" the original plan called for — see the note in

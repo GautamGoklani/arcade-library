@@ -20,7 +20,8 @@ arcade-library/
 │   ├── sector-defense/ ← wave defence, 3.6 KB engine, shield + combo, 320x240
 │   ├── circuit-runner/ ← endless lane runner, 3.0 KB engine, generated board
 │   ├── starfield-runner/ ← graze scoring, 3.0 KB engine, no imports, 320x240
-│   └── tower-defense/  ← place, don't steer; 5.1 KB engine, generated route
+│   ├── tower-defense/  ← place, don't steer; 5.1 KB engine, generated route
+│   └── pulse/          ← rhythm tube shooter, 3.4 KB engine, the engine is the sequencer
 ├── docs/               ← the course: 21 chapters, glossary, cheatsheet
 └── scripts/            ← build.mjs (wat → wasm) and serve.mjs
 ```
@@ -57,6 +58,7 @@ npm run serve      # http://localhost:8080
 | **[Circuit Runner](games/circuit-runner/)** | Six copper traces, components sliding at you, current draining the whole time. Nothing to shoot; the board is generated so it is always passable. Keyboard and touch |
 | **[Starfield Runner](games/starfield-runner/)** | Nothing to shoot and nothing to collect. Close passes are the only score and the only repair, and the guaranteed safe line is drawn on the board so you can see what refusing it costs. Keyboard and touch |
 | **[Tower Defense Lite](games/tower-defense/)** | The one title here where you place rather than steer. Guns overheat and trip; a vent shoots nothing and cools the eight squares around it, so keeping the damage *continuous* is the whole game. Mouse, keyboard and touch |
+| **[Pulse](games/pulse/)** | A rhythm tube shooter in which the *engine* is the sequencer: it owns the tempo, the bar and the pattern, and the widget plays the soundtrack off its step counter. A shot on the beat hits three times as hard. Keyboard and touch |
 
 ---
 
@@ -179,9 +181,9 @@ To learn the machine without a compiler in the way. It is explicitly **not** a
 recommendation — [chapter 10](docs/10-source-languages.md) is blunt about what
 it costs, and Rust, Zig or AssemblyScript are the right answers for real work.
 
-What the exercise produced, though, is eight complete games in **strict MVP
+What the exercise produced, though, is nine complete games in **strict MVP
 WebAssembly**: four value types, one 64 KiB memory, structured control flow, and
-two imports — `sinf` and `cosf` — which five of the eight do not need at all. No post-MVP feature, no feature detection, no fallback build. They
+two imports — `sinf` and `cosf` — which six of the nine do not need at all. No post-MVP feature, no feature detection, no fallback build. They
 run on anything that has ever supported WebAssembly.
 
 The documentation is the deliverable. The games are the excuse.

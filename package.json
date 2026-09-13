@@ -16,6 +16,7 @@
     "build:circuit-runner": "node scripts/build.mjs circuit-runner",
     "build:starfield-runner": "node scripts/build.mjs starfield-runner",
     "build:tower-defense": "node scripts/build.mjs tower-defense",
+    "build:pulse": "node scripts/build.mjs pulse",
     "check": "node scripts/build.mjs --check && node scripts/build-docs.mjs --check && node scripts/check-layout.mjs",
     "serve": "node scripts/serve.mjs"
   },

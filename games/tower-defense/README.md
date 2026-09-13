@@ -47,7 +47,7 @@ The reason is the one [Grid Breaker's README](../grid-breaker/README.md) gives:
 a shared engine library would mean a change made for one game could break
 another. Tooling is the exception — the shared
 [`scripts/build.mjs`](../../scripts/build.mjs) builds every title, so
-`npm run check` verifies all eight committed binaries in one pass.
+`npm run check` verifies all nine committed binaries in one pass.
 
 At **5,124 bytes** this is the largest engine in the library, which is what
 happens when the interesting state is a board rather than a position.
@@ -166,7 +166,7 @@ click does are the same sentence.
 
 | | Tower | Cost | Reach | What it does | Heat |
 |---|---|---|---|---|---|
-| ▮ | **Pylon** | 20 | 132 | 9 damage every 0.26s, hitscan | 9 a shot — 50/s while firing |
+| ▮ | **Pylon** | 20 | 132 | 9 damage every 0.26s, hitscan | 13 a shot — 50/s while firing |
 | ◎ | **Mortar** | 45 | 210 | a shell to where the target *was*, 26 damage in a 62px splash | 33 a shell — 22/s while firing |
 | ▦ | **Vent** | 15 | 92 | nothing. Cools every tower in reach by 20/s | none |
 

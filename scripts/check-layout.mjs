@@ -80,6 +80,12 @@ const TITLES = [
             'SHELLS_OFF', 'SHELL_STRIDE', 'MAX_SHELLS', 'PATH_OFF', 'PATH_STRIDE'],
   },
   {
+    slug: 'pulse',
+    js: 'pulse.js',
+    names: ['BAR_OFF', 'BAR_STRIDE', 'ENEMIES_OFF', 'ENEMY_STRIDE', 'MAX_ENEMIES',
+            'BOLTS_OFF', 'BOLT_STRIDE', 'MAX_BOLTS'],
+  },
+  {
     slug: 'sector-defense',
     js: 'sector-defense.js',
     names: ['ENEMIES_OFF', 'ENEMY_STRIDE', 'MAX_ENEMIES', 'PB_OFF', 'PB_STRIDE',

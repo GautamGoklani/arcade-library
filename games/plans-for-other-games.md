@@ -30,21 +30,15 @@ for the reasoning behind keeping designs original.
 | **[Circuit Runner](circuit-runner/)** | Endless lane runner on a circuit board. Nothing to shoot, one draining meter, and a board generated so it is always passable. | 3.0 KB |
 | **[Starfield Runner](starfield-runner/)** | Free flight through a debris field. Nothing to shoot and nothing to collect: close passes are the only score and the only repair. | 3.0 KB |
 | **[Tower Defense Lite](tower-defense/)** | A generated route, a core at the end, and twenty-eight tower slots. Guns overheat; a vent shoots nothing and cools its eight neighbours. | 5.1 KB |
+| **[Pulse](pulse/)** | A rhythm tube shooter whose engine is the sequencer: it owns the tempo, the bar and the pattern, and a shot on the beat hits three times as hard. | 3.4 KB |
 
 ---
 
 ## Still to build
 
-| Working Title | Concept | Complexity |
-|---|---|---|
-| **Pulse** | Abstract tube shooter driven by rhythm — enemy spawns sync to the beat of the soundtrack. | Medium–High |
-
----
-
-## Remaining Build Order
-
-1. **Pulse** — the last one, and the most ambitious; depends on the audio
-   system planned for Pixel Wave v1.x.
+**Nothing.** Every concept on this list has shipped. What follows is the record
+of how the order actually went and what each step was for; anything new from
+here is a new idea rather than a backlog item.
 
 All four steps of the original order are done, and between them they did the
 job that order was designed to do. Grid Breaker proved the widget template
@@ -79,16 +73,32 @@ The bench put a number on that: a pilot that always takes the widest gap scores
 **23 points a second and never repairs a plate**, against 200-plus for one that
 threads.
 
-Tower Defense Lite came last of the unblocked three, and it is the one that
-most needed to be different in *shape* rather than in theme: it is the only
-title here where the player places rather than steers, and where the
-interesting state is the board instead of a position. Its own idea is that the
-binding resource is heat rather than money — guns trip and stop firing, and a
-vent shoots nothing and cools the eight squares around it. The bench found
-something about that worth keeping: a third of the slots given over to vents
-cut overheating by half on every board it tried, and bought **nothing at all**
-on a board of cheap guns while buying three whole waves on a board that also
-had mortars. Support only pays in proportion to what it is supporting.
+Tower Defense Lite came next, and it is the one that most needed to be
+different in *shape* rather than in theme: it is the only title here where the
+player places rather than steers, and where the interesting state is the board
+instead of a position. Its own idea is that the binding resource is heat rather
+than money — guns trip and stop firing, and a vent shoots nothing and cools the
+eight squares around it. The bench found something about that worth keeping: a
+third of the slots given over to vents cut overheating by half on every board
+it tried, and bought **nothing at all** on a board of cheap guns while buying
+three whole waves on a board that also had mortars. Support only pays in
+proportion to what it is supporting.
+
+**Pulse was last, and it was blocked on a misdiagnosis.** This list said for a
+long time that it needed "the audio system planned for Pixel Wave v1.x", and
+that is why it stayed unbuilt: the missing piece was never a synthesiser. Every
+title since Grid Breaker has one, in eighty lines of Web Audio. What was
+missing was an answer to the question the third invariant asks — if the music
+decides when enemies arrive, and the music lives in JavaScript, then JavaScript
+owns game state.
+
+The answer is that it does not live in JavaScript. **The engine is the
+sequencer.** It owns the tempo, the sixteen-step bar, the step counter and the
+pattern; the widget diffs the step counter like any other event counter and
+plays a note. The music and the game therefore cannot drift, because the spawn
+and the note are the same event. A player timing a shot to what they hear is
+timing it to what the engine did — and on the bench, doing so is worth six
+times the score per second.
 
 ---
 
@@ -120,7 +130,10 @@ Pixel Wave (the first title) has its own planned evolution that the later games
 will inherit pieces of:
 
 - **Near term:** sound effects/music, high-score persistence, pause support,
-  power-ups, run-stats game-over screen.
+  power-ups, run-stats game-over screen. *Sound effects arrived in every title
+  from Grid Breaker onward except Pixel Wave itself, which still has none.
+  Music arrived in [Pulse](pulse/), by a route this list did not anticipate:
+  the engine sequences it.*
 - **Medium term:** boss waves every 10 levels, distinct per-species enemy
   behaviour, screen shake/hit-stop, gamepad support, difficulty settings.
 - **Long term:** local co-op and online versus multiplayer (lockstep WASM), a
