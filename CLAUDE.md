@@ -165,10 +165,12 @@ the arithmetic showing where each region ends.
 
 ### The retro render treatment
 
-Everything from Asteroid Miner onward draws into a **320×240 buffer blown up 3×
-with smoothing off**. New titles should assume it; Pixel Wave and Grid Breaker
-have not been retrofitted. Circuit Runner adds one wrinkle worth copying when it
-applies: variable-width things (its 1- and 2-lane components) are drawn
+**Every title draws into a buffer a third the size of its world, blown up 3×
+with smoothing off** — 320×240 for the 960×720 games, 400×250 for Pixel Wave's
+1200×750 arena. Asteroid Miner introduced it; Pixel Wave, Grid Breaker and Worm
+Chase were retrofitted in September 2026, by the owner's decision, so that the
+hub shows one look rather than two. New titles assume it. Circuit Runner adds
+one wrinkle worth copying when it applies: variable-width things (its 1- and 2-lane components) are drawn
 procedurally with `fillRect` on the low-res grid rather than from ASCII sprites,
 because an ASCII grid has one width.
 
@@ -184,7 +186,17 @@ g.setTransform(1 / LOW_SCALE, 0, 0, 1 / LOW_SCALE, 0, 0);
 screen.drawImage(low, 0, 0, WORLD_W, WORLD_H);
 ```
 
-The 1/3 transform is the entire adapter — no draw-code coordinate changes. Then:
+The titles built for this resolution snap coordinates at each call site.
+The three that were retrofitted — Pixel Wave, Grid Breaker and Worm Chase — were
+written at full resolution with details one and three pixels wide spread over
+dozens of calls, so their snap lives in the adapter instead: the low-res
+context's `fillRect` and `drawImage` are wrapped to round their edges to whole
+low-res pixels, and a detail that would round away keeps one pixel. Stroked
+hairlines became one-pixel `fillRect` bars, because a 1px stroke drawn into a
+one-third buffer is a third of a pixel wide and comes out as a smear.
+
+For a title drawn at this resolution from the start, the 1/3 transform is the
+entire adapter — no draw-code coordinate changes. Either way:
 **no glow anywhere** (`shadowBlur` is the giveaway that a picture was made after
 about 1995 — brightness comes from a brighter colour), everything snapped to
 whole low-res pixels including screen shake, and scanlines + vignette in CSS
@@ -286,9 +298,9 @@ per game — three engines have no chapter because they would restate one:
 
 ## Roadmap status
 
-**[`TASKS.md`](TASKS.md) is the backlog** — verification debt, the two items
-waiting on a decision from the owner (retrofitting the retro renderer, and a
-field-order layout guard), and Pixel Wave's own feature list. Read it before
+**[`TASKS.md`](TASKS.md) is the backlog** — verification debt, the item
+waiting on a decision from the owner (a field-order layout guard), and Pixel
+Wave's own feature list. Read it before
 starting anything; it is written to be picked up cold.
 
 Shipped: all nine — Pixel Wave, Grid Breaker, Worm Chase, Asteroid Miner,

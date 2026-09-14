@@ -31,6 +31,7 @@
   var TILE_W = 60, TILE_H = 26, GRID_X = 30, GRID_Y = 70;
   var PADDLE_HALF_H = 9;
   var PXS = 3; // chunky pixel scale for the ASCII sprites
+  var LOW_SCALE = 3;  // 1/3-size buffer, blown up — see the retro adapter in mount()
 
   var WASM_B64 = "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";
 
@@ -228,6 +229,7 @@
       '</div>' +
       '<div class="gb-stage">' +
         '<canvas class="gb-canvas" width="' + WORLD_W + '" height="' + WORLD_H + '"></canvas>' +
+        '<div class="gb-scan" aria-hidden="true"></div>' +
         '<div class="gb-overlay gb-msg" data-gb="msg">GAME OVER<small data-gb="msgsmall">PRESS R TO RESTART</small></div>' +
         '<div class="gb-overlay gb-banner" data-gb="banner">LEVEL 1</div>' +
         '<div class="gb-overlay gb-serve" data-gb="serve">PRESS SPACE TO LAUNCH</div>' +
@@ -251,8 +253,44 @@
 
     var q = function (name) { return root.querySelector('[data-gb="' + name + '"]'); };
     var canvas = root.querySelector('canvas');
-    var ctx = canvas.getContext('2d');
+    // ---------- the retro render treatment ----------
+    // Everything below draws into `ctx`, which is no longer the canvas on the
+    // page: it is a buffer a third the size, blown up onto `screen` once per
+    // frame with smoothing off. This title predates that look and was
+    // retrofitted to match the rest of the library; see CLAUDE.md, "The retro
+    // render treatment".
+    //
+    // The titles built for this resolution snap every coordinate at the call
+    // site. This one was drawn at full resolution, with bevels one and three
+    // pixels wide scattered over dozens of calls, so the snap lives in the
+    // adapter instead: fillRect and drawImage round their edges to whole
+    // low-res pixels, and a detail that would round away to nothing keeps one
+    // pixel rather than vanishing. That keeps the retrofit to this block and a
+    // handful of transform lines, and leaves the draw code as it was written.
+    var screen = canvas.getContext('2d');
+    screen.imageSmoothingEnabled = false;
+    var low = document.createElement('canvas');
+    low.width = WORLD_W / LOW_SCALE;
+    low.height = WORLD_H / LOW_SCALE;
+    var ctx = low.getContext('2d');
     ctx.imageSmoothingEnabled = false;
+    var rawFillRect = ctx.fillRect.bind(ctx);
+    var rawDrawImage = ctx.drawImage.bind(ctx);
+    ctx.fillRect = function (x, y, w, h) {
+      var l = snap(x), t = snap(y), r = snap(x + w), b = snap(y + h);
+      if (r === l && w > 0) r = l + LOW_SCALE;
+      if (b === t && h > 0) b = t + LOW_SCALE;
+      rawFillRect(l, t, r - l, b - t);
+    };
+    ctx.drawImage = function (img, x, y) {
+      // Every call in this file uses the three-argument form.
+      if (arguments.length === 3) rawDrawImage(img, snap(x), snap(y));
+      else rawDrawImage.apply(null, arguments);
+    };
+    function snap(v) { return Math.round(v / LOW_SCALE) * LOW_SCALE; }
+    // One low-res pixel, in world units, for a transform: the base scale plus
+    // an offset that is always a whole low-res pixel, screen shake included.
+    var Z = 1 / LOW_SCALE;
     var stage = root.querySelector('.gb-stage');
     var hudScore = q('score'), hudLives = q('lives'), hudLevel = q('level'), hudTiles = q('tiles');
     var msgEl = q('msg'), bannerEl = q('banner'), serveEl = q('serve'), helpEl = q('help');
@@ -605,13 +643,15 @@
       ctx.fillStyle = '#070912';
       ctx.fillRect(0, 0, WORLD_W, WORLD_H);
       // faint grid, so the playfield reads as a lattice even when cleared
-      ctx.strokeStyle = 'rgba(120,150,220,0.055)';
-      ctx.lineWidth = 1;
+      // Solid one-pixel bars rather than stroked hairlines: a 1px stroke drawn
+      // into the one-third buffer is a third of a pixel wide, which comes out
+      // as an anti-aliased smear rather than a line.
+      ctx.fillStyle = 'rgba(120,150,220,0.05)';
       for (var gx = GRID_X; gx <= GRID_X + COLS * TILE_W; gx += TILE_W) {
-        ctx.beginPath(); ctx.moveTo(gx + 0.5, 0); ctx.lineTo(gx + 0.5, WORLD_H); ctx.stroke();
+        ctx.fillRect(gx, 0, LOW_SCALE, WORLD_H);
       }
       for (var gy = GRID_Y; gy <= GRID_Y + ROWS * TILE_H; gy += TILE_H) {
-        ctx.beginPath(); ctx.moveTo(0, gy + 0.5); ctx.lineTo(WORLD_W, gy + 0.5); ctx.stroke();
+        ctx.fillRect(0, gy, WORLD_W, LOW_SCALE);
       }
       // the floor line: cross it and you lose the ball
       ctx.fillStyle = 'rgba(255,77,109,0.35)';
@@ -767,10 +807,11 @@
       }
 
       // ---- render ----
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.setTransform(Z, 0, 0, Z, 0, 0);
       if (shake > 0) {
-        ctx.setTransform(1, 0, 0, 1,
-          (Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake);
+        ctx.setTransform(Z, 0, 0, Z,
+          Math.round((Math.random() - 0.5) * shake / LOW_SCALE),
+          Math.round((Math.random() - 0.5) * shake / LOW_SCALE));
         shake = Math.max(0, shake - dt * 26);
       }
 
@@ -808,6 +849,10 @@
         ctx.fillRect(0, 0, WORLD_W, WORLD_H);
         flash = Math.max(0, flash - dt);
       }
+
+      screen.setTransform(1, 0, 0, 1, 0, 0);
+      screen.imageSmoothingEnabled = false;
+      screen.drawImage(low, 0, 0, WORLD_W, WORLD_H);
 
       serveEl.style.opacity = (anyStuck && running) ? '1' : '0';
 

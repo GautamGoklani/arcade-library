@@ -29,6 +29,7 @@
   var GRID_OFF = 0, CELL_STRIDE = 4;
   var CHASER_OFF = 6144, CHASER_STRIDE = 32, MAX_CHASERS = 8;
   var PXS = 3;  // chunky pixel scale for the ASCII sprites: 8 glyphs -> 24px
+  var LOW_SCALE = 3;  // 1/3-size buffer, blown up — see the retro adapter in mount()
 
   var WASM_B64 = "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";
 
@@ -206,6 +207,7 @@
       '</div>' +
       '<div class="wc-stage">' +
         '<canvas class="wc-canvas" width="' + WORLD_W + '" height="' + WORLD_H + '"></canvas>' +
+        '<div class="wc-scan" aria-hidden="true"></div>' +
         '<div class="wc-touch" aria-hidden="true">' +
           // The whole board is the steering zone. A worm turns on both axes, so
           // there is no half of the screen that could be reserved for anything
@@ -227,8 +229,44 @@
 
     var q = function (name) { return root.querySelector('[data-wc="' + name + '"]'); };
     var canvas = root.querySelector('canvas');
-    var ctx = canvas.getContext('2d');
+    // ---------- the retro render treatment ----------
+    // Everything below draws into `ctx`, which is no longer the canvas on the
+    // page: it is a buffer a third the size, blown up onto `screen` once per
+    // frame with smoothing off. This title predates that look and was
+    // retrofitted to match the rest of the library; see CLAUDE.md, "The retro
+    // render treatment".
+    //
+    // The titles built for this resolution snap every coordinate at the call
+    // site. This one was drawn at full resolution, with bevels one and three
+    // pixels wide scattered over dozens of calls, so the snap lives in the
+    // adapter instead: fillRect and drawImage round their edges to whole
+    // low-res pixels, and a detail that would round away to nothing keeps one
+    // pixel rather than vanishing. That keeps the retrofit to this block and a
+    // handful of transform lines, and leaves the draw code as it was written.
+    var screen = canvas.getContext('2d');
+    screen.imageSmoothingEnabled = false;
+    var low = document.createElement('canvas');
+    low.width = WORLD_W / LOW_SCALE;
+    low.height = WORLD_H / LOW_SCALE;
+    var ctx = low.getContext('2d');
     ctx.imageSmoothingEnabled = false;
+    var rawFillRect = ctx.fillRect.bind(ctx);
+    var rawDrawImage = ctx.drawImage.bind(ctx);
+    ctx.fillRect = function (x, y, w, h) {
+      var l = snap(x), t = snap(y), r = snap(x + w), b = snap(y + h);
+      if (r === l && w > 0) r = l + LOW_SCALE;
+      if (b === t && h > 0) b = t + LOW_SCALE;
+      rawFillRect(l, t, r - l, b - t);
+    };
+    ctx.drawImage = function (img, x, y) {
+      // Every call in this file uses the three-argument form.
+      if (arguments.length === 3) rawDrawImage(img, snap(x), snap(y));
+      else rawDrawImage.apply(null, arguments);
+    };
+    function snap(v) { return Math.round(v / LOW_SCALE) * LOW_SCALE; }
+    // One low-res pixel, in world units, for a transform: the base scale plus
+    // an offset that is always a whole low-res pixel, screen shake included.
+    var Z = 1 / LOW_SCALE;
     var stage = root.querySelector('.wc-stage');
     var hudScore = q('score'), hudLives = q('lives'), hudLevel = q('level');
     var hudHeld = q('held'), hudTarget = q('target');
@@ -483,38 +521,37 @@
       }
 
       // Grid lines, under everything else that matters.
-      ctx.strokeStyle = 'rgba(126,220,180,0.055)';
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      for (c = 1; c < COLS; c++) { ctx.moveTo(c * CELL + 0.5, 0); ctx.lineTo(c * CELL + 0.5, WORLD_H); }
-      for (r = 1; r < ROWS; r++) { ctx.moveTo(0, r * CELL + 0.5); ctx.lineTo(WORLD_W, r * CELL + 0.5); }
-      ctx.stroke();
+      // Solid one-pixel bars rather than stroked hairlines: a 1px stroke drawn
+      // into the one-third buffer is a third of a pixel wide, which comes out
+      // as an anti-aliased smear rather than a line.
+      ctx.fillStyle = 'rgba(126,220,180,0.05)';
+      for (c = 1; c < COLS; c++) ctx.fillRect(c * CELL, 0, LOW_SCALE, WORLD_H);
+      for (r = 1; r < ROWS; r++) ctx.fillRect(0, r * CELL, WORLD_W, LOW_SCALE);
 
       // The border of owned territory: every edge where an owned cell meets
       // something that is not one. Drawn as a single path so the whole outline
       // is one stroke call however ragged it has become.
-      ctx.strokeStyle = TERRITORY_EDGE;
-      ctx.lineWidth = 2;
-      ctx.beginPath();
+      // Each edge is a one-pixel bar inside the owned cell rather than a 2px
+      // stroke centred on the boundary, for the same reason as the grid.
+      ctx.fillStyle = TERRITORY_EDGE;
       for (r = 0; r < ROWS; r++) {
         for (c = 0; c < COLS; c++) {
           if (u8[GRID_OFF + (r * COLS + c) * CELL_STRIDE] !== 1) continue;
           var x = c * CELL, y = r * CELL;
           if (c === 0 || u8[GRID_OFF + (r * COLS + c - 1) * CELL_STRIDE] !== 1) {
-            ctx.moveTo(x, y); ctx.lineTo(x, y + CELL);
+            ctx.fillRect(x, y, LOW_SCALE, CELL);
           }
           if (c === COLS - 1 || u8[GRID_OFF + (r * COLS + c + 1) * CELL_STRIDE] !== 1) {
-            ctx.moveTo(x + CELL, y); ctx.lineTo(x + CELL, y + CELL);
+            ctx.fillRect(x + CELL - LOW_SCALE, y, LOW_SCALE, CELL);
           }
           if (r === 0 || u8[GRID_OFF + ((r - 1) * COLS + c) * CELL_STRIDE] !== 1) {
-            ctx.moveTo(x, y); ctx.lineTo(x + CELL, y);
+            ctx.fillRect(x, y, CELL, LOW_SCALE);
           }
           if (r === ROWS - 1 || u8[GRID_OFF + ((r + 1) * COLS + c) * CELL_STRIDE] !== 1) {
-            ctx.moveTo(x, y + CELL); ctx.lineTo(x + CELL, y + CELL);
+            ctx.fillRect(x, y + CELL - LOW_SCALE, CELL, LOW_SCALE);
           }
         }
       }
-      ctx.stroke();
 
       // Trail and hazards.
       // The trail: a node per cell plus a bar bridging each gap to the next
@@ -523,8 +560,9 @@
       // thing the player has to understand about it at a glance.
       var pulse = 0.62 + 0.38 * Math.sin(tGlobal * 9);
       var pad = 7, span = CELL - pad * 2;
-      ctx.shadowColor = TRAIL_COLOR;
-      ctx.shadowBlur = 12;
+      // No glow: the trail used to carry a shadowBlur halo, which is the one
+      // effect that marks a picture as post-1995. It is bright enough on its
+      // own against the dark board, and brighter still at the top of its pulse.
       ctx.fillStyle = 'rgba(124,242,255,' + pulse.toFixed(3) + ')';
       for (r = 0; r < ROWS; r++) {
         for (c = 0; c < COLS; c++) {
@@ -540,7 +578,6 @@
           }
         }
       }
-      ctx.shadowBlur = 0;
 
       for (r = 0; r < ROWS; r++) {
         for (c = 0; c < COLS; c++) {
@@ -584,12 +621,9 @@
       else if (facing.x < 0) idx = 3;
 
       var spr = sprHead[idx];
-      ctx.shadowColor = '#5ef08a';
-      ctx.shadowBlur = 14;
       ctx.drawImage(spr,
         Math.round(wx * CELL + CELL / 2 - spr.width / 2),
         Math.round(wy * CELL + CELL / 2 - spr.height / 2));
-      ctx.shadowBlur = 0;
     }
 
     // ---------- engine events ----------
@@ -645,13 +679,15 @@
       wasm.exports.step(dt);
       pollEvents();
 
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.setTransform(Z, 0, 0, Z, 0, 0);
       ctx.fillStyle = '#060c0e';
       ctx.fillRect(0, 0, WORLD_W, WORLD_H);
 
       if (shake > 0) {
         var m = shake * 14;
-        ctx.setTransform(1, 0, 0, 1, (Math.random() * 2 - 1) * m, (Math.random() * 2 - 1) * m);
+        ctx.setTransform(Z, 0, 0, Z,
+          Math.round((Math.random() * 2 - 1) * m / LOW_SCALE),
+          Math.round((Math.random() * 2 - 1) * m / LOW_SCALE));
         shake = Math.max(0, shake - dt * 1.6);
       }
 
@@ -660,12 +696,16 @@
       drawWorm();
       stepParticles(dt);
 
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.setTransform(Z, 0, 0, Z, 0, 0);
       if (flash > 0) {
         ctx.fillStyle = 'rgba(255,60,90,' + (flash * 0.8).toFixed(3) + ')';
         ctx.fillRect(0, 0, WORLD_W, WORLD_H);
         flash = Math.max(0, flash - dt * 1.8);
       }
+
+      screen.setTransform(1, 0, 0, 1, 0, 0);
+      screen.imageSmoothingEnabled = false;
+      screen.drawImage(low, 0, 0, WORLD_W, WORLD_H);
 
       // Overlays.
       if (bannerT > 0) { bannerT -= dt; bannerEl.style.opacity = bannerT > 0 ? '1' : '0'; }

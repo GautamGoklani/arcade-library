@@ -218,6 +218,24 @@ finger or pen always does, and `(pointer: coarse)` only chooses what is
 └──────────────────────────────────────────────────────┘
 ```
 
+### Drawn at 320×240
+
+This title was retrofitted with the library's retro render treatment in
+September 2026. It draws into a **320×240 buffer blown up 3× with smoothing off**,
+with scanlines and a vignette in CSS (`.wc-scan`, dropped under
+`prefers-reduced-motion`) and screen shake that moves in whole low-res pixels.
+Two things had to go. The trail and the worm's head carried a `shadowBlur`
+glow, which is the one effect that marks a picture as made after about 1995;
+both are bright enough against the dark board without it. And the grid and the
+territory outline were stroked lines, which is a smear at a third of a pixel
+wide; both are one-pixel bars now, the outline drawn on the inside edge of each
+owned cell.
+
+The draw code was written at full resolution, so the snap to whole low-res
+pixels lives in the adapter rather than at each call: the buffer's `fillRect`
+and `drawImage` are wrapped to round their edges, and a one-pixel detail that
+would round away keeps one low-res pixel. The engine did not change.
+
 ### WASM linear memory layout
 
 | region  | offset | stride | count | fields |

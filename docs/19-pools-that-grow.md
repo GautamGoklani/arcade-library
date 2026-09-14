@@ -178,6 +178,15 @@ rings, a particle — so nothing on screen can be finer than the sprites are.
 that is the whole demonstration: the simulation's units are a coordinate
 system, not a picture. The `1/3` transform is the entire adapter.
 
+That last claim holds because Asteroid Miner was *drawn* for 320×240. When
+Pixel Wave, Grid Breaker and Worm Chase were retrofitted to the same look, the
+transform alone was not enough: their draw code had been written at full
+resolution, with bevels one and three pixels wide, and a rectangle three pixels
+wide at x = 31 lands between low-res pixels and comes out as a half-tinted
+fringe. The fix went into the adapter rather than into sixty call sites — the
+buffer's `fillRect` and `drawImage` round their edges to whole low-res pixels —
+and the engines, again, did not change by one constant.
+
 Two smaller consequences of committing to a resolution, both of which are the
 kind of thing a "pixel-art filter" bolted on afterwards gets wrong:
 

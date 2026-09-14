@@ -24,6 +24,7 @@
   var BULLETS_OFF = 1344, BULLET_STRIDE = 24, MAX_BULLETS = 160;
   var AST_OFF = 5184, AST_STRIDE = 24, MAX_AST = 20;
   var PXS = 3; // chunky pixel scale
+  var LOW_SCALE = 3;  // 1/3-size buffer, blown up — see the retro adapter in mount()
 
   var WASM_B64 = "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";
 
@@ -314,6 +315,7 @@
       '</div>' +
       '<div class="ss-stage">' +
         '<canvas class="ss-canvas" width="' + WORLD_W + '" height="' + WORLD_H + '"></canvas>' +
+        '<div class="ss-scan" aria-hidden="true"></div>' +
         '<div class="ss-overlay ss-msg" data-ss="msg">GAME OVER<small data-ss="msgsmall">PRESS R TO RESTART</small></div>' +
         '<div class="ss-overlay ss-levelbanner" data-ss="banner">LEVEL 1</div>' +
         '<div class="ss-touch">' +
@@ -335,8 +337,44 @@
     var q = function (name) { return root.querySelector('[data-ss="' + name + '"]'); };
     var stage = root.querySelector('.ss-stage');
     var canvas = root.querySelector('canvas');
-    var ctx = canvas.getContext('2d');
+    // ---------- the retro render treatment ----------
+    // Everything below draws into `ctx`, which is no longer the canvas on the
+    // page: it is a buffer a third the size, blown up onto `screen` once per
+    // frame with smoothing off. This title predates that look and was
+    // retrofitted to match the rest of the library; see CLAUDE.md, "The retro
+    // render treatment".
+    //
+    // The titles built for this resolution snap every coordinate at the call
+    // site. This one was drawn at full resolution, with bevels one and three
+    // pixels wide scattered over dozens of calls, so the snap lives in the
+    // adapter instead: fillRect and drawImage round their edges to whole
+    // low-res pixels, and a detail that would round away to nothing keeps one
+    // pixel rather than vanishing. That keeps the retrofit to this block and a
+    // handful of transform lines, and leaves the draw code as it was written.
+    var screen = canvas.getContext('2d');
+    screen.imageSmoothingEnabled = false;
+    var low = document.createElement('canvas');
+    low.width = WORLD_W / LOW_SCALE;
+    low.height = WORLD_H / LOW_SCALE;
+    var ctx = low.getContext('2d');
     ctx.imageSmoothingEnabled = false;
+    var rawFillRect = ctx.fillRect.bind(ctx);
+    var rawDrawImage = ctx.drawImage.bind(ctx);
+    ctx.fillRect = function (x, y, w, h) {
+      var l = snap(x), t = snap(y), r = snap(x + w), b = snap(y + h);
+      if (r === l && w > 0) r = l + LOW_SCALE;
+      if (b === t && h > 0) b = t + LOW_SCALE;
+      rawFillRect(l, t, r - l, b - t);
+    };
+    ctx.drawImage = function (img, x, y) {
+      // Every call in this file uses the three-argument form.
+      if (arguments.length === 3) rawDrawImage(img, snap(x), snap(y));
+      else rawDrawImage.apply(null, arguments);
+    };
+    function snap(v) { return Math.round(v / LOW_SCALE) * LOW_SCALE; }
+    // One low-res pixel, in world units, for a transform: the base scale plus
+    // an offset that is always a whole low-res pixel, screen shake included.
+    var Z = 1 / LOW_SCALE;
     var hudScore = q('score'), hudLives = q('lives'), hudLevel = q('level'), hudBots = q('bots');
     var msgEl = q('msg'), bannerEl = q('banner'), helpEl = q('help');
     var muteBtn = q('mute');
@@ -682,19 +720,9 @@
       ctx.globalAlpha = 1;
     }
 
-    // ---------- CRT overlay ----------
-    var scanCv = document.createElement('canvas');
-    scanCv.width = WORLD_W; scanCv.height = WORLD_H;
-    (function () {
-      var c = scanCv.getContext('2d');
-      c.fillStyle = 'rgba(0,0,0,0.16)';
-      for (var y = 0; y < WORLD_H; y += 3) c.fillRect(0, y, WORLD_W, 1);
-      var g = c.createRadialGradient(WORLD_W / 2, WORLD_H / 2, 300, WORLD_W / 2, WORLD_H / 2, 760);
-      g.addColorStop(0, 'rgba(0,0,0,0)');
-      g.addColorStop(1, 'rgba(0,0,0,0.35)');
-      c.fillStyle = g;
-      c.fillRect(0, 0, WORLD_W, WORLD_H);
-    })();
+    // The CRT overlay that used to be painted onto the canvas every frame now
+    // lives in CSS as .ss-scan, at true display resolution: drawn into the
+    // low-res buffer, one-pixel scanlines would have become three-pixel bars.
 
     // ---------- wasm memory readers ----------
     function readPlayer() {
@@ -715,7 +743,7 @@
 
     function drawSpriteRot(spr, x, y, ang) {
       ctx.save();
-      ctx.translate(Math.round(x), Math.round(y));
+      ctx.translate(snap(x), snap(y));
       ctx.rotate(ang);
       ctx.drawImage(spr, -spr.width / 2, -spr.height / 2);
       ctx.restore();
@@ -829,6 +857,7 @@
       var livesNow = wasm.exports.get_lives();
 
       // ---- render ----
+      ctx.setTransform(Z, 0, 0, Z, 0, 0);
       ctx.fillStyle = '#000';
       ctx.fillRect(0, 0, WORLD_W, WORLD_H);
       drawStars();
@@ -881,7 +910,9 @@
         screenFlash -= dt;
       }
 
-      ctx.drawImage(scanCv, 0, 0);
+      screen.setTransform(1, 0, 0, 1, 0, 0);
+      screen.imageSmoothingEnabled = false;
+      screen.drawImage(low, 0, 0, WORLD_W, WORLD_H);
 
       hudScore.textContent = Math.round(wasm.exports.get_score());
       hudLives.textContent = Math.max(0, Math.round(livesNow));

@@ -162,6 +162,22 @@ inside the engine — the opposite of taking the count as a parameter, which
 
 ---
 
+### Drawn at 400×250
+
+This title was retrofitted with the library's retro render treatment in
+September 2026. It draws into a **400×250 buffer blown up 3× with smoothing off**,
+with scanlines and a vignette in CSS (`.ss-scan`, dropped under
+`prefers-reduced-motion`) and screen shake that moves in whole low-res pixels.
+The CRT overlay used to be painted onto the canvas every frame; it is CSS now,
+because one-pixel scanlines drawn into the buffer would have become three-pixel
+bars. Rotated sprites — the ship, its bolts, the asteroids — now rotate at the
+low resolution, so they alias the way a machine of the period would have.
+
+The draw code was written at full resolution, so the snap to whole low-res
+pixels lives in the adapter rather than at each call: the buffer's `fillRect`
+and `drawImage` are wrapped to round their edges, and a one-pixel detail that
+would round away keeps one low-res pixel. The engine did not change.
+
 ## Modifying it
 
 **Visuals** — sprite grids and palettes near the top of `pixel-wave.js`. Sprites

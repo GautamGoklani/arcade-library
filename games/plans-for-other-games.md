@@ -53,8 +53,9 @@ all.
 
 It also set the visual bar. Asteroid Miner renders at 320x240 with scanlines
 and no glow anywhere, which reads as a machine of the period rather than a
-modern game with pixel sprites in it. Sector Defense and Circuit Runner follow
-it; Pixel Wave and Grid Breaker have not been retrofitted.
+modern game with pixel sprites in it. Every title since follows it, and Pixel
+Wave, Grid Breaker and Worm Chase were retrofitted to match in September 2026,
+so the hub no longer shows two generations side by side.
 
 Circuit Runner was taken next out of order because it was the cheapest of the
 four remaining and the only one with a genuinely new shape: it is the first

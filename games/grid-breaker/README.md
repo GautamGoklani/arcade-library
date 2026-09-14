@@ -196,6 +196,24 @@ slides off it.
 └──────────────────────────────────────────────────────┘
 ```
 
+### Drawn at 320×240
+
+This title was retrofitted with the library's retro render treatment in
+September 2026. It draws into a **320×240 buffer blown up 3× with smoothing off**,
+with scanlines and a vignette in CSS (`.gb-scan`, dropped under
+`prefers-reduced-motion`) and screen shake that moves in whole low-res pixels.
+The faint background lattice was a set of 1px strokes, which drawn into a
+one-third buffer are a third of a pixel wide; it is one-pixel bars now. One
+quirk is visible and was left alone: tile rows are 26 world pixels, which does
+not divide by three, so rows come out 21 and 24 low-res pixels tall in turn.
+Changing `TILE_H` would move the engine's collision grid, which is not a
+rendering decision.
+
+The draw code was written at full resolution, so the snap to whole low-res
+pixels lives in the adapter rather than at each call: the buffer's `fillRect`
+and `drawImage` are wrapped to round their edges, and a one-pixel detail that
+would round away keeps one low-res pixel. The engine did not change.
+
 ### Event counters, added after the fact
 
 This title arrived from a portfolio repository without the event counters every
