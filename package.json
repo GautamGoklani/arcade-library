@@ -21,8 +21,8 @@
     "serve": "node scripts/serve.mjs"
   },
   "devDependencies": {
-    "marked": "^18.0.11",
-    "wabt": "^1.0.36"
+    "marked": "18.0.11",
+    "wabt": "1.0.39"
   },
   "license": "MIT"
 }

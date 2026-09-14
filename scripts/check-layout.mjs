@@ -38,11 +38,20 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
  * Per title, the constants that appear on both sides under the same name. A
  * new game belongs here the moment its widget copies an offset.
  *
- * Pixel Wave is absent deliberately: its widget predates this convention and
- * spells the constants differently on each side, so there is no name to match
- * on. Renaming them to match is the way in, not a special case here.
+ * Pixel Wave was left out for a long time on the belief that its widget spelled
+ * the constants differently from its engine. By the time anyone checked, it did
+ * not: both sides already said BOTS_OFF, BOT_STRIDE and the rest, so the title
+ * had been unguarded for no reason at all. It is the one widget that reads
+ * *every* pool with a hand-written stride, which made it the one that most
+ * needed the guard.
  */
 const TITLES = [
+  {
+    slug: 'pixel-wave',
+    js: 'pixel-wave.js',
+    names: ['BOTS_OFF', 'BOT_STRIDE', 'MAX_BOTS', 'BULLETS_OFF', 'BULLET_STRIDE',
+            'MAX_BULLETS', 'AST_OFF', 'AST_STRIDE', 'MAX_AST'],
+  },
   {
     slug: 'grid-breaker',
     js: 'grid-breaker.js',

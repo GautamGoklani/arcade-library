@@ -1,0 +1,46 @@
+# The guard, run on every push and pull request.
+#
+# `npm run check` is what the whole repository leans on: it recompiles every
+# game.wat and byte-compares the committed .wasm and the base64 copy in each
+# widget, re-renders every docs/*.md and byte-compares the committed .html,
+# checks every relative link, and compares each widget's memory-layout
+# constants against its engine. Until this file existed nothing ran it except
+# whoever remembered to.
+#
+# Two things about it are load-bearing:
+#
+# - The toolchain versions are pinned exactly in package.json. The checks are
+#   *byte* comparisons, and package-lock.json is not committed, so a caret range
+#   would let CI install a newer wabt or marked than the one that produced the
+#   committed output and report every engine or page stale with nothing wrong.
+# - .gitattributes pins text to LF on checkout, which is what makes those same
+#   byte comparisons meaningful on a runner at all.
+name: check
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install the toolchain
+        run: npm install --no-audit --no-fund
+
+      - name: npm run check
+        run: npm run check
+
+      # The widgets are plain ES5 IIFEs with no build step, so a syntax error in
+      # one would otherwise only surface as a blank game in somebody's browser.
+      - name: Parse every widget
+        run: |
+          for f in games/*/*.js hiscores.js; do
+            node --check "$f"
+          done

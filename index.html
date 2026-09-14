@@ -64,6 +64,7 @@
     border-radius: 999px;
     color: var(--muted);
   }
+  .tag.best { color: var(--accent); border-color: rgba(51, 255, 102, 0.45); }
 
   .docs { display: grid; gap: 0.6rem; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); padding: 0; list-style: none; }
   .docs a {
@@ -109,13 +110,13 @@
     <img src="games/pixel-wave/logo.svg" alt="A pixel-art fighter below three enemy species">
     <h3>Pixel Wave</h3>
     <p>A retro wave shooter. The swarm patrols the upper half of the arena, asteroids fall, and every cleared level adds one more enemy.</p>
-    <div class="tags"><span class="tag">3.5 KB engine</span><span class="tag">33 enemies</span><span class="tag">touch + keyboard</span></div>
+    <div class="tags"><span class="tag">3.8 KB engine</span><span class="tag">33 enemies</span><span class="tag">touch + keyboard</span></div>
   </a>
   <a class="game" href="games/grid-breaker/index.html">
     <img src="games/grid-breaker/logo.svg" alt="A paddle below a grid of coloured bricks, with the ball breaking through">
     <h3>Grid Breaker</h3>
     <p>Brick-breaking where the brick layout, the ball physics and the power-up drops all live in the engine. The paddle follows the pointer, or a stick on touch.</p>
-    <div class="tags"><span class="tag">4.5 KB engine</span><span class="tag">power-ups</span><span class="tag">touch + keyboard</span></div>
+    <div class="tags"><span class="tag">4.9 KB engine</span><span class="tag">power-ups</span><span class="tag">touch + keyboard</span></div>
   </a>
   <a class="game" href="games/worm-chase/index.html">
     <img src="games/worm-chase/logo.svg" alt="A worm drawing a trail out of its green territory, with a chaser nearby">
@@ -198,5 +199,29 @@ npm run serve        # http://localhost:8080</pre>
 </footer>
 
 </div>
+
+<!-- Best scores, read from this browser's storage and shown on each card. The
+     game pages write them; see hiscores.js for why that is hosting rather than
+     shared game code, and why a missing or blocked localStorage just means no
+     tag is shown. -->
+<script src="hiscores.js"></script>
+<script>
+  (function () {
+    if (!window.ArcadeScores) return;
+    var cards = document.querySelectorAll('a.game');
+    for (var i = 0; i < cards.length; i++) {
+      var m = /^games\/([a-z-]+)\//.exec(cards[i].getAttribute('href') || '');
+      if (!m) continue;
+      var rec = ArcadeScores.best(m[1]);
+      var tags = cards[i].querySelector('.tags');
+      if (!rec || !tags) continue;
+      var t = document.createElement('span');
+      t.className = 'tag best';
+      t.title = 'Your best, set ' + rec.date;
+      t.textContent = 'BEST ' + rec.score.toLocaleString();
+      tags.insertBefore(t, tags.firstChild);
+    }
+  })();
+</script>
 </body>
 </html>

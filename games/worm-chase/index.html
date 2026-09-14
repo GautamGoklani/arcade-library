@@ -50,8 +50,13 @@ body {
 <div id="game"></div>
 
 <script src="worm-chase.js"></script>
+<!-- Best scores for the hub. Hosting, not game: the widget does not know this
+     exists, and if the file is missing — a game folder copied out on its own —
+     the game runs exactly as before. See ../../hiscores.js. -->
+<script src="../../hiscores.js"></script>
 <script>
-  WormChase.mount('#game');
+  var game = WormChase.mount('#game');
+  if (window.ArcadeScores) ArcadeScores.watch('worm-chase', game);
 </script>
 
 </body>

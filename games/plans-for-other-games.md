@@ -22,8 +22,8 @@ for the reasoning behind keeping designs original.
 
 | Title | Concept | Engine |
 |---|---|---|
-| **[Pixel Wave](pixel-wave/)** | Retro wave shooter: the swarm patrols the upper half of the arena, asteroids fall, every cleared level adds an enemy. | 3.5 KB |
-| **[Grid Breaker](grid-breaker/)** | Ball-and-paddle destruction with chain-reaction bomb tiles and physics-bending power-ups. | 4.5 KB |
+| **[Pixel Wave](pixel-wave/)** | Retro wave shooter: the swarm patrols the upper half of the arena, asteroids fall, every cleared level adds an enemy. | 3.8 KB |
+| **[Grid Breaker](grid-breaker/)** | Ball-and-paddle destruction with chain-reaction bomb tiles and physics-bending power-ups. | 4.9 KB |
 | **[Worm Chase](worm-chase/)** | Grid territory capture: leave your land, loop back, and everything the loop sealed off becomes yours. Hazards, and chasers that cannot follow you home. | 3.8 KB |
 | **[Asteroid Miner](asteroid-miner/)** | Mine a drifting rock field for gems. Rocks split when shot; fuel and cargo make every run a round trip. | 4.2 KB |
 | **[Sector Defense](sector-defense/)** | Wave defence on one axis. Attackers with individual intent, a shield that regenerates only out of contact, and a decaying combo. | 3.6 KB |
@@ -118,9 +118,12 @@ times the score per second.
 > libraries, and each game's README says so. A shared library would mean a
 > change made for one game could break another, which is the opposite of what
 > this repository wants. The widget API *is* consistent and is worth keeping.
-> The hub page exists as [`../index.html`](../index.html); shared high-score
-> storage does not, and would be the first real piece of shared code if it were
-> built.
+> The hub page exists as [`../index.html`](../index.html), and shared
+> high-score storage now does too, as [`../hiscores.js`](../hiscores.js). It is
+> the first real piece of shared code in the repository and it was built so
+> that no game depends on it: each game's standalone page shell polls the
+> widget's `getState()` and records a finished run, and the hub reads the
+> results back onto its cards. No widget knows it exists.
 
 ---
 

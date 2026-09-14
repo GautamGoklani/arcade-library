@@ -44,8 +44,13 @@ body {
 <div id="game"></div>
 
 <script src="pulse.js"></script>
+<!-- Best scores for the hub. Hosting, not game: the widget does not know this
+     exists, and if the file is missing — a game folder copied out on its own —
+     the game runs exactly as before. See ../../hiscores.js. -->
+<script src="../../hiscores.js"></script>
 <script>
-  Pulse.mount('#game');
+  var game = Pulse.mount('#game');
+  if (window.ArcadeScores) ArcadeScores.watch('pulse', game);
 </script>
 
 </body>

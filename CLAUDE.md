@@ -37,7 +37,9 @@ this repo is committed that a build could regenerate:
 
 ```
 TASKS.md                the open backlog — read it before picking up work
-index.html              landing page / arcade hub — a card per game
+index.html              landing page / arcade hub — a card per game, with best scores
+hiscores.js             best-score storage for the hub; page shells call it, widgets never do
+.github/workflows/      CI: npm run check and node --check on every push
 games/<slug>/           one self-contained game each (see below)
 games/plans-for-other-games.md    roadmap: shipped, still to build, build order
 docs/                   the course: 22 chapters + glossary, cheatsheet, reading list
@@ -52,8 +54,8 @@ scripts/serve.mjs       dev server
 
 | Slug | Engine | Shape | Notes |
 |---|---|---|---|
-| `pixel-wave` | 3.5 KB | wave shooter | the first title; the course's main worked example |
-| `grid-breaker` | 4.5 KB | paddle and ball | arrived from a portfolio repo; predates some conventions |
+| `pixel-wave` | 3.8 KB | wave shooter | the first title; the course's main worked example |
+| `grid-breaker` | 4.9 KB | paddle and ball | arrived from a portfolio repo; predates some conventions |
 | `worm-chase` | 3.9 KB | grid territory capture | **no imports**; hold-to-move |
 | `asteroid-miner` | 4.2 KB | mining run | splitting entities, fuel/cargo; first with the retro renderer |
 | `sector-defense` | 3.6 KB | wave defence | **no imports**; per-entity intent, two meters instead of lives |
@@ -76,8 +78,12 @@ Break these and the repository stops being what it is.
    helper, not an RNG. What titles share is *conventions*, copied by hand. The
    reason is blunt: a shared library means a change made for one game can break
    another, and each title is meant to stand alone as a piece of work. Copying
-   costs a few hundred duplicated lines and buys that guarantee. Tooling is the
-   single exception — one builder, so `--check` can cover every title at once.
+   costs a few hundred duplicated lines and buys that guarantee. There are two
+   exceptions, and neither is game code. Tooling — one builder, so `--check`
+   can cover every title at once. And `hiscores.js`, which records best scores
+   for the hub: it is called by each game's *page shell*, never by a widget, it
+   reads nothing but the `getState()` every widget already exposes, and a shell
+   that cannot load it runs the game exactly as before.
 
 2. **Every game owns a CSS prefix, and no other game may use it.**
    `ss-` `gb-` `wc-` `am-` `sd-` `cr-` `sr-` `td-` `pl-`. Every rule is namespaced under
@@ -98,7 +104,7 @@ Break these and the repository stops being what it is.
    what happened, so sound, particles and shake can never disagree.
 
 5. **Strict MVP WebAssembly.** Four value types, one 64 KiB page, structured
-   control flow, at most two imports (`sinf`/`cosf`; three engines need none). No
+   control flow, at most two imports (`sinf`/`cosf`; six engines need none). No
    post-MVP feature, no feature detection, no fallback build. If a proposal
    would help, say so in a comment and don't use it — chapter 14 does exactly
    that for `memory.fill`.
@@ -280,9 +286,10 @@ per game — three engines have no chapter because they would restate one:
 
 ## Roadmap status
 
-**[`TASKS.md`](TASKS.md) is the backlog** — verification debt, missing CI, the
-two titles that predate the retro renderer, and the library goals not yet built.
-Read it before starting anything; it is written to be picked up cold.
+**[`TASKS.md`](TASKS.md) is the backlog** — verification debt, the two items
+waiting on a decision from the owner (retrofitting the retro renderer, and a
+field-order layout guard), and Pixel Wave's own feature list. Read it before
+starting anything; it is written to be picked up cold.
 
 Shipped: all nine — Pixel Wave, Grid Breaker, Worm Chase, Asteroid Miner,
 Sector Defense, Circuit Runner, Starfield Runner, Tower Defense Lite, Pulse.
@@ -292,7 +299,7 @@ rather than a synthesiser: the engine is the sequencer, and the widget plays
 notes off its step counter. Anything new from here is a new idea, not a
 backlog item — see `games/plans-for-other-games.md`.
 
-Deliberately not built: shared high-score storage, and the "shared engine
-template / sprite toolkit" the original plan called for — see the note in
-`games/plans-for-other-games.md` for why that goal was abandoned rather than
-missed.
+Deliberately not built: the "shared engine template / sprite toolkit" the
+original plan called for — see the note in `games/plans-for-other-games.md` for
+why that goal was abandoned rather than missed. Shared high-score storage, the
+other shared goal, *was* built, as a hub concern rather than an engine one.
