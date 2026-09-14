@@ -232,7 +232,7 @@ restart&quot; bugs.</p>
 <hr>
 <h2>Designing the export surface</h2>
 <p>The exports <strong>are</strong> the API, and this is worth more thought than it usually
-gets. Pixel Wave exports nine things and no more:</p>
+gets. Pixel Wave exports fifteen things and no more:</p>
 <pre><code class="language-wat">(memory (export &quot;memory&quot;) 1)
 (func $init      (export &quot;init&quot;))
 (func $set_input (export &quot;set_input&quot;) (param f32) (param i32) (param i32))
@@ -242,8 +242,21 @@ gets. Pixel Wave exports nine things and no more:</p>
 (func $get_level (export &quot;get_level&quot;) (result i32))
 (func $is_game_over     (export &quot;is_game_over&quot;)     (result i32))
 (func $bots_alive_count (export &quot;bots_alive_count&quot;) (result i32))
+;; event counters: they only ever go up, and init zeroes them
+(func $get_shots       (export &quot;get_shots&quot;)       (result i32))
+(func $get_enemy_shots (export &quot;get_enemy_shots&quot;) (result i32))
+(func $get_kills       (export &quot;get_kills&quot;)       (result i32))
+(func $get_rocks       (export &quot;get_rocks&quot;)       (result i32))
+(func $get_hurts       (export &quot;get_hurts&quot;)       (result i32))
+(func $get_waves       (export &quot;get_waves&quot;)       (result i32))
 </code></pre>
-<p>Nine, for a complete game with 33 enemies and 160 bullets in flight.</p>
+<p>Fifteen, for a complete game with 33 enemies and 160 bullets in flight — and
+six of them are one idea repeated. They are <strong>event counters</strong>: one integer per
+kind of thing that can happen, incremented at the line where the engine decides
+it happened, which the host diffs between frames to decide what to play. Pixel
+Wave was the first title here and for most of its life exported only the first
+nine; it was the last in the repository to get counters, and
+<a href="15-game-loop-architecture.html">chapter 15</a> is why it needed them.</p>
 <p>Three principles hold this together, and all three are about keeping the
 boundary narrow.</p>
 <p><strong>Commands take scalars; state comes back through memory.</strong> <code>set_input</code> takes

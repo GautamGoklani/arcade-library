@@ -3,8 +3,9 @@
 A retro arcade wave shooter whose entire game engine — physics, enemy AI,
 bullets, asteroids, collisions, level progression — is hand-written WebAssembly
 Text in [`game.wat`](game.wat) and runs as a compiled `.wasm`. JavaScript
-pre-renders pixel-art sprites, forwards input, and draws what it reads out of
-wasm linear memory. Nothing else.
+pre-renders pixel-art sprites, forwards input, draws what it reads out of wasm
+linear memory, and plays synthesised sound off the engine's event counters.
+Nothing else.
 
 Desktop keyboard and mobile touch, detected automatically.
 
@@ -75,6 +76,7 @@ wasm instance, and therefore its own memory and globals.
 | Thrust | `W` or `↑` | THRUST |
 | Fire | `Space` — a **3-round burst** per press | FIRE |
 | Restart | `R` | tap GAME OVER |
+| Mute | `M` | the SOUND button |
 
 Touch controls appear on coarse-pointer devices and support multi-touch.
 
@@ -98,7 +100,7 @@ Touch controls appear on coarse-pointer devices and support multi-touch.
 
 ## Engine
 
-~700 lines of hand-written WAT, 3.5 KB compiled, zero dependencies, zero runtime
+~700 lines of hand-written WAT, 3.8 KB compiled, zero dependencies, zero runtime
 network requests.
 
 ### Memory layout
@@ -123,7 +125,36 @@ top of `pixel-wave.js`.** Nothing links the two and nothing will fail to build.
 ```
 memory · init() · set_input(rot: f32, thrust: i32, fire: i32) · step(dt: f32)
 get_score() · get_lives() · get_level() · is_game_over() · bots_alive_count()
+get_shots() · get_enemy_shots() · get_kills() · get_rocks() · get_hurts() · get_waves()
 ```
+
+The last six are **event counters**: integers that only ever go up, one per
+kind of event, incremented at the line in `game.wat` where the event is
+decided and zeroed by `init()`. The widget diffs them between frames to decide
+what to play and when to flash.
+
+Pixel Wave was the first title and the last to get them. Until then its widget
+learned what had happened by watching state change — a bot's alive flag
+dropping, the lives float going down — which could not tell a kill from a ram
+(both clear the same flag) and which [chapter 15](../../docs/15-game-loop-architecture.md)
+quoted as the crude version. Adding them changed nothing about the simulation:
+over the same 32-second headless run, level, score, lives and a hash of the
+ship's path were identical before and after, and the counters agreed with the
+state they replaced — 37 kills and 3 asteroids for a score of 40, 5 hurts for
+5 lives lost, 7 waves for level 8.
+
+### Sound
+
+This title shipped silent — sound was the first item on its own roadmap — and
+for a long time was the only game in the library without any. It now has a
+synthesiser in the same style as the other eight: no audio files, oscillators
+and noise built on the fly, and an `AudioContext` created on the first sound,
+which is always the player's own shot and therefore a user gesture.
+
+What it needed was never really the synthesiser. It was the counters, because
+a sound has to know *that* something happened. Enemy fire is rate-limited to
+one blip every 110ms, since thirty-odd bots late on would otherwise be a wall
+of oscillators nobody needs to hear individually.
 
 `init()` takes no arguments — wave size is `1 + level` capped at 24, computed
 inside the engine — the opposite of taking the count as a parameter, which

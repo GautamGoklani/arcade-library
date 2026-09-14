@@ -57,8 +57,13 @@ body {
 <div id="game"></div>
 
 <script src="pixel-wave.js"></script>
+<!-- Best scores for the hub. Hosting, not game: the widget does not know this
+     exists, and if the file is missing — a game folder copied out on its own —
+     the game runs exactly as before. See ../../hiscores.js. -->
+<script src="../../hiscores.js"></script>
 <script>
-  PixelWave.mount('#game');
+  var game = PixelWave.mount('#game');
+  if (window.ArcadeScores) ArcadeScores.watch('pixel-wave', game);
 </script>
 
 </body>

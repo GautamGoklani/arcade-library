@@ -25,7 +25,7 @@
   var AST_OFF = 5184, AST_STRIDE = 24, MAX_AST = 20;
   var PXS = 3; // chunky pixel scale
 
-  var WASM_B64 = "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";
+  var WASM_B64 = "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";
 
   // ============================================================
   // PIXEL SPRITES (ASCII grids -> offscreen canvases)
@@ -206,6 +206,94 @@
   }
 
   // ============================================================
+  // SOUND — synthesised, no audio files and nothing to license.
+  //
+  // This title shipped silent. Sound was the first item on its own roadmap and
+  // the eight games built after it each grew a synthesiser of their own, so it
+  // ended up the one quiet cabinet in the arcade. What it was missing was never
+  // really the eighty lines below: it was the event counters in game.wat,
+  // because a sound has to know *that* something happened, and this widget used
+  // to find out by watching flags change — which cannot tell a kill from a ram,
+  // and hears two kills in one frame as one.
+  //
+  // The AudioContext is created on the first sound, because browsers refuse to
+  // start audio outside a user gesture — and the first sound is always the
+  // player's own shot, which is a gesture.
+  // ============================================================
+  function createSound() {
+    var ctx = null, muted = false;
+    // Bots fire often, and thirty-odd of them late on is a lot of oscillators
+    // for a sound nobody needs to hear individually. One enemy shot every
+    // 110ms is plenty to know the screen is hostile.
+    var lastEnemy = 0;
+
+    function ensure() {
+      if (ctx) return ctx;
+      var AC = global.AudioContext || global.webkitAudioContext;
+      if (!AC) return null;
+      ctx = new AC();
+      return ctx;
+    }
+
+    function tone(freq, freq2, dur, type, gain, delay) {
+      if (muted) return;
+      var c = ensure();
+      if (!c) return;
+      if (c.state === 'suspended') c.resume();
+      var t0 = c.currentTime + (delay || 0);
+      var o = c.createOscillator(), g = c.createGain();
+      o.type = type || 'square';
+      o.frequency.setValueAtTime(freq, t0);
+      o.frequency.exponentialRampToValueAtTime(Math.max(1, freq2), t0 + dur);
+      g.gain.setValueAtTime(gain == null ? 0.05 : gain, t0);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+      o.connect(g); g.connect(c.destination);
+      o.start(t0); o.stop(t0 + dur);
+    }
+
+    function noise(dur, gain) {
+      if (muted) return;
+      var c = ensure();
+      if (!c) return;
+      if (c.state === 'suspended') c.resume();
+      var n = Math.floor(c.sampleRate * dur);
+      var buf = c.createBuffer(1, n, c.sampleRate);
+      var d = buf.getChannelData(0);
+      for (var i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
+      var src = c.createBufferSource(), g = c.createGain();
+      src.buffer = buf;
+      g.gain.setValueAtTime(gain == null ? 0.08 : gain, c.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + dur);
+      src.connect(g); g.connect(c.destination);
+      src.start();
+    }
+
+    return {
+      // One per round. A burst is three of these 90ms apart, which is what
+      // makes the burst audible as a burst rather than as a single press.
+      shot: function () { tone(980, 420, 0.05, 'square', 0.028); },
+      enemyShot: function (now) {
+        if (now - lastEnemy < 110) return;
+        lastEnemy = now;
+        tone(300, 190, 0.07, 'triangle', 0.018);
+      },
+      kill: function () { noise(0.14, 0.06); tone(520, 140, 0.16, 'square', 0.04); },
+      rock: function () { noise(0.2, 0.08); tone(160, 60, 0.2, 'sawtooth', 0.04); },
+      hurt: function () { noise(0.35, 0.11); tone(240, 50, 0.4, 'sawtooth', 0.07); },
+      // A wave cleared is a rising three-note figure: the one moment in this
+      // game that is good news, so it is the one sound that goes up.
+      wave: function () {
+        tone(392, 392, 0.1, 'square', 0.04);
+        tone(523, 523, 0.1, 'square', 0.04, 0.1);
+        tone(784, 784, 0.18, 'square', 0.04, 0.2);
+      },
+      over: function () { tone(260, 40, 1.0, 'sawtooth', 0.085); },
+      setMuted: function (m) { muted = m; },
+      close: function () { if (ctx && ctx.close) { try { ctx.close(); } catch (e) {} } ctx = null; },
+    };
+  }
+
+  // ============================================================
   // MOUNT
   // ============================================================
   function mount(container, opts) {
@@ -222,6 +310,7 @@
         '<span>LIVES <b class="ss-r" data-ss="lives">3</b></span>' +
         '<span>LEVEL <b class="ss-y" data-ss="level">1</b></span>' +
         '<span>ENEMIES <b data-ss="bots">0</b></span>' +
+        '<button type="button" class="ss-mute" data-ss="mute">SOUND ON</button>' +
       '</div>' +
       '<div class="ss-stage">' +
         '<canvas class="ss-canvas" width="' + WORLD_W + '" height="' + WORLD_H + '"></canvas>' +
@@ -240,7 +329,7 @@
           '<div class="ss-btn ss-btn-fire" data-ss="btnF">FIRE</div>' +
         '</div>' +
       '</div>' +
-      '<div class="ss-help" data-ss="help">[W] THRUST &nbsp; [A]/[D] ROTATE &nbsp; [SPACE] FIRE &nbsp; [R] RESTART</div>';
+      '<div class="ss-help" data-ss="help">[W] THRUST &nbsp; [A]/[D] ROTATE &nbsp; [SPACE] FIRE &nbsp; [R] RESTART &nbsp; [M] MUTE</div>';
     container.appendChild(root);
 
     var q = function (name) { return root.querySelector('[data-ss="' + name + '"]'); };
@@ -250,6 +339,7 @@
     ctx.imageSmoothingEnabled = false;
     var hudScore = q('score'), hudLives = q('lives'), hudLevel = q('level'), hudBots = q('bots');
     var msgEl = q('msg'), bannerEl = q('banner'), helpEl = q('help');
+    var muteBtn = q('mute');
 
     // ---------- control mode ----------
     // Driven by what the player actually touches, not by what the hardware is
@@ -270,7 +360,7 @@
       root.classList.toggle('ss-is-touch', on);
       helpEl.textContent = on
         ? 'DRAG LEFT TO AIM \u2022 THRUST + FIRE RIGHT \u2022 TAP GAME OVER TO RESTART'
-        : '[W] THRUST \u00a0 [A]/[D] ROTATE \u00a0 [SPACE] FIRE \u00a0 [R] RESTART';
+        : '[W] THRUST \u00a0 [A]/[D] ROTATE \u00a0 [SPACE] FIRE \u00a0 [R] RESTART \u00a0 [M] MUTE';
       q('msgsmall').textContent = on ? 'TAP TO RESTART' : 'PRESS R TO RESTART';
       // Switching away from touch has to drop anything the on-screen controls
       // were holding, or a hidden button stays latched on forever.
@@ -280,7 +370,7 @@
     // ---------- per-instance state ----------
     var wasm = null, f32 = null;
     var running = false, destroyed = false;
-    var lastLevel = 1, tGlobal = 0;
+    var tGlobal = 0;
     var input = { left: false, right: false, thrust: false, fire: false };
     // Thumbstick: `angle` is the heading being asked for in screen space, which
     // is the same convention the engine stores heading in, so it feeds through
@@ -289,10 +379,12 @@
     var explosions = [];
     var prevBotAlive = new Array(MAX_BOTS).fill(0);
     var prevAstActive = new Array(MAX_AST).fill(0);
-    // Seeded from the engine on restart, never from a literal: the engine
-    // raised the starting lives from 3 to 5 and this copy was not updated,
-    // which left the first death after mount unable to flash the screen.
-    var prevLives = 0, screenFlash = 0;
+    // The engine's event counters as of last frame. These replaced watching
+    // the lives float and the level number for changes — see pollEvents().
+    var prev = { shots: 0, enemyShots: 0, kills: 0, rocks: 0, hurts: 0, waves: 0 };
+    var screenFlash = 0;
+    var sound = createSound();
+    var muted = false;
     var rafId = 0;
 
     // ---------- keyboard ----------
@@ -301,6 +393,7 @@
     // shortcut or assistive-tech keypress does not flip the mode.
     function isGameKey(k) {
       return k === 'a' || k === 'd' || k === 'w' || k === 'r' || k === 'R' || k === ' ' ||
+             k === 'm' || k === 'M' ||
              k === 'ArrowLeft' || k === 'ArrowRight' || k === 'ArrowUp';
     }
     // Every key the game claims is also swallowed. Arrow keys and space scroll
@@ -315,6 +408,7 @@
       if (e.key === 'w' || e.key === 'ArrowUp') input.thrust = true;
       if (e.key === ' ') input.fire = true;
       if (e.key === 'r' || e.key === 'R') restart();
+      if (e.key === 'm' || e.key === 'M') toggleMute();
       e.preventDefault();
     }
     function onKeyUp(e) {
@@ -335,6 +429,13 @@
     global.addEventListener('keydown', onKeyDown);
     global.addEventListener('keyup', onKeyUp);
     global.addEventListener('blur', releaseAll);
+
+    function toggleMute() {
+      muted = !muted;
+      sound.setMuted(muted);
+      muteBtn.textContent = muted ? 'SOUND OFF' : 'SOUND ON';
+    }
+    muteBtn.addEventListener('click', function () { toggleMute(); muteBtn.blur(); });
 
     // ---------- touch: one stick, two buttons ----------
     // Everything routes through a single set of listeners on the stage, keyed by
@@ -623,6 +724,37 @@
       ctx.drawImage(spr, Math.round(x - spr.width / 2), Math.round(y - spr.height / 2));
     }
 
+    function syncCounters() {
+      var e = wasm.exports;
+      prev.shots = e.get_shots(); prev.enemyShots = e.get_enemy_shots();
+      prev.kills = e.get_kills(); prev.rocks = e.get_rocks();
+      prev.hurts = e.get_hurts(); prev.waves = e.get_waves();
+    }
+
+    /**
+     * What happened this frame, according to the engine's event counters.
+     *
+     * The explosions are still placed by watching each bot's and asteroid's
+     * alive flag drop, because a counter says that something died and not
+     * where. Everything that is a *decision* — what to play, when to flash,
+     * when a wave is over — comes from here.
+     */
+    function pollEvents(now) {
+      var e = wasm.exports, n;
+      n = e.get_shots();
+      if (n > prev.shots) { sound.shot(); prev.shots = n; }
+      n = e.get_enemy_shots();
+      if (n > prev.enemyShots) { sound.enemyShot(now); prev.enemyShots = n; }
+      n = e.get_kills();
+      if (n > prev.kills) { sound.kill(); prev.kills = n; }
+      n = e.get_rocks();
+      if (n > prev.rocks) { sound.rock(); prev.rocks = n; }
+      n = e.get_hurts();
+      if (n > prev.hurts) { sound.hurt(); screenFlash = 0.25; prev.hurts = n; }
+      n = e.get_waves();
+      if (n > prev.waves) { sound.wave(); showLevelBanner(); prev.waves = n; }
+    }
+
     function showLevelBanner() {
       bannerEl.textContent = 'LEVEL ' + wasm.exports.get_level();
       bannerEl.style.opacity = '1';
@@ -634,10 +766,9 @@
       if (!wasm || destroyed) return;
       wasm.exports.init();
       msgEl.style.display = 'none';
-      lastLevel = 1;
       prevBotAlive.fill(0);
       prevAstActive.fill(0);
-      prevLives = wasm.exports.get_lives();
+      syncCounters();
       explosions.length = 0;
       running = true;
     }
@@ -667,11 +798,11 @@
         wasm.exports.step(dt);
         f32 = new Float32Array(wasm.exports.memory.buffer);
 
-        var lvl = wasm.exports.get_level();
-        if (lvl !== lastLevel) { lastLevel = lvl; showLevelBanner(); }
+        pollEvents(now);
         if (wasm.exports.is_game_over()) {
           running = false;
           msgEl.style.display = 'block';
+          sound.over();
           var pp = readPlayer();
           spawnExplosion(pp.x, pp.y, true, '#39d5ff');
         }
@@ -696,8 +827,6 @@
         prevAstActive[i] = act;
       }
       var livesNow = wasm.exports.get_lives();
-      if (livesNow < prevLives) screenFlash = 0.25;
-      prevLives = livesNow;
 
       // ---- render ----
       ctx.fillStyle = '#000';
@@ -796,6 +925,7 @@
         global.removeEventListener('pointermove', onPointerMove);
         global.removeEventListener('pointerup', onPointerUp);
         global.removeEventListener('pointercancel', onPointerUp);
+        sound.close();
         root.remove();
       },
       getState: function () {

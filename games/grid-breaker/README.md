@@ -175,13 +175,17 @@ slides off it.
 │   • reads the tile grid and entity records straight  │
 │     out of wasm linear memory and draws them         │
 │   • particles, screen shake and sound are presentation│
-│     only — the engine reports state, not events, so  │
-│     effects are triggered by diffing frame to frame  │
+│     only, triggered by diffing the engine's event    │
+│     counters between frames                          │
 └───────────────▲──────────────────────────────────────┘
                 │ exports: init, set_input, step, get_score,
                 │ get_lives, get_level, get_tiles_left,
                 │ balls_alive, is_game_over, get_wide,
-                │ get_slow, get_sticky, memory
+                │ get_slow, get_sticky, memory,
+                │ and the event counters: get_breaks,
+                │ get_chips, get_booms, get_bounces,
+                │ get_powers, get_drains, get_launches,
+                │ get_hurts, get_clears, get_last_break_row
 ┌───────────────┴──────────────────────────────────────┐
 │ game.wasm (compiled from hand-written game.wat)      │
 │   • paddle motion, pointer easing, clamping          │
@@ -191,6 +195,29 @@ slides off it.
 │   • level generation, score/lives state machine      │
 └──────────────────────────────────────────────────────┘
 ```
+
+### Event counters, added after the fact
+
+This title arrived from a portfolio repository without the event counters every
+later title has, and its widget worked out what had happened by snapshotting
+all 180 tiles each frame and diffing hit points, counting live balls, and
+watching lives and level for changes. That is the renderer deciding what the
+rules did — the thing invariant 4 in [`CLAUDE.md`](../../CLAUDE.md) exists to
+prevent — and it had a cost nobody had noticed: **the widget carried `paddle`,
+`power` and `launch` sounds that were never once played.** None of those events
+leaves anything in memory to diff. A paddle bounce changes a velocity, a caught
+capsule vanishes, a launch clears a flag.
+
+The engine now increments a counter at the line where each event is decided —
+`breaks`, `chips`, `booms`, `bounces`, `powers`, `drains`, `launches`, `hurts`,
+`clears` — plus one scalar, `get_last_break_row()`, because the brick sound is
+pitched by row and a count cannot say where a break was. A bomb chain plays one
+boom rather than a boom and nine bricks.
+
+The tile diff survives, demoted: it only decides *where* to put sparks, which
+is a drawing question. Adding the counters changed nothing about the
+simulation — the same 600-second headless run produced an identical level,
+score, lives and paddle-path hash before and after.
 
 ### WASM linear memory layout
 

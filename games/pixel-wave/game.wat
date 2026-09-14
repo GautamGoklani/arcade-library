@@ -73,6 +73,24 @@
   (global $burstLeft (mut i32) (i32.const 0))
   (global $pendingFire (mut i32) (i32.const 0))
 
+  ;; ---- event counters ------------------------------------------------------
+  ;; JavaScript diffs these between frames to decide what to play and what to
+  ;; flash. They only ever increase, and init zeroes them.
+  ;;
+  ;; This was the first title, and it predates the convention the eight after
+  ;; it follow. Its widget used to work out what had happened by watching state
+  ;; change — a bot's alive flag dropping, the lives float going down — which
+  ;; chapter 15 quoted as the crude version, with the limitation it has: two
+  ;; kills in one frame are one event, and a kill cannot be told from a bot
+  ;; that rammed you, because both clear the same flag. The counters below are
+  ;; where each of those is *decided*, so they are exact by construction.
+  (global $shots (mut i32) (i32.const 0))        ;; a player round left the gun
+  (global $enemyShots (mut i32) (i32.const 0))   ;; a bot fired
+  (global $kills (mut i32) (i32.const 0))        ;; a bot shot down
+  (global $rocks (mut i32) (i32.const 0))        ;; an asteroid shot down
+  (global $hurts (mut i32) (i32.const 0))        ;; a life lost, to anything
+  (global $waves (mut i32) (i32.const 0))        ;; a wave cleared
+
   ;; ---------------- helpers ----------------
 
   (func $bot_addr (param $i i32) (result i32)
@@ -209,6 +227,12 @@
     (global.set $prevFiring (i32.const 1))
     (global.set $burstLeft (i32.const 0))
     (global.set $pendingFire (i32.const 0))
+    (global.set $shots (i32.const 0))
+    (global.set $enemyShots (i32.const 0))
+    (global.set $kills (i32.const 0))
+    (global.set $rocks (i32.const 0))
+    (global.set $hurts (i32.const 0))
+    (global.set $waves (i32.const 0))
     (global.set $rotDir (f32.const 0.0))
     (global.set $astTimer (f32.const 2.5))
 
@@ -249,6 +273,12 @@
   (func $get_level (export "get_level") (result i32) (global.get $level))
   (func $is_game_over (export "is_game_over") (result i32) (global.get $gameOver))
   (func $bots_alive_count (export "bots_alive_count") (result i32) (call $count_alive_bots))
+  (func $get_shots (export "get_shots") (result i32) (global.get $shots))
+  (func $get_enemy_shots (export "get_enemy_shots") (result i32) (global.get $enemyShots))
+  (func $get_kills (export "get_kills") (result i32) (global.get $kills))
+  (func $get_rocks (export "get_rocks") (result i32) (global.get $rocks))
+  (func $get_hurts (export "get_hurts") (result i32) (global.get $hurts))
+  (func $get_waves (export "get_waves") (result i32) (global.get $waves))
 
   ;; ---------------- main step ----------------
 
@@ -325,6 +355,7 @@
         (call $spawn_bullet (i32.const 0) (local.get $px) (local.get $py)
           (f32.mul (call $cosf (local.get $phead)) (global.get $PLAYER_BULLET_SPEED))
           (f32.mul (call $sinf (local.get $phead)) (global.get $PLAYER_BULLET_SPEED)))
+        (global.set $shots (i32.add (global.get $shots) (i32.const 1)))
         (global.set $burstLeft (i32.sub (global.get $burstLeft) (i32.const 1)))
         ;; the last round of a burst pays the recovery, so mashing the key
         ;; cannot beat the fire rate the weapon is meant to have
@@ -404,7 +435,8 @@
                   (then
                     (call $spawn_bullet (i32.const 1) (local.get $bx) (local.get $by)
                       (f32.mul (f32.div (local.get $dx) (local.get $dist)) (f32.const 280.0))
-                      (f32.mul (f32.div (local.get $dy) (local.get $dist)) (f32.const 280.0)))))
+                      (f32.mul (f32.div (local.get $dy) (local.get $dist)) (f32.const 280.0)))
+                    (global.set $enemyShots (i32.add (global.get $enemyShots) (i32.const 1)))))
                 (local.set $bcd (call $frand (local.get $cdMin) (local.get $cdMax)))))
 
             (f32.store offset=0 (local.get $a) (local.get $bx))
@@ -478,6 +510,7 @@
                                 (f32.store offset=20 (local.get $a) (f32.const 0.0))
                                 (local.set $score (f32.add (local.get $score) (f32.const 1.0)))
                                 (local.set $hit (i32.const 1))
+                                (global.set $kills (i32.add (global.get $kills) (i32.const 1)))
                                 (br $donechk)))))
                         (local.set $i (i32.add (local.get $i) (i32.const 1)))
                         (br $lpchk)))
@@ -500,6 +533,7 @@
                                     (f32.store offset=20 (local.get $a) (f32.const 0.0))
                                     (local.set $score (f32.add (local.get $score) (f32.const 1.0)))
                                     (local.set $hit (i32.const 1))
+                                    (global.set $rocks (i32.add (global.get $rocks) (i32.const 1)))
                                     (br $donechk2)))))
                             (local.set $i (i32.add (local.get $i) (i32.const 1)))
                             (br $lpchk2))))))
@@ -514,6 +548,7 @@
                           (then
                             (local.set $hit (i32.const 1))
                             (local.set $lives (f32.sub (local.get $lives) (f32.const 1.0)))
+                (global.set $hurts (i32.add (global.get $hurts) (i32.const 1)))
                             (if (f32.le (local.get $lives) (f32.const 0.0))
                               (then
                                 (local.set $palive (f32.const 0.0))
@@ -555,6 +590,7 @@
                       (then
                         (local.set $active (f32.const 0.0))
                         (local.set $lives (f32.sub (local.get $lives) (f32.const 1.0)))
+                (global.set $hurts (i32.add (global.get $hurts) (i32.const 1)))
                         (if (f32.le (local.get $lives) (f32.const 0.0))
                           (then
                             (local.set $palive (f32.const 0.0))
@@ -586,6 +622,7 @@
               (then
                 (f32.store offset=20 (local.get $a) (f32.const 0.0))
                 (local.set $lives (f32.sub (local.get $lives) (f32.const 1.0)))
+                (global.set $hurts (i32.add (global.get $hurts) (i32.const 1)))
                 (if (f32.le (local.get $lives) (f32.const 0.0))
                   (then
                     (local.set $palive (f32.const 0.0))
@@ -601,6 +638,7 @@
     (if (i32.and (i32.eqz (global.get $gameOver)) (i32.eqz (call $count_alive_bots)))
       (then
         (global.set $level (i32.add (global.get $level) (i32.const 1)))
+        (global.set $waves (i32.add (global.get $waves) (i32.const 1)))
         (call $spawn_wave (call $wave_size))))
     )
 )

@@ -164,7 +164,7 @@ restart" bugs.
 ## Designing the export surface
 
 The exports **are** the API, and this is worth more thought than it usually
-gets. Pixel Wave exports nine things and no more:
+gets. Pixel Wave exports fifteen things and no more:
 
 ```wat
 (memory (export "memory") 1)
@@ -176,9 +176,22 @@ gets. Pixel Wave exports nine things and no more:
 (func $get_level (export "get_level") (result i32))
 (func $is_game_over     (export "is_game_over")     (result i32))
 (func $bots_alive_count (export "bots_alive_count") (result i32))
+;; event counters: they only ever go up, and init zeroes them
+(func $get_shots       (export "get_shots")       (result i32))
+(func $get_enemy_shots (export "get_enemy_shots") (result i32))
+(func $get_kills       (export "get_kills")       (result i32))
+(func $get_rocks       (export "get_rocks")       (result i32))
+(func $get_hurts       (export "get_hurts")       (result i32))
+(func $get_waves       (export "get_waves")       (result i32))
 ```
 
-Nine, for a complete game with 33 enemies and 160 bullets in flight.
+Fifteen, for a complete game with 33 enemies and 160 bullets in flight — and
+six of them are one idea repeated. They are **event counters**: one integer per
+kind of thing that can happen, incremented at the line where the engine decides
+it happened, which the host diffs between frames to decide what to play. Pixel
+Wave was the first title here and for most of its life exported only the first
+nine; it was the last in the repository to get counters, and
+[chapter 15](15-game-loop-architecture.md) is why it needed them.
 
 Three principles hold this together, and all three are about keeping the
 boundary narrow.

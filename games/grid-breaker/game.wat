@@ -140,6 +140,34 @@
   (global $slowTimer (mut f32) (f32.const 0.0))
   (global $stickyTimer (mut f32) (f32.const 0.0))
 
+  ;; Event counters. JavaScript diffs these between frames to decide what to
+  ;; play and what to shake — the engine never calls out, so a counter is the
+  ;; whole notification channel. They only ever increase.
+  ;;
+  ;; This title arrived from a portfolio repository without them. Its widget
+  ;; worked out what had happened by snapshotting all 180 tiles every frame and
+  ;; diffing hit points, and by counting live balls — which is the renderer
+  ;; deciding what the rules did, the exact thing invariant 4 exists to
+  ;; prevent. It also had a quiet cost nobody had noticed: the widget carried
+  ;; `paddle`, `power` and `launch` sounds that nothing ever played, because
+  ;; none of those three events leaves anything behind in memory to diff. A
+  ;; paddle bounce changes a velocity; a caught capsule vanishes; a launch
+  ;; clears a flag. Counters are the only way a renderer can hear them.
+  (global $breaks (mut i32) (i32.const 0))    ;; a tile destroyed, by ball or blast
+  (global $chips (mut i32) (i32.const 0))     ;; a tough tile hit and survived
+  (global $booms (mut i32) (i32.const 0))     ;; a bomb detonated
+  (global $bounces (mut i32) (i32.const 0))   ;; a ball returned by the paddle
+  (global $powers (mut i32) (i32.const 0))    ;; a capsule caught
+  (global $drains (mut i32) (i32.const 0))    ;; a ball lost below the floor
+  (global $launches (mut i32) (i32.const 0))  ;; a stuck ball sent off the paddle
+  (global $hurts (mut i32) (i32.const 0))     ;; a life lost
+  (global $clears (mut i32) (i32.const 0))    ;; a level cleared
+  ;; Which row the most recent break was on. Not a counter: the brick sound is
+  ;; pitched by row, and a count of breaks cannot say where one happened. One
+  ;; scalar is enough because the widget plays one brick note a frame however
+  ;; many broke — a bomb chain is the boom, not twenty bricks.
+  (global $lastBreakRow (mut i32) (i32.const 0))
+
   ;; ---------------- helpers ----------------
 
   (func $ball_addr (param $i i32) (result i32)
@@ -281,12 +309,15 @@
     (i32.store (global.get $LEFT_OFF)
       (i32.sub (i32.load (global.get $LEFT_OFF)) (i32.const 1)))
     (call $add_score (global.get $SCORE_BOMB))
+    (global.set $breaks (i32.add (global.get $breaks) (i32.const 1)))
+    (global.set $lastBreakRow (local.get $r))
     (call $maybe_drop (local.get $c) (local.get $r))
     (if (i32.eq (local.get $kind) (i32.const 2))
       (then (call $explode_at (local.get $c) (local.get $r)))))
 
   (func $explode_at (param $c i32) (param $r i32)
     (local $dc i32) (local $dr i32) (local $nc i32) (local $nr i32)
+    (global.set $booms (i32.add (global.get $booms) (i32.const 1)))
     (local.set $dr (i32.const -1))
     (block $rdone
       (loop $rlp
@@ -333,11 +364,14 @@
             (else (if (result f32) (i32.eq (local.get $kind) (i32.const 2))
                     (then (global.get $SCORE_BOMB))
                     (else (global.get $SCORE_PLAIN))))))
+        (global.set $breaks (i32.add (global.get $breaks) (i32.const 1)))
+        (global.set $lastBreakRow (local.get $r))
         (call $maybe_drop (local.get $c) (local.get $r))
         (if (i32.eq (local.get $kind) (i32.const 2))
           (then (call $explode_at (local.get $c) (local.get $r)))))
       (else
         ;; a tough tile that survived — chipping it is worth something
+        (global.set $chips (i32.add (global.get $chips) (i32.const 1)))
         (call $add_score (global.get $SCORE_CHIP))))
     (i32.const 1))
 
@@ -545,6 +579,16 @@
     ;; the press has to arrive fresh.
     (global.set $launchReq (i32.const 0))
     (global.set $ptrActive (i32.const 0))
+    (global.set $breaks (i32.const 0))
+    (global.set $chips (i32.const 0))
+    (global.set $booms (i32.const 0))
+    (global.set $bounces (i32.const 0))
+    (global.set $powers (i32.const 0))
+    (global.set $drains (i32.const 0))
+    (global.set $launches (i32.const 0))
+    (global.set $hurts (i32.const 0))
+    (global.set $clears (i32.const 0))
+    (global.set $lastBreakRow (i32.const 0))
 
     (f32.store offset=0 (i32.const 0) (f32.mul (global.get $WORLD_W) (f32.const 0.5)))
     (f32.store offset=4 (i32.const 0) (global.get $PADDLE_Y))
@@ -602,6 +646,7 @@
   ;; paddle gives you.
   (func $paddle_bounce (param $a i32) (param $half f32)
     (local $off f32) (local $ang f32) (local $sp f32) (local $sgn f32)
+    (global.set $bounces (i32.add (global.get $bounces) (i32.const 1)))
     (local.set $off (call $clampf
       (f32.div (f32.sub (f32.load offset=0 (local.get $a)) (f32.load offset=0 (i32.const 0)))
                (local.get $half))
@@ -739,6 +784,7 @@
         ;; lost below the floor
         (if (f32.gt (f32.sub (local.get $y) (local.get $r)) (global.get $WORLD_H))
           (then
+            (global.set $drains (i32.add (global.get $drains) (i32.const 1)))
             (f32.store offset=20 (local.get $a) (f32.const 0.0))
             (br $sdone)))
 
@@ -790,6 +836,7 @@
         (br $lp))))
 
   (func $apply_power (param $kind i32)
+    (global.set $powers (i32.add (global.get $powers) (i32.const 1)))
     (call $add_score (global.get $SCORE_POWER))
     (if (i32.eq (local.get $kind) (i32.const 0))
       (then (global.set $wideTimer (global.get $WIDE_TIME))))
@@ -871,11 +918,13 @@
                 (f32.store offset=8 (local.get $a) (f32.mul (call $sinf (local.get $ang)) (local.get $sp)))
                 (f32.store offset=12 (local.get $a)
                   (f32.mul (f32.mul (call $cosf (local.get $ang)) (local.get $sp)) (f32.const -1.0)))
-                (f32.store offset=24 (local.get $a) (f32.const 0.0))))))
+                (f32.store offset=24 (local.get $a) (f32.const 0.0))
+                (global.set $launches (i32.add (global.get $launches) (i32.const 1)))))))
         (local.set $i (i32.add (local.get $i) (i32.const 1)))
         (br $lp))))
 
   (func $lose_life
+    (global.set $hurts (i32.add (global.get $hurts) (i32.const 1)))
     (f32.store (global.get $LIVES_OFF)
       (f32.sub (f32.load (global.get $LIVES_OFF)) (f32.const 1.0)))
     (if (f32.le (f32.load (global.get $LIVES_OFF)) (f32.const 0.0))
@@ -885,6 +934,7 @@
       (else (call $serve))))
 
   (func $next_level
+    (global.set $clears (i32.add (global.get $clears) (i32.const 1)))
     (global.set $level (i32.add (global.get $level) (i32.const 1)))
     (i32.store (global.get $LEVEL_OFF) (global.get $level))
     (call $add_score (global.get $SCORE_LEVEL))
@@ -936,4 +986,14 @@
   (func $get_wide (export "get_wide") (result f32) (global.get $wideTimer))
   (func $get_slow (export "get_slow") (result f32) (global.get $slowTimer))
   (func $get_sticky (export "get_sticky") (result f32) (global.get $stickyTimer))
+  (func $get_breaks (export "get_breaks") (result i32) (global.get $breaks))
+  (func $get_chips (export "get_chips") (result i32) (global.get $chips))
+  (func $get_booms (export "get_booms") (result i32) (global.get $booms))
+  (func $get_bounces (export "get_bounces") (result i32) (global.get $bounces))
+  (func $get_powers (export "get_powers") (result i32) (global.get $powers))
+  (func $get_drains (export "get_drains") (result i32) (global.get $drains))
+  (func $get_launches (export "get_launches") (result i32) (global.get $launches))
+  (func $get_hurts (export "get_hurts") (result i32) (global.get $hurts))
+  (func $get_clears (export "get_clears") (result i32) (global.get $clears))
+  (func $get_last_break_row (export "get_last_break_row") (result i32) (global.get $lastBreakRow))
 )

@@ -102,8 +102,8 @@ collector a job it did not need.
 
 ### 4. Sound and score display are host concerns
 
-The engine does not know sound exists. The renderer infers events by watching
-state change between frames:
+The engine does not know sound exists. The obvious way for the renderer to find
+out what happened is to watch state change between frames:
 
 ```js
 let prevScore = 0, prevLives = 5;
@@ -113,10 +113,38 @@ if (lives < prevLives) sfx('hit');
 prevScore = score; prevLives = lives;
 ```
 
-Crude, and it has a real limitation: two kills in one frame make one sound.
-The alternative — an event queue in linear memory that the host drains — is
-maybe forty lines and the right answer if audio matters. For this game it does
-not, and knowing which corner you cut is the point.
+Crude, and it has two real limitations. It cannot tell events apart when they
+move the same number — a bot shot down and an asteroid shot down both add one
+to the score. And it can only hear events that **leave a mark in memory**. A
+ball bouncing off a paddle changes a velocity; a caught power-up simply
+vanishes; neither is anything you can diff. Grid Breaker carried paddle,
+power-up and launch sounds for as long as it used this pattern, and not one of
+them was ever played.
+
+What every engine in this repository uses now is smaller than an event queue
+and has neither limitation: an **event counter** per kind of event, incremented
+at the exact line where the engine decides the event happened.
+
+```wat
+(global $kills (mut i32) (i32.const 0))
+;; ... in the bullet-vs-bot collision, beside the score increment:
+(global.set $kills (i32.add (global.get $kills) (i32.const 1)))
+(func $get_kills (export "get_kills") (result i32) (global.get $kills))
+```
+
+```js
+const kills = get_kills();
+if (kills > prevKills) sfx('explosion');
+prevKills = kills;
+```
+
+It looks almost identical to the crude version, and the whole difference is
+where the decision lives. A counter is not inferred from state; it *is* the
+event, written by the only code that knows it happened. It costs one global and
+one export, never allocates, and cannot be missed by a slow frame, because it
+only goes up. What it gives up is *where* — a count cannot say which bot died —
+so Pixel Wave still reads positions out of memory to place its explosions,
+which is a drawing question and belongs in the renderer.
 
 ---
 
