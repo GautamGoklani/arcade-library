@@ -14,6 +14,15 @@
   ;; asteroids @5184  : stride 24B, MAX_AST=20 (x,y,vx,vy,radius,active)
   ;;             ends at 5184 + 20*24 = 5664
   ;; score @5664  lives @5668
+  ;;
+  ;; The field lists above, once more, in the form scripts/check-layout.mjs
+  ;; reads. It fails if any line here disagrees with the prose, overflows
+  ;; its stride, or disagrees with the FIELD table at the top of the widget
+  ;; — so a field that moves has to move in all three places at once.
+  ;; @fields player f32 -: x y vx vy heading alive
+  ;; @fields bot    f32 BOT_STRIDE: x y vx vy heading alive cooldown wanderTimer targetX targetY
+  ;; @fields bullet f32 BULLET_STRIDE: x y vx vy owner active
+  ;; @fields ast    f32 AST_STRIDE: x y vx vy radius active
   ;; ===================================================
 
   (global $MAX_BOTS i32 (i32.const 33))

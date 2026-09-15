@@ -83,6 +83,14 @@
   ;;
   ;; Scalars — shield, groove, score, the song clock — live in globals, as in
   ;; the other recent titles: the get_* readers are the only consumer.
+  ;;
+  ;; The field lists above, once more, in the form scripts/check-layout.mjs
+  ;; reads. It fails if any line here disagrees with the prose, overflows
+  ;; its stride, or disagrees with the FIELD table at the top of the widget
+  ;; — so a field that moves has to move in all three places at once.
+  ;; @fields bar   u8 BAR_STRIDE: seg kind spent
+  ;; @fields enemy f32 ENEMY_STRIDE: seg depth hp maxHp kind active flash hopT
+  ;; @fields bolt  f32 BOLT_STRIDE: seg depth dmg active onBeat speed
   ;; ===================================================
 
   (global $BAR_OFF i32 (i32.const 0))

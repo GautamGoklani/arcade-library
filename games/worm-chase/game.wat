@@ -41,6 +41,13 @@
   ;; its score at a fixed address because its renderer was already walking
   ;; memory for the tile grid; here the readers at the bottom are the only
   ;; consumer, and a global is one instruction to read.
+  ;;
+  ;; The field lists above, once more, in the form scripts/check-layout.mjs
+  ;; reads. It fails if any line here disagrees with the prose, overflows
+  ;; its stride, or disagrees with the FIELD table at the top of the widget
+  ;; — so a field that moves has to move in all three places at once.
+  ;; @fields cell   u8 CELL_STRIDE: state hazard mark epoch
+  ;; @fields chaser i32 CHASER_STRIDE: cx cy pcx pcy dx dy active pad
   ;; ===================================================
 
   (global $COLS i32 (i32.const 32))

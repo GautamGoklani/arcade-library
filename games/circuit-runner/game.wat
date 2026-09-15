@@ -53,6 +53,14 @@
   ;; Scalars — score, current, speed, distance — live in globals rather than
   ;; memory, as in the other recent titles: the get_* readers are the only
   ;; consumer, and a global is one instruction to read.
+  ;;
+  ;; The field lists above, once more, in the form scripts/check-layout.mjs
+  ;; reads. It fails if any line here disagrees with the prose, overflows
+  ;; its stride, or disagrees with the FIELD table at the top of the widget
+  ;; — so a field that moves has to move in all three places at once.
+  ;; @fields runner f32 -: x lane targetLane stun alive
+  ;; @fields part   f32 PART_STRIDE: x y lane kind active span timer charged
+  ;; @fields pickup f32 PICKUP_STRIDE: x y lane kind active phase
   ;; ===================================================
 
   (global $RUNNER_OFF i32 (i32.const 0))

@@ -28,6 +28,15 @@
   var ENEMIES_OFF = 16, ENEMY_STRIDE = 40, MAX_ENEMIES = 24;
   var PB_OFF = 976, PB_STRIDE = 24, MAX_PB = 20;
   var EB_OFF = 1456, EB_STRIDE = 24, MAX_EB = 30;
+  // Field positions inside each record, in f32 slots — the `@fields` lines in
+  // game.wat, copied. Every read goes through this table rather than a bare
+  // `f32[a + 6]`, so scripts/check-layout.mjs can see a field that moved.
+  var FIELD = {
+    player: { x: 0, y: 1, alive: 2 },
+    enemy: { x: 0, y: 1, vx: 2, vy: 3, hp: 4, kind: 5, active: 6, phase: 7, cd: 8, targetX: 9 },
+    pbullet: { x: 0, y: 1, vx: 2, vy: 3, life: 4, active: 5 },
+    ebullet: { x: 0, y: 1, vx: 2, vy: 3, life: 4, active: 5 },
+  };
   var PLAYER_Y = 648;
   var PXS = 3;   // chunky pixel scale for the ASCII sprites
   // Drawn into a WORLD/LOW_SCALE buffer and blown up by this factor, the same
@@ -482,17 +491,18 @@
     function drawEnemies() {
       for (var i = 0; i < MAX_ENEMIES; i++) {
         var a = (ENEMIES_OFF + i * ENEMY_STRIDE) >> 2;
-        if (f32[a + 6] <= 0) continue;
-        var kind = f32[a + 5] | 0;
+        var E = FIELD.enemy;
+        if (f32[a + E.active] <= 0) continue;
+        var kind = f32[a + E.kind] | 0;
         var spr = sprEnemy[kind] || sprEnemy[0];
         // `phase` is the engine's unused-by-simulation field: a per-attacker
         // constant, so a group spawned together does not bob in lockstep.
-        var bob = Math.round(Math.sin(tGlobal * 4 + f32[a + 7]) * 1.2) * LOW_SCALE;
-        var x = f32[a], y = f32[a + 1];
+        var bob = Math.round(Math.sin(tGlobal * 4 + f32[a + E.phase]) * 1.2) * LOW_SCALE;
+        var x = f32[a + E.x], y = f32[a + E.y];
         lastEnemyPos.x = x; lastEnemyPos.y = y;
         // A hulk that has taken one hit is drawn dimmer, so "this one needs
         // another" is visible rather than remembered.
-        if (kind === 3 && f32[a + 4] <= 1) g.globalAlpha = 0.55;
+        if (kind === 3 && f32[a + E.hp] <= 1) g.globalAlpha = 0.55;
         drawSpriteAt(spr, x, y + bob);
         g.globalAlpha = 1;
       }
@@ -501,9 +511,9 @@
     function drawBullets() {
       for (var i = 0; i < MAX_PB; i++) {
         var a = (PB_OFF + i * PB_STRIDE) >> 2;
-        if (f32[a + 5] <= 0) continue;
-        var x = Math.round(f32[a] / LOW_SCALE) * LOW_SCALE;
-        var y = Math.round(f32[a + 1] / LOW_SCALE) * LOW_SCALE;
+        if (f32[a + FIELD.pbullet.active] <= 0) continue;
+        var x = Math.round(f32[a + FIELD.pbullet.x] / LOW_SCALE) * LOW_SCALE;
+        var y = Math.round(f32[a + FIELD.pbullet.y] / LOW_SCALE) * LOW_SCALE;
         g.fillStyle = '#ffd166';
         g.fillRect(x - LOW_SCALE, y - LOW_SCALE * 2, LOW_SCALE * 2, LOW_SCALE * 4);
         g.fillStyle = '#fff6d6';
@@ -511,9 +521,9 @@
       }
       for (i = 0; i < MAX_EB; i++) {
         var b = (EB_OFF + i * EB_STRIDE) >> 2;
-        if (f32[b + 5] <= 0) continue;
-        var bx = Math.round(f32[b] / LOW_SCALE) * LOW_SCALE;
-        var by = Math.round(f32[b + 1] / LOW_SCALE) * LOW_SCALE;
+        if (f32[b + FIELD.ebullet.active] <= 0) continue;
+        var bx = Math.round(f32[b + FIELD.ebullet.x] / LOW_SCALE) * LOW_SCALE;
+        var by = Math.round(f32[b + FIELD.ebullet.y] / LOW_SCALE) * LOW_SCALE;
         g.fillStyle = '#ff5470';
         g.fillRect(bx - LOW_SCALE, by - LOW_SCALE, LOW_SCALE * 2, LOW_SCALE * 3);
         g.fillStyle = '#ffd0d8';

@@ -31,6 +31,15 @@
   var BAR_OFF = 0, BAR_STRIDE = 4;
   var ENEMIES_OFF = 64, ENEMY_STRIDE = 32, MAX_ENEMIES = 32;
   var BOLTS_OFF = 1088, BOLT_STRIDE = 24, MAX_BOLTS = 24;
+  // Field positions inside each record — bytes for a bar step, f32 slots for
+  // the rest — the `@fields` lines in game.wat, copied. Every read goes through
+  // this table rather than a bare `f32[a + 5]`, so scripts/check-layout.mjs can
+  // see a field that moved.
+  var FIELD = {
+    bar: { seg: 0, kind: 1, spent: 2 },
+    enemy: { seg: 0, depth: 1, hp: 2, maxHp: 3, kind: 4, active: 5, flash: 6, hopT: 7 },
+    bolt: { seg: 0, depth: 1, dmg: 2, active: 3, onBeat: 4, speed: 5 },
+  };
   var LOW_SCALE = 3;   // 320x240 buffer, blown up — see asteroid-miner.js
 
   // Tube geometry, in world units. Not in the engine: the engine works in a
@@ -429,10 +438,11 @@
         var a = (i / n) * Math.PI * 2 - Math.PI / 2;
         var x = CX + Math.cos(a) * r, y = CY + Math.sin(a) * r;
         var cell = BAR_OFF + i * BAR_STRIDE;
-        var seg = u8[cell];
+        var seg = u8[cell + FIELD.bar.seg];
+        var kindCol = KIND_COL[u8[cell + FIELD.bar.kind] & 3];
         var strong = (i % 4 === 0);
         if (seg !== 0) {
-          dot(x, y, strong ? 2.4 : 1.8, KIND_COL[u8[cell + 1] & 3]);
+          dot(x, y, strong ? 2.4 : 1.8, kindCol);
         } else {
           // Empty steps still have to be *there*. At the first pass they were
           // #241a3e on #0b0818 and the ring read as four amber dots floating in
@@ -442,7 +452,7 @@
         if (i === here) {
           // the playhead
           dot(x, y, 3.2, '#ffffff');
-          dot(x, y, 1.8, seg !== 0 ? KIND_COL[u8[cell + 1] & 3] : '#c9a6ff');
+          dot(x, y, 1.8, seg !== 0 ? kindCol : '#c9a6ff');
         }
       }
     }
@@ -450,10 +460,11 @@
     function drawEnemies() {
       for (var i = 0; i < MAX_ENEMIES; i++) {
         var a = (ENEMIES_OFF + i * ENEMY_STRIDE) >> 2;
-        if (f32[a + 5] <= 0) continue;
-        var seg = f32[a] | 0, depth = f32[a + 1];
-        var kind = f32[a + 4] | 0, hp = f32[a + 2], maxHp = f32[a + 3];
-        var flash = f32[a + 6];
+        var E = FIELD.enemy;
+        if (f32[a + E.active] <= 0) continue;
+        var seg = f32[a + E.seg] | 0, depth = f32[a + E.depth];
+        var kind = f32[a + E.kind] | 0, hp = f32[a + E.hp], maxHp = f32[a + E.maxHp];
+        var flash = f32[a + E.flash];
         pos(seg, depth, P);
         // a wedge that grows as it climbs, so "nearly at the rim" is legible
         // from the size as well as from the position
@@ -486,10 +497,12 @@
     function drawBolts() {
       for (var i = 0; i < MAX_BOLTS; i++) {
         var a = (BOLTS_OFF + i * BOLT_STRIDE) >> 2;
-        if (f32[a + 3] <= 0) continue;
-        var onBeat = f32[a + 4] !== 0;
-        pos(f32[a] | 0, f32[a + 1], P);
-        pos(f32[a] | 0, Math.min(1, f32[a + 1] + (onBeat ? 0.09 : 0.05)), P2);
+        var B = FIELD.bolt;
+        if (f32[a + B.active] <= 0) continue;
+        var onBeat = f32[a + B.onBeat] !== 0;
+        var seg = f32[a + B.seg] | 0, depth = f32[a + B.depth];
+        pos(seg, depth, P);
+        pos(seg, Math.min(1, depth + (onBeat ? 0.09 : 0.05)), P2);
         var col = onBeat ? '#fff3c4' : '#7b6aa0';
         g.fillStyle = col;
         var n = 5;
@@ -540,7 +553,8 @@
       if (sp > prevSpawns) {
         // the bar plan still holds what just spawned, at the current step
         var cell = BAR_OFF + e.get_step_idx() * BAR_STRIDE;
-        if (u8[cell] !== 0) sound.spawn(u8[cell] - 1, u8[cell + 1] & 3);
+        var seg = u8[cell + FIELD.bar.seg];
+        if (seg !== 0) sound.spawn(seg - 1, u8[cell + FIELD.bar.kind] & 3);
         prevSpawns = sp;
       }
 

@@ -49,6 +49,7 @@ see. It cannot test *feel*, which is what is still missing.
 | `sector-defense` | A wave has never been played through in a browser | Medium — attacker behaviour, the shield bracket, the combo HUD |
 | `worm-chase` | Hold-to-move controls and the trail-connector rendering | Medium — both were changed after the last live look |
 | `asteroid-miner` | Everything past the first few seconds | Medium |
+| all nine | **Every record read in every widget** now goes through a `FIELD` table instead of a bare offset. The layout check and `node --check` pass, but the rewritten widgets have not been loaded in a browser | Low — the check pins every index; a typo would be a thrown ReferenceError on the first frame, not a wrong picture |
 | all nine | Touch controls on an actual device | Every touch scheme here is reasoned about, not tested |
 | CI | `.github/workflows/check.yml` has been written and its steps run locally, but it has **not run on GitHub yet** — nothing has been pushed since it was added | Low — the first push will say |
 
@@ -57,26 +58,7 @@ still the cheapest high-value work outstanding.
 
 ---
 
-## 2 · Guards and infrastructure
-
-### The layout guard cannot see field order — *needs a decision*
-
-It compares named constants only. Neither side names *fields*: the `.wat`
-documents them in a memory-map comment and the widget reads `f32[a + 4]`. Making
-field 4 into field 5 is still a silent, unguarded break. A stricter check would
-need the `.wat` comment to become machine-readable — or every widget to read
-fields through named index constants instead of `f32[a + 4]` — and either one
-reformats the schema that nine engines' documentation is built around. That is
-the owner's call rather than a refactor to do unasked.
-
-This is not hypothetical. Capping Tower Defense's tower pool at 28 moved every
-pool after it, and the throwaway bench harness — which had `PATH_OFF` written
-out as a literal — went on reading the old address and reported, plausibly and
-completely wrongly, that no tower had ever hit anything.
-
----
-
-## 3 · Library goals not built
+## 2 · Library goals not built
 
 ### Pixel Wave's own roadmap — *product decisions*
 
@@ -88,7 +70,7 @@ choose between rather than for anyone to work through in order.
 
 ---
 
-## 4 · Documentation
+## 3 · Documentation
 
 Nothing outstanding, but three things are deliberate and should not be "fixed":
 

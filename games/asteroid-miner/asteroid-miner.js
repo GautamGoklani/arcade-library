@@ -28,6 +28,16 @@
   var ROCKS_OFF = 24, ROCK_STRIDE = 32, MAX_ROCKS = 28;
   var BULLETS_OFF = 920, BULLET_STRIDE = 24, MAX_BULLETS = 24;
   var PICKUPS_OFF = 1496, PICKUP_STRIDE = 32, MAX_PICKUPS = 40;
+  // Field positions inside each record, in f32 slots — the `@fields` lines in
+  // game.wat, copied. Every read goes through this table rather than a bare
+  // `f32[a + 6]`, so scripts/check-layout.mjs can see a field that moved.
+  var FIELD = {
+    ship: { x: 0, y: 1, vx: 2, vy: 3, heading: 4, alive: 5 },
+    rock: { x: 0, y: 1, vx: 2, vy: 3, radius: 4, size: 5, active: 6, spin: 7 },
+    bullet: { x: 0, y: 1, vx: 2, vy: 3, life: 4, active: 5 },
+    pickup: { x: 0, y: 1, vx: 2, vy: 3, life: 4, kind: 5, active: 6, phase: 7 },
+    depot: { x: 0, y: 1 },
+  };
   var SHIP_R = 12;
   var PXS = 3; // chunky pixel scale for the ASCII sprites
   // The game draws into a WORLD/LOW_SCALE buffer and is blown up by this
@@ -554,12 +564,13 @@
     function drawRocks() {
       for (var i = 0; i < MAX_ROCKS; i++) {
         var a = (ROCKS_OFF + i * ROCK_STRIDE) >> 2;
-        if (f32[a + 6] <= 0) continue;
-        var size = f32[a + 5] | 0;
+        var R = FIELD.rock;
+        if (f32[a + R.active] <= 0) continue;
+        var size = f32[a + R.size] | 0;
         var spr = sprRock[size] || sprRock[1];
-        var ang = f32[a + 7] * tGlobal;
-        var r = f32[a + 4];
-        drawWrapped(f32[a], f32[a + 1], r + 8, function (x, y) {
+        var ang = f32[a + R.spin] * tGlobal;
+        var r = f32[a + R.radius];
+        drawWrapped(f32[a + R.x], f32[a + R.y], r + 8, function (x, y) {
           drawSpriteAt(spr, x, y, ang);
         });
       }
@@ -570,8 +581,8 @@
       // 1995; brightness on this hardware came from picking a brighter colour.
       for (var i = 0; i < MAX_BULLETS; i++) {
         var a = (BULLETS_OFF + i * BULLET_STRIDE) >> 2;
-        if (f32[a + 5] <= 0) continue;
-        drawWrapped(f32[a], f32[a + 1], 6, function (x, y) {
+        if (f32[a + FIELD.bullet.active] <= 0) continue;
+        drawWrapped(f32[a + FIELD.bullet.x], f32[a + FIELD.bullet.y], 6, function (x, y) {
           var bx = Math.round(x / LOW_SCALE) * LOW_SCALE;
           var by = Math.round(y / LOW_SCALE) * LOW_SCALE;
           g.fillStyle = '#ffb02e';
@@ -585,16 +596,17 @@
     function drawPickups() {
       for (var i = 0; i < MAX_PICKUPS; i++) {
         var a = (PICKUPS_OFF + i * PICKUP_STRIDE) >> 2;
-        if (f32[a + 6] <= 0) continue;
-        var kind = f32[a + 5] | 0;
-        var life = f32[a + 4];
+        var P = FIELD.pickup;
+        if (f32[a + P.active] <= 0) continue;
+        var kind = f32[a + P.kind] | 0;
+        var life = f32[a + P.life];
         var spr = kind === 1 ? sprCell : sprGem;
-        var bob = Math.sin(tGlobal * 3.4 + f32[a + 7]) * 3;
+        var bob = Math.sin(tGlobal * 3.4 + f32[a + P.phase]) * 3;
         // The last three seconds blink, because a gem that simply vanished
         // would read as the game taking it rather than the player being late.
         var visible = life > 3 || (Math.sin(life * 18) > -0.2);
         if (!visible) continue;
-        drawWrapped(f32[a], f32[a + 1] + bob, 14, function (x, y) {
+        drawWrapped(f32[a + P.x], f32[a + P.y] + bob, 14, function (x, y) {
           drawSpriteAt(spr, x, y, 0);
         });
       }
@@ -602,14 +614,14 @@
 
     function drawShip() {
       var a = SHIP_OFF >> 2;
-      if (f32[a + 5] <= 0) return;
-      var h = f32[a + 4];
+      if (f32[a + FIELD.ship.alive] <= 0) return;
+      var h = f32[a + FIELD.ship.heading];
       var inv = wasm.exports.get_invuln();
       // Blink while invulnerable — visible, but unmistakably not solid yet.
       if (inv > 0 && Math.sin(inv * 26) < -0.1) return;
       var thrusting = wasm.exports.get_thrusting();
       var frame = ((tGlobal * 22) | 0) & 1;
-      drawWrapped(f32[a], f32[a + 1], 26, function (x, y) {
+      drawWrapped(f32[a + FIELD.ship.x], f32[a + FIELD.ship.y], 26, function (x, y) {
         if (thrusting) {
           g.save();
           g.translate(x, y);
@@ -654,8 +666,9 @@
         sound.die();
         shake = Math.max(shake, 0.5);
         flash = 0.55;
-        burst(f32[sa], f32[sa + 1], 46, '#ff5470', 260);
-        burst(f32[sa], f32[sa + 1], 22, '#ffb02e', 180);
+        var sx = f32[sa + FIELD.ship.x], sy = f32[sa + FIELD.ship.y];
+        burst(sx, sy, 46, '#ff5470', 260);
+        burst(sx, sy, 22, '#ffb02e', 180);
         prevDeaths = deaths;
       }
 
@@ -768,8 +781,8 @@
 
     function isDocked() {
       var a = SHIP_OFF >> 2;
-      var dx = f32[a] - wasm.exports.get_depot_x();
-      var dy = f32[a + 1] - wasm.exports.get_depot_y();
+      var dx = f32[a + FIELD.ship.x] - wasm.exports.get_depot_x();
+      var dy = f32[a + FIELD.ship.y] - wasm.exports.get_depot_y();
       if (dx > WORLD_W / 2) dx -= WORLD_W; if (dx < -WORLD_W / 2) dx += WORLD_W;
       if (dy > WORLD_H / 2) dy -= WORLD_H; if (dy < -WORLD_H / 2) dy += WORLD_H;
       var r = wasm.exports.get_depot_r() + SHIP_R;

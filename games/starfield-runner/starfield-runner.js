@@ -26,6 +26,13 @@
   var WORLD_W = 960, WORLD_H = 720;
   var SHIP_OFF = 0;
   var ROCKS_OFF = 16, ROCK_STRIDE = 40, MAX_ROCKS = 26;
+  // Field positions inside each record, in f32 slots — the `@fields` lines in
+  // game.wat, copied. Every read goes through this table rather than a bare
+  // `f32[a + 4]`, so scripts/check-layout.mjs can see a field that moved.
+  var FIELD = {
+    ship: { x: 0, vx: 1, alive: 2, invuln: 3 },
+    rock: { x: 0, y: 1, vx: 2, r: 3, active: 4, near: 5, spin: 6, kind: 7, resolved: 8, path: 9 },
+  };
   var PXS = 3;         // chunky pixel scale for the ASCII sprites
   var LOW_SCALE = 3;   // 320x240 buffer, blown up — see asteroid-miner.js
 
@@ -481,10 +488,10 @@
       var topY = null, path = 0;
       for (var i = 0; i < MAX_ROCKS; i++) {
         var a = (ROCKS_OFF + i * ROCK_STRIDE) >> 2;
-        if (f32[a + 4] <= 0) continue;
-        var y = f32[a + 1];
+        if (f32[a + FIELD.rock.active] <= 0) continue;
+        var y = f32[a + FIELD.rock.y];
         if (y > shipY - 20) continue;
-        if (topY === null || y > topY) { topY = y; path = f32[a + 9]; }
+        if (topY === null || y > topY) { topY = y; path = f32[a + FIELD.rock.path]; }
       }
       if (topY === null) return;
 
@@ -526,16 +533,17 @@
       var band = wasm.exports.get_graze_band();
       for (var i = 0; i < MAX_ROCKS; i++) {
         var a = (ROCKS_OFF + i * ROCK_STRIDE) >> 2;
-        if (f32[a + 4] <= 0) continue;
-        var x = f32[a], y = f32[a + 1], r = f32[a + 3];
+        var R = FIELD.rock;
+        if (f32[a + R.active] <= 0) continue;
+        var x = f32[a + R.x], y = f32[a + R.y], r = f32[a + R.r];
         if (y < -r - 10 || y > WORLD_H + r + 10) continue;
-        var kind = f32[a + 7] | 0;
+        var kind = f32[a + R.kind] | 0;
         pixelDisc(x, y, r, ROCK_FACE[kind], ROCK_LIT[kind], ROCK_DARK[kind]);
 
         // Craters, rotating with the rock's own spin. Their angles come from
         // the pool index, so a given rock keeps its own face for its whole
         // pass instead of boiling.
-        var spin = f32[a + 6] * tGlobal;
+        var spin = f32[a + R.spin] * tGlobal;
         for (var k = 0; k < 3; k++) {
           var ang = spin + i * 1.7 + k * 2.1;
           var rad = r * (0.25 + ((i + k) % 3) * 0.2);
@@ -548,7 +556,7 @@
         // had, so the ring lights as the ship closes and *stays* lit once the
         // pass is banked — the player sees which rocks paid before the score
         // catches up.
-        var near = f32[a + 5];
+        var near = f32[a + R.near];
         if (near > 0 && near < band) {
           var t = 1 - near / band;
           g.globalAlpha = 0.25 + t * 0.6;

@@ -27,6 +27,14 @@
   var RUNNER_OFF = 0;
   var PARTS_OFF = 24, PART_STRIDE = 32, MAX_PARTS = 24;
   var PICKUPS_OFF = 792, PICKUP_STRIDE = 24, MAX_PICKUPS = 20;
+  // Field positions inside each record, in f32 slots — the `@fields` lines in
+  // game.wat, copied. Every read goes through this table rather than a bare
+  // `f32[a + 4]`, so scripts/check-layout.mjs can see a field that moved.
+  var FIELD = {
+    runner: { x: 0, lane: 1, targetLane: 2, stun: 3, alive: 4 },
+    part: { x: 0, y: 1, lane: 2, kind: 3, active: 4, span: 5, timer: 6, charged: 7 },
+    pickup: { x: 0, y: 1, lane: 2, kind: 3, active: 4, phase: 5 },
+  };
   var PART_HALF_H = 30;
   var PXS = 3;         // chunky pixel scale for the ASCII sprites
   var LOW_SCALE = 3;   // 320x240 buffer, blown up — see asteroid-miner.js
@@ -380,9 +388,10 @@
       var laneW = wasm.exports.get_lane_w();
       for (var i = 0; i < MAX_PARTS; i++) {
         var a = (PARTS_OFF + i * PART_STRIDE) >> 2;
-        if (f32[a + 4] <= 0) continue;
-        var x = f32[a], y = f32[a + 1];
-        var kind = f32[a + 3] | 0, span = f32[a + 5] | 0;
+        var R = FIELD.part;
+        if (f32[a + R.active] <= 0) continue;
+        var x = f32[a + R.x], y = f32[a + R.y];
+        var kind = f32[a + R.kind] | 0, span = f32[a + R.span] | 0;
         var hw = span * (laneW / 2) - 26;
         var l = snap(x - hw), r = snap(x + hw);
         var t = snap(y - PART_HALF_H), b = snap(y + PART_HALF_H);
@@ -404,7 +413,7 @@
           // Capacitor: two plates, live only while charged. A discharged one is
           // drawn dark and hollow so "safe now" is legible at a glance — the
           // whole point of the kind is that it is a gate, not a wall.
-          var live = f32[a + 7] !== 0;
+          var live = f32[a + R.charged] !== 0;
           g.fillStyle = live ? '#ffe08a' : '#2a4a3c';
           g.fillRect(l, t, w, LOW_SCALE * 3);
           g.fillRect(l, b - LOW_SCALE * 3, w, LOW_SCALE * 3);
@@ -446,10 +455,11 @@
     function drawPickups() {
       for (var i = 0; i < MAX_PICKUPS; i++) {
         var a = (PICKUPS_OFF + i * PICKUP_STRIDE) >> 2;
-        if (f32[a + 4] <= 0) continue;
-        var kind = f32[a + 3] | 0;
-        var bob = Math.round(Math.sin(tGlobal * 5 + f32[a + 5]) * 1.2) * LOW_SCALE;
-        drawSpriteAt(kind === 1 ? sprBoost : sprCharge, f32[a], f32[a + 1] + bob);
+        var P = FIELD.pickup;
+        if (f32[a + P.active] <= 0) continue;
+        var kind = f32[a + P.kind] | 0;
+        var bob = Math.round(Math.sin(tGlobal * 5 + f32[a + P.phase]) * 1.2) * LOW_SCALE;
+        drawSpriteAt(kind === 1 ? sprBoost : sprCharge, f32[a + P.x], f32[a + P.y] + bob);
       }
     }
 

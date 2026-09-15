@@ -29,6 +29,17 @@
   var ENEMIES_OFF = 1888, ENEMY_STRIDE = 40, MAX_ENEMIES = 40;
   var SHELLS_OFF = 3488, SHELL_STRIDE = 32, MAX_SHELLS = 24;
   var PATH_OFF = 4256, PATH_STRIDE = 8;
+  // Field positions inside each record — bytes for a cell, f32 slots for the
+  // rest — the `@fields` lines in game.wat, copied. Every read goes through
+  // this table rather than a bare `f32[a + 5]`, so scripts/check-layout.mjs can
+  // see a field that moved.
+  var FIELD = {
+    cell: { kind: 0, tower: 1, step: 2, spare: 3 },
+    tower: { x: 0, y: 1, kind: 2, heat: 3, cd: 4, active: 5, aimX: 6, aimY: 7, tracer: 8, tripped: 9 },
+    enemy: { x: 0, y: 1, hp: 2, maxHp: 3, kind: 4, active: 5, step: 6, t: 7, flash: 8, spare: 9 },
+    shell: { x: 0, y: 1, vx: 2, vy: 3, tx: 4, ty: 5, active: 6, dmg: 7 },
+    path: { px: 0, py: 1 },
+  };
   var PXS = 3;         // chunky pixel scale for the ASCII sprites
   var LOW_SCALE = 3;   // 320x240 buffer, blown up — see asteroid-miner.js
 
@@ -450,7 +461,7 @@
       for (var r = 0; r < ROWS; r++) {
         for (var c = 0; c < COLS; c++) {
           var a = GRID_OFF + (r * COLS + c) * CELL_STRIDE;
-          var kind = u8[a];
+          var kind = u8[a + FIELD.cell.kind];
           var x = snap(c * CS), y = snap(r * CS), w = snap((c + 1) * CS) - x, h = snap((r + 1) * CS) - y;
           if (kind === 0) {
             g.fillStyle = ((c + r) & 1) ? DIRT : DIRT_ALT;
@@ -502,10 +513,9 @@
       var n = wasm.exports.get_path_len();
       g.fillStyle = '#7d6842';
       for (var i = 0; i + 1 < n; i++) {
-        var ax = f32[(PATH_OFF + i * PATH_STRIDE) >> 2];
-        var ay = f32[(PATH_OFF + i * PATH_STRIDE + 4) >> 2];
-        var bx = f32[(PATH_OFF + (i + 1) * PATH_STRIDE) >> 2];
-        var by = f32[(PATH_OFF + (i + 1) * PATH_STRIDE + 4) >> 2];
+        var pa = (PATH_OFF + i * PATH_STRIDE) >> 2, pb = pa + (PATH_STRIDE >> 2);
+        var ax = f32[pa + FIELD.path.px], ay = f32[pa + FIELD.path.py];
+        var bx = f32[pb + FIELD.path.px], by = f32[pb + FIELD.path.py];
         var lo, hi;
         if (ay === by) {
           lo = Math.min(ax, bx); hi = Math.max(ax, bx);
@@ -529,9 +539,10 @@
       var heatMax = wasm.exports.get_heat_max();
       for (var i = 0; i < MAX_TOWERS; i++) {
         var a = (TOWERS_OFF + i * TOWER_STRIDE) >> 2;
-        if (f32[a + 5] <= 0) continue;
-        var x = f32[a], y = f32[a + 1], kind = f32[a + 2] | 0;
-        var heat = f32[a + 3], tracer = f32[a + 8], tripped = f32[a + 9];
+        var T = FIELD.tower;
+        if (f32[a + T.active] <= 0) continue;
+        var x = f32[a + T.x], y = f32[a + T.y], kind = f32[a + T.kind] | 0;
+        var heat = f32[a + T.heat], tracer = f32[a + T.tracer], tripped = f32[a + T.tripped];
 
         drawSpriteAt(sprTower[kind], x, y);
 
@@ -539,7 +550,7 @@
         // damage, so a line on screen always means a hit landed.
         if (tracer > 0) {
           g.fillStyle = '#fff3c4';
-          var tx = f32[a + 6], ty = f32[a + 7];
+          var tx = f32[a + T.aimX], ty = f32[a + T.aimY];
           var n = 9;
           for (var s = 1; s < n; s++) {
             g.fillRect(snap(x + (tx - x) * (s / n)), snap(y + (ty - y) * (s / n)),
@@ -567,9 +578,10 @@
     function drawEnemies() {
       for (var i = 0; i < MAX_ENEMIES; i++) {
         var a = (ENEMIES_OFF + i * ENEMY_STRIDE) >> 2;
-        if (f32[a + 5] <= 0) continue;
-        var x = f32[a], y = f32[a + 1], hp = f32[a + 2], maxHp = f32[a + 3];
-        var kind = f32[a + 4] | 0, flash = f32[a + 8];
+        var E = FIELD.enemy;
+        if (f32[a + E.active] <= 0) continue;
+        var x = f32[a + E.x], y = f32[a + E.y], hp = f32[a + E.hp], maxHp = f32[a + E.maxHp];
+        var kind = f32[a + E.kind] | 0, flash = f32[a + E.flash];
 
         if (kind === 3) {
           // the damper's field, drawn at the radius the engine actually uses
@@ -603,15 +615,16 @@
     function drawShells() {
       for (var i = 0; i < MAX_SHELLS; i++) {
         var a = (SHELLS_OFF + i * SHELL_STRIDE) >> 2;
-        if (f32[a + 6] <= 0) continue;
+        var S = FIELD.shell;
+        if (f32[a + S.active] <= 0) continue;
         g.fillStyle = '#e8dcc0';
-        g.fillRect(snap(f32[a]) - LOW_SCALE, snap(f32[a + 1]) - LOW_SCALE,
+        g.fillRect(snap(f32[a + S.x]) - LOW_SCALE, snap(f32[a + S.y]) - LOW_SCALE,
                    LOW_SCALE * 2, LOW_SCALE * 2);
         // where it is going to land, so the splash is a promise rather than a
         // surprise — the engine detonates at exactly this point
         g.globalAlpha = 0.5;
         g.fillStyle = '#b8452f';
-        ringAt(f32[a + 4], f32[a + 5], 8, 8);
+        ringAt(f32[a + S.tx], f32[a + S.ty], 8, 8);
         g.globalAlpha = 1;
       }
     }
@@ -628,7 +641,7 @@
       var w = snap((hoverC + 1) * CS) - x, h = snap((hoverR + 1) * CS) - y;
       var cx = (hoverC + 0.5) * CS, cy = (hoverR + 0.5) * CS;
       var a = GRID_OFF + (hoverR * COLS + hoverC) * CELL_STRIDE;
-      var hasTower = u8[a + 1] !== 0;
+      var hasTower = u8[a + FIELD.cell.tower] !== 0;
 
       var ok = tool === 3
         ? hasTower
@@ -644,7 +657,11 @@
       // The reach of what is about to be placed, or of what is already there.
       var showKind = -1;
       if (tool !== 3 && ok) showKind = tool;
-      else if (hasTower) showKind = f32[((TOWERS_OFF + (u8[a + 1] - 1) * TOWER_STRIDE) >> 2) + 2] | 0;
+      else if (hasTower) {
+        // the cell stores its tower's pool index plus one, so zero can mean "none"
+        var ta = (TOWERS_OFF + (u8[a + FIELD.cell.tower] - 1) * TOWER_STRIDE) >> 2;
+        showKind = f32[ta + FIELD.tower.kind] | 0;
+      }
       if (showKind >= 0) {
         g.globalAlpha = 0.4;
         g.fillStyle = showKind === 2 ? '#7cd8ff' : '#ffd166';
@@ -709,8 +726,8 @@
     function trackShells() {
       for (var i = 0; i < MAX_SHELLS; i++) {
         var a = (SHELLS_OFF + i * SHELL_STRIDE) >> 2;
-        if (f32[a + 6] <= 0) continue;
-        lastBoomX = f32[a + 4]; lastBoomY = f32[a + 5];
+        if (f32[a + FIELD.shell.active] <= 0) continue;
+        lastBoomX = f32[a + FIELD.shell.tx]; lastBoomY = f32[a + FIELD.shell.ty];
       }
     }
 

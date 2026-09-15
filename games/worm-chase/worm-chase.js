@@ -28,6 +28,14 @@
   var CELLS = COLS * ROWS;
   var GRID_OFF = 0, CELL_STRIDE = 4;
   var CHASER_OFF = 6144, CHASER_STRIDE = 32, MAX_CHASERS = 8;
+  // Field positions inside each record — bytes for a cell, i32 slots for a
+  // chaser — the `@fields` lines in game.wat, copied. Every read goes through
+  // this table rather than a bare `u8[a + 3]`, so scripts/check-layout.mjs can
+  // see a field that moved.
+  var FIELD = {
+    cell: { state: 0, hazard: 1, mark: 2, epoch: 3 },
+    chaser: { cx: 0, cy: 1, pcx: 2, pcy: 3, dx: 4, dy: 5, active: 6, pad: 7 },
+  };
   var PXS = 3;  // chunky pixel scale for the ASCII sprites: 8 glyphs -> 24px
   var LOW_SCALE = 3;  // 1/3-size buffer, blown up — see the retro adapter in mount()
 
@@ -502,13 +510,13 @@
         for (c = 0; c < COLS; c++) {
           i = r * COLS + c;
           a = GRID_OFF + i * CELL_STRIDE;
-          st = u8[a];
+          st = u8[a + FIELD.cell.state];
           if (st !== prevState[i]) {
             if (st === 1) cellFlash[i] = 1;
             prevState[i] = st;
           }
           if (st === 1) {
-            ep = u8[a + 3];
+            ep = u8[a + FIELD.cell.epoch];
             ctx.fillStyle = EPOCH_FILL[(ep > 0 ? ep - 1 : 0) % EPOCH_FILL.length];
             ctx.fillRect(c * CELL, r * CELL, CELL, CELL);
           }
@@ -536,18 +544,18 @@
       ctx.fillStyle = TERRITORY_EDGE;
       for (r = 0; r < ROWS; r++) {
         for (c = 0; c < COLS; c++) {
-          if (u8[GRID_OFF + (r * COLS + c) * CELL_STRIDE] !== 1) continue;
+          if (u8[GRID_OFF + (r * COLS + c) * CELL_STRIDE + FIELD.cell.state] !== 1) continue;
           var x = c * CELL, y = r * CELL;
-          if (c === 0 || u8[GRID_OFF + (r * COLS + c - 1) * CELL_STRIDE] !== 1) {
+          if (c === 0 || u8[GRID_OFF + (r * COLS + c - 1) * CELL_STRIDE + FIELD.cell.state] !== 1) {
             ctx.fillRect(x, y, LOW_SCALE, CELL);
           }
-          if (c === COLS - 1 || u8[GRID_OFF + (r * COLS + c + 1) * CELL_STRIDE] !== 1) {
+          if (c === COLS - 1 || u8[GRID_OFF + (r * COLS + c + 1) * CELL_STRIDE + FIELD.cell.state] !== 1) {
             ctx.fillRect(x + CELL - LOW_SCALE, y, LOW_SCALE, CELL);
           }
-          if (r === 0 || u8[GRID_OFF + ((r - 1) * COLS + c) * CELL_STRIDE] !== 1) {
+          if (r === 0 || u8[GRID_OFF + ((r - 1) * COLS + c) * CELL_STRIDE + FIELD.cell.state] !== 1) {
             ctx.fillRect(x, y, CELL, LOW_SCALE);
           }
-          if (r === ROWS - 1 || u8[GRID_OFF + ((r + 1) * COLS + c) * CELL_STRIDE] !== 1) {
+          if (r === ROWS - 1 || u8[GRID_OFF + ((r + 1) * COLS + c) * CELL_STRIDE + FIELD.cell.state] !== 1) {
             ctx.fillRect(x, y + CELL - LOW_SCALE, CELL, LOW_SCALE);
           }
         }
@@ -566,14 +574,14 @@
       ctx.fillStyle = 'rgba(124,242,255,' + pulse.toFixed(3) + ')';
       for (r = 0; r < ROWS; r++) {
         for (c = 0; c < COLS; c++) {
-          if (u8[GRID_OFF + (r * COLS + c) * CELL_STRIDE] !== 2) continue;
+          if (u8[GRID_OFF + (r * COLS + c) * CELL_STRIDE + FIELD.cell.state] !== 2) continue;
           var tx = c * CELL, ty = r * CELL;
           ctx.fillRect(tx + pad, ty + pad, span, span);
           // Only right and down, so each join is drawn once.
-          if (c < COLS - 1 && u8[GRID_OFF + (r * COLS + c + 1) * CELL_STRIDE] === 2) {
+          if (c < COLS - 1 && u8[GRID_OFF + (r * COLS + c + 1) * CELL_STRIDE + FIELD.cell.state] === 2) {
             ctx.fillRect(tx + CELL - pad, ty + pad, pad * 2, span);
           }
-          if (r < ROWS - 1 && u8[GRID_OFF + ((r + 1) * COLS + c) * CELL_STRIDE] === 2) {
+          if (r < ROWS - 1 && u8[GRID_OFF + ((r + 1) * COLS + c) * CELL_STRIDE + FIELD.cell.state] === 2) {
             ctx.fillRect(tx + pad, ty + CELL - pad, span, pad * 2);
           }
         }
@@ -581,7 +589,7 @@
 
       for (r = 0; r < ROWS; r++) {
         for (c = 0; c < COLS; c++) {
-          if (!u8[GRID_OFF + (r * COLS + c) * CELL_STRIDE + 1]) continue;
+          if (!u8[GRID_OFF + (r * COLS + c) * CELL_STRIDE + FIELD.cell.hazard]) continue;
           ctx.drawImage(sprHazard,
             Math.round(cellCenterX(c) - sprHazard.width / 2),
             Math.round(cellCenterY(r) - sprHazard.height / 2));
@@ -596,9 +604,10 @@
       // second for eight records that never move.
       for (var i = 0; i < MAX_CHASERS; i++) {
         var w = (CHASER_OFF + i * CHASER_STRIDE) >> 2;
-        if (!i32[w + 6]) continue;
-        var cx = i32[w + 2] + (i32[w + 0] - i32[w + 2]) * f;
-        var cy = i32[w + 3] + (i32[w + 1] - i32[w + 3]) * f;
+        var C = FIELD.chaser;
+        if (!i32[w + C.active]) continue;
+        var cx = i32[w + C.pcx] + (i32[w + C.cx] - i32[w + C.pcx]) * f;
+        var cy = i32[w + C.pcy] + (i32[w + C.cy] - i32[w + C.pcy]) * f;
         ctx.drawImage(sprChaser,
           Math.round(cx * CELL + CELL / 2 - sprChaser.width / 2),
           Math.round(cy * CELL + CELL / 2 - sprChaser.height / 2));

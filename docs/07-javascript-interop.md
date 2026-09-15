@@ -135,6 +135,11 @@ function readBot(i) {
 `>> 2` is the idiom for "divide by four", and it is exactly the mirror of the
 `$bot_addr` helper on the wasm side.
 
+The `+ 4` and `+ 5` are written out here so the view arithmetic is visible. The
+widgets in this repository name them instead — `f32[b + FIELD.bot.alive]` — so
+that a build check can notice when a field moves;
+[chapter 16](16-entity-pools.md) explains why that check has to exist.
+
 Reading this way is **free** — no copy, no marshalling, just an indexed read
 into the same bytes the engine wrote. This is why the renderers in this
 repository read entity state directly instead of calling a getter per field.

@@ -35,6 +35,15 @@
   ;;
   ;; tile kinds: 0 = plain, 1 = tough (2 hp), 2 = bomb, 3 = solid
   ;; powerup kinds: 0 = WIDE, 1 = MULTI, 2 = SLOW, 3 = STICKY
+  ;;
+  ;; The field lists above, once more, in the form scripts/check-layout.mjs
+  ;; reads. It fails if any line here disagrees with the prose, overflows
+  ;; its stride, or disagrees with the FIELD table at the top of the widget
+  ;; — so a field that moves has to move in all three places at once.
+  ;; @fields paddle f32 -: x y halfW vx
+  ;; @fields ball   f32 BALL_STRIDE: x y vx vy radius active stuck stickOff
+  ;; @fields power  f32 POWER_STRIDE: x y vx vy kind active
+  ;; @fields tile   f32 TILE_STRIDE: hp kind
   ;; ===================================================
 
   (global $MAX_BALLS i32 (i32.const 6))

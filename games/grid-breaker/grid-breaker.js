@@ -27,6 +27,15 @@
   var BALLS_OFF = 16, BALL_STRIDE = 32, MAX_BALLS = 6;
   var POWER_OFF = 208, POWER_STRIDE = 24, MAX_POWER = 8;
   var TILES_OFF = 400, TILE_STRIDE = 8;
+  // Field positions inside each record, in f32 slots — the `@fields` lines in
+  // game.wat, copied. Every read goes through this table rather than a bare
+  // `f32[o + 5]`, so scripts/check-layout.mjs can see a field that moved.
+  var FIELD = {
+    paddle: { x: 0, y: 1, halfW: 2, vx: 3 },
+    ball: { x: 0, y: 1, vx: 2, vy: 3, radius: 4, active: 5, stuck: 6, stickOff: 7 },
+    power: { x: 0, y: 1, vx: 2, vy: 3, kind: 4, active: 5 },
+    tile: { hp: 0, kind: 1 },
+  };
   var COLS = 15, ROWS = 12;
   var TILE_W = 60, TILE_H = 26, GRID_X = 30, GRID_Y = 70;
   var PADDLE_HALF_H = 9;
@@ -548,15 +557,15 @@
     // ---------- memory readers ----------
     function tileAt(c, r) {
       var o = (TILES_OFF + (r * COLS + c) * TILE_STRIDE) / 4;
-      return { hp: f32[o], kind: f32[o + 1] };
+      return { hp: f32[o + FIELD.tile.hp], kind: f32[o + FIELD.tile.kind] };
     }
     function readBall(i) {
-      var o = (BALLS_OFF + i * BALL_STRIDE) / 4;
-      return { x: f32[o], y: f32[o + 1], active: f32[o + 5], stuck: f32[o + 6] };
+      var o = (BALLS_OFF + i * BALL_STRIDE) / 4, B = FIELD.ball;
+      return { x: f32[o + B.x], y: f32[o + B.y], active: f32[o + B.active], stuck: f32[o + B.stuck] };
     }
     function readPower(i) {
-      var o = (POWER_OFF + i * POWER_STRIDE) / 4;
-      return { x: f32[o], y: f32[o + 1], kind: f32[o + 4], active: f32[o + 5] };
+      var o = (POWER_OFF + i * POWER_STRIDE) / 4, P = FIELD.power;
+      return { x: f32[o + P.x], y: f32[o + P.y], kind: f32[o + P.kind], active: f32[o + P.active] };
     }
 
     // ---------- drawing ----------
@@ -605,7 +614,7 @@
     }
 
     function drawPaddle() {
-      var px = f32[0], py = f32[1], half = f32[2];
+      var px = f32[FIELD.paddle.x], py = f32[FIELD.paddle.y], half = f32[FIELD.paddle.halfW];
       var w = half * 2, h = PADDLE_HALF_H * 2;
       var x = px - half, y = py - PADDLE_HALF_H;
       var wide = wasm.exports.get_wide() > 0;
@@ -668,7 +677,7 @@
     function snapshotTiles() {
       for (var r = 0; r < ROWS; r++) {
         for (var c = 0; c < COLS; c++) {
-          prevTileHp[r * COLS + c] = f32[(TILES_OFF + (r * COLS + c) * TILE_STRIDE) / 4];
+          prevTileHp[r * COLS + c] = f32[(TILES_OFF + (r * COLS + c) * TILE_STRIDE) / 4 + FIELD.tile.hp];
         }
       }
     }
@@ -685,9 +694,9 @@
       for (var r = 0; r < ROWS; r++) {
         for (var c = 0; c < COLS; c++) {
           var idx = r * COLS + c;
-          var hp = f32[(TILES_OFF + idx * TILE_STRIDE) / 4];
+          var hp = f32[(TILES_OFF + idx * TILE_STRIDE) / 4 + FIELD.tile.hp];
           if (prevTileHp[idx] > 0 && hp <= 0) {
-            var kind = f32[(TILES_OFF + idx * TILE_STRIDE) / 4 + 1];
+            var kind = f32[(TILES_OFF + idx * TILE_STRIDE) / 4 + FIELD.tile.kind];
             var cx = GRID_X + c * TILE_W + TILE_W / 2;
             var cy = GRID_Y + r * TILE_H + TILE_H / 2;
             if (kind === 2) burst(cx, cy, '#ff7a1e', 22, 260);

@@ -199,6 +199,15 @@ the arithmetic:</p>
 </code></pre>
 <p>Showing the sum is what makes changing <code>MAX_BOTS</code> a two-minute edit. Without it,
 every offset below is a number of unknown provenance.</p>
+<p>The same comment ends with one machine-readable line per record, naming the
+fields in order:</p>
+<pre><code class="language-wat">;; @fields bot    f32 BOT_STRIDE: x y vx vy heading alive cooldown wanderTimer targetX targetY
+</code></pre>
+<p>The renderer copies it as a table — <code>FIELD.bot.alive</code> is 5 — and reads through
+the name rather than writing <code>f32[o + 5]</code>. <code>npm run check</code> fails if the table and
+the line disagree, or if the line disagrees with the prose above it. The reason
+is that a field which moves is otherwise invisible: the engine and the renderer
+both go on reading slot 5, only one of them is still right, and nothing throws.</p>
 <hr>
 <h2>Addressing</h2>
 <p>One helper per array, and never open-code the arithmetic:</p>

@@ -270,8 +270,10 @@ the phase clock are globals rather than memory, as in the other recent titles.
 > `tower-defense.js` must change with it — nothing links them at build time,
 > and the failure is silent. `npm run check` runs
 > [`scripts/check-layout.mjs`](../../scripts/check-layout.mjs), which compares
-> the named constants; it cannot compare *field order*, so the memory-map
-> comment at the top of `game.wat` is the schema to keep honest.
+> the named constants and the order of fields in every record — the `@fields`
+> lines in the memory-map comment against the `FIELD` table in the widget. It
+> cannot see the engine's own `offset=` loads, so the memory-map comment at the
+> top of `game.wat` is still the schema to keep honest.
 >
 > This is not hypothetical here. Capping the tower pool at 28 moved every pool
 > after it, and the throwaway bench harness — which had `PATH_OFF` written out

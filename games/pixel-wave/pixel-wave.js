@@ -23,6 +23,15 @@
   var BOTS_OFF = 24, BOT_STRIDE = 40, MAX_BOTS = 33;
   var BULLETS_OFF = 1344, BULLET_STRIDE = 24, MAX_BULLETS = 160;
   var AST_OFF = 5184, AST_STRIDE = 24, MAX_AST = 20;
+  // Field positions inside each record, in f32 slots — the `@fields` lines in
+  // game.wat, copied. Every read goes through this table rather than a bare
+  // `f32[o + 5]`, so scripts/check-layout.mjs can see a field that moved.
+  var FIELD = {
+    player: { x: 0, y: 1, vx: 2, vy: 3, heading: 4, alive: 5 },
+    bot: { x: 0, y: 1, vx: 2, vy: 3, heading: 4, alive: 5, cooldown: 6, wanderTimer: 7, targetX: 8, targetY: 9 },
+    bullet: { x: 0, y: 1, vx: 2, vy: 3, owner: 4, active: 5 },
+    ast: { x: 0, y: 1, vx: 2, vy: 3, radius: 4, active: 5 },
+  };
   var PXS = 3; // chunky pixel scale
   var LOW_SCALE = 3;  // 1/3-size buffer, blown up — see the retro adapter in mount()
 
@@ -726,19 +735,21 @@
 
     // ---------- wasm memory readers ----------
     function readPlayer() {
-      return { x: f32[0], y: f32[1], heading: f32[4], alive: f32[5] };
+      var P = FIELD.player;
+      return { x: f32[P.x], y: f32[P.y], heading: f32[P.heading], alive: f32[P.alive] };
     }
     function readBot(i) {
-      var o = (BOTS_OFF + i * BOT_STRIDE) / 4;
-      return { x: f32[o], y: f32[o + 1], alive: f32[o + 5] };
+      var o = (BOTS_OFF + i * BOT_STRIDE) / 4, B = FIELD.bot;
+      return { x: f32[o + B.x], y: f32[o + B.y], alive: f32[o + B.alive] };
     }
     function readBullet(i) {
-      var o = (BULLETS_OFF + i * BULLET_STRIDE) / 4;
-      return { x: f32[o], y: f32[o + 1], vx: f32[o + 2], vy: f32[o + 3], owner: f32[o + 4], active: f32[o + 5] };
+      var o = (BULLETS_OFF + i * BULLET_STRIDE) / 4, B = FIELD.bullet;
+      return { x: f32[o + B.x], y: f32[o + B.y], vx: f32[o + B.vx], vy: f32[o + B.vy],
+               owner: f32[o + B.owner], active: f32[o + B.active] };
     }
     function readAsteroid(i) {
-      var o = (AST_OFF + i * AST_STRIDE) / 4;
-      return { x: f32[o], y: f32[o + 1], radius: f32[o + 4], active: f32[o + 5] };
+      var o = (AST_OFF + i * AST_STRIDE) / 4, A = FIELD.ast;
+      return { x: f32[o + A.x], y: f32[o + A.y], radius: f32[o + A.radius], active: f32[o + A.active] };
     }
 
     function drawSpriteRot(spr, x, y, ang) {
@@ -818,7 +829,7 @@
           // Steer toward the angle the thumb is pointing at, along the shortest
           // arc, easing off as the ship lines up. Point-and-aim rather than
           // hold-to-turn — the whole reason the stick beats a d-pad here.
-          var err = stick.angle - f32[4];
+          var err = stick.angle - f32[FIELD.player.heading];
           err = Math.atan2(Math.sin(err), Math.cos(err));
           rot = Math.max(-1, Math.min(1, err / STICK_SNAP)) * stick.mag;
         }
@@ -840,17 +851,18 @@
       var i, o;
       for (i = 0; i < MAX_BOTS; i++) {
         o = (BOTS_OFF + i * BOT_STRIDE) / 4;
-        var alive = f32[o + 5];
+        var alive = f32[o + FIELD.bot.alive];
         if (prevBotAlive[i] > 0 && alive === 0 && running) {
-          spawnExplosion(f32[o], f32[o + 1], false, ['#ff3fd1', '#ffdd33', '#20e648'][i % 3]);
+          spawnExplosion(f32[o + FIELD.bot.x], f32[o + FIELD.bot.y], false,
+                         ['#ff3fd1', '#ffdd33', '#20e648'][i % 3]);
         }
         prevBotAlive[i] = alive;
       }
       for (i = 0; i < MAX_AST; i++) {
         o = (AST_OFF + i * AST_STRIDE) / 4;
-        var act = f32[o + 5];
-        if (prevAstActive[i] > 0 && act === 0 && running && f32[o + 1] < WORLD_H - 5) {
-          spawnExplosion(f32[o], f32[o + 1], true, '#a89577');
+        var act = f32[o + FIELD.ast.active];
+        if (prevAstActive[i] > 0 && act === 0 && running && f32[o + FIELD.ast.y] < WORLD_H - 5) {
+          spawnExplosion(f32[o + FIELD.ast.x], f32[o + FIELD.ast.y], true, '#a89577');
         }
         prevAstActive[i] = act;
       }

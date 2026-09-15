@@ -195,8 +195,9 @@ decision, not a convenience — see below.
 capacitor. Scalars — score, current, distance — live in globals.
 
 **If you change this layout in `game.wat`, change the constants at the top of
-`circuit-runner.js` with it.** `npm run check` now verifies the named ones
-agree, but it cannot check field order within a record.
+`circuit-runner.js` with it.** `npm run check` verifies the named ones agree,
+and that the widget's `FIELD` table puts every field where the `@fields` lines
+in `game.wat` say it is.
 
 ### Exports
 

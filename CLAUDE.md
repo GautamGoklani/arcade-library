@@ -29,7 +29,8 @@ this repo is committed that a build could regenerate:
 2. **`build-docs.mjs --check`** re-renders every chapter and fails if the
    committed `.html` differs, then verifies every relative link resolves.
 3. **`check-layout.mjs`** compares each widget's memory-layout constants against
-   its engine's globals. See "The layout hazard" below.
+   its engine's globals, and its `FIELD` table against the engine's `@fields`
+   lines. See "The layout hazard" below.
 
 ---
 
@@ -132,22 +133,43 @@ var ROCKS_OFF = 24, ROCK_STRIDE = 32;      // games/asteroid-miner/asteroid-mine
 
 Nothing links them at build time. Get it wrong and there is **no error** — the
 engine simulates correctly while the renderer reads velocity as position.
-`scripts/check-layout.mjs` now guards the named constants; it cannot guard
-*field order* within a record, because neither side names fields. The memory-map
-comment at the top of each `game.wat` is the schema — keep it honest, including
-the arithmetic showing where each region ends.
+`scripts/check-layout.mjs` guards the named constants, and field order within
+each record, because both sides now name fields:
+
+```wat
+;; @fields rock   f32 ROCK_STRIDE: x y vx vy radius size active spin
+```
+```js
+var FIELD = {
+  rock: { x: 0, y: 1, vx: 2, vy: 3, radius: 4, size: 5, active: 6, spin: 7 },
+};
+if (f32[a + FIELD.rock.active] <= 0) continue;
+```
+
+The `@fields` line sits in the memory-map comment; the table sits with the
+widget's constants, one record per line (that is what lets the checker parse it
+without a JavaScript parser). The check fails if the two disagree, if an
+`@fields` line disagrees with the prose field list beside it or overflows its
+stride, or if a widget reads a typed array at a bare number — `f32[a + 4]`,
+`u8[cell + 1]` — because a raw number is exactly the read that goes stale.
+
+What it cannot see is the engine's own `(f32.load offset=20 (local.get $a))`,
+since nothing says which record `$a` points at. So the memory-map comment is
+still the schema — keep it honest, including the arithmetic showing where each
+region ends.
 
 ---
 
 ## Adding a game
 
 1. `games/<slug>/game.wat` — globals block at top, memory-map comment with the
-   arithmetic, xorshift RNG, `init` / `set_input` / `step` / `get_*` exports,
-   event counters.
+   arithmetic and one `;; @fields` line per record, xorshift RNG, `init` /
+   `set_input` / `step` / `get_*` exports, event counters.
 2. `games/<slug>/<slug>.js` — the widget. `<Name>.mount(container, opts)`
    returning `{ restart, destroy, getState }`. `opts.wasmUrl` and
    `opts.wasmBase64` are supported everywhere. Include
-   `var WASM_B64 = "";` — the builder fills it.
+   `var WASM_B64 = "";` — the builder fills it — and a `var FIELD` table copied
+   from the `@fields` lines, and read every record field through it.
 3. `games/<slug>/<slug>.css` — everything under `.<prefix>-root`.
 4. `index.html` (standalone page) and `demo.html` (minimal integration example).
    Copy an existing pair; the `--<prefix>-max-width` hook is how the standalone
@@ -298,10 +320,9 @@ per game — three engines have no chapter because they would restate one:
 
 ## Roadmap status
 
-**[`TASKS.md`](TASKS.md) is the backlog** — verification debt, the item
-waiting on a decision from the owner (a field-order layout guard), and Pixel
-Wave's own feature list. Read it before
-starting anything; it is written to be picked up cold.
+**[`TASKS.md`](TASKS.md) is the backlog** — verification debt and Pixel Wave's
+own feature list. Read it before starting anything; it is written to be picked
+up cold.
 
 Shipped: all nine — Pixel Wave, Grid Breaker, Worm Chase, Asteroid Miner,
 Sector Defense, Circuit Runner, Starfield Runner, Tower Defense Lite, Pulse.

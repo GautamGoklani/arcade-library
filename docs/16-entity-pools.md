@@ -47,6 +47,19 @@ the arithmetic:
 Showing the sum is what makes changing `MAX_BOTS` a two-minute edit. Without it,
 every offset below is a number of unknown provenance.
 
+The same comment ends with one machine-readable line per record, naming the
+fields in order:
+
+```wat
+;; @fields bot    f32 BOT_STRIDE: x y vx vy heading alive cooldown wanderTimer targetX targetY
+```
+
+The renderer copies it as a table — `FIELD.bot.alive` is 5 — and reads through
+the name rather than writing `f32[o + 5]`. `npm run check` fails if the table and
+the line disagree, or if the line disagrees with the prose above it. The reason
+is that a field which moves is otherwise invisible: the engine and the renderer
+both go on reading slot 5, only one of them is still right, and nothing throws.
+
 ---
 
 ## Addressing

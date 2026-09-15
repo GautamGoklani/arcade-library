@@ -51,6 +51,15 @@
   ;; Scalars — score, shield, sector, combo — live in globals rather than
   ;; memory, as in worm-chase and asteroid-miner: the get_* readers are the
   ;; only consumer, and a global is one instruction to read.
+  ;;
+  ;; The field lists above, once more, in the form scripts/check-layout.mjs
+  ;; reads. It fails if any line here disagrees with the prose, overflows
+  ;; its stride, or disagrees with the FIELD table at the top of the widget
+  ;; — so a field that moves has to move in all three places at once.
+  ;; @fields player  f32 -: x y alive
+  ;; @fields enemy   f32 ENEMY_STRIDE: x y vx vy hp kind active phase cd targetX
+  ;; @fields pbullet f32 PB_STRIDE: x y vx vy life active
+  ;; @fields ebullet f32 EB_STRIDE: x y vx vy life active
   ;; ===================================================
 
   (global $PLAYER_OFF i32 (i32.const 0))
