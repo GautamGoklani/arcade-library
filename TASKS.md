@@ -51,7 +51,6 @@ see. It cannot test *feel*, which is what is still missing.
 | `asteroid-miner` | Everything past the first few seconds | Medium |
 | all nine | **Every record read in every widget** now goes through a `FIELD` table instead of a bare offset. The layout check and `node --check` pass, but the rewritten widgets have not been loaded in a browser | Low — the check pins every index; a typo would be a thrown ReferenceError on the first frame, not a wrong picture |
 | all nine | Touch controls on an actual device | Every touch scheme here is reasoned about, not tested |
-| CI | `.github/workflows/check.yml` has been written and its steps run locally, but it has **not run on GitHub yet** — nothing has been pushed since it was added | Low — the first push will say |
 
 **How to do this:** `npm run serve`, open each game, play for two minutes. It is
 still the cheapest high-value work outstanding.
