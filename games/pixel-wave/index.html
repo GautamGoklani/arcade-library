@@ -63,7 +63,11 @@ body {
 <script src="../../hiscores.js"></script>
 <script>
   var game = PixelWave.mount('#game');
-  if (window.ArcadeScores) ArcadeScores.watch('pixel-wave', game);
+  // One best per difficulty. Normal keeps the plain slug, so a best set before
+  // difficulty existed is still Normal's, and the hub card goes on showing it.
+  if (window.ArcadeScores) ArcadeScores.watch(function (st) {
+    return st.difficulty && st.difficulty !== 'normal' ? 'pixel-wave:' + st.difficulty : 'pixel-wave';
+  }, game);
 </script>
 
 </body>

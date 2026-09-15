@@ -54,7 +54,7 @@ your container, sizes itself to the container's width, and starts.
 const game = PixelWave.mount(containerOrSelector, options?);
 
 game.restart();    // fresh run
-game.getState();   // { score, lives, level, enemiesAlive, gameOver, paused }
+game.getState();   // { score, lives, level, enemiesAlive, gameOver, paused, difficulty }
 game.destroy();    // stop the loop, remove DOM and every listener
 ```
 
@@ -62,6 +62,7 @@ game.destroy();    // stop the loop, remove DOM and every listener
 |---|---|
 | `wasmUrl` | Load the engine from a `.wasm` URL instead of the embedded copy. Smaller JS, but the server must send `Content-Type: application/wasm` |
 | `wasmBase64` | Supply your own base64 engine build |
+| `difficulty` | `'easy'`, `'normal'` (the default) or `'hard'` for the first run; the HUD button changes it after that |
 
 Multiple instances on one page are independent — each `mount()` gets its own
 wasm instance, and therefore its own memory and globals.
@@ -78,6 +79,7 @@ wasm instance, and therefore its own memory and globals.
 | Pause | `P` or `Esc`; leaving the tab pauses too | the PAUSE button; tap the arena to resume |
 | Restart | `R` | tap GAME OVER |
 | Mute | `M` | the SOUND button |
+| Difficulty | the EASY / NORMAL / HARD button; changing it starts a fresh run | the same button |
 
 Touch controls appear on coarse-pointer devices and support multi-touch.
 
@@ -98,17 +100,19 @@ it that way.
 - Colliding with an enemy destroys both: **one life, no score**. Shoot, don't ram.
 - Asteroids fall from the top. They damage **you** and not the swarm, and can be
   shot for score.
-- **Levels 1–30:** each cleared wave adds one enemy — 2 at level 1, capped at 24.
-  Enemy stats stay flat; the pressure is numbers.
+- **Levels 1–30:** each cleared wave adds one enemy — on Normal, 2 at level 1,
+  capped at 24. Enemy stats stay flat; the pressure is numbers.
 - **Level 31+:** the count holds and the stat ramps start — faster movement,
   shorter cooldowns, more asteroids.
-- **5 lives. Infinite levels.** Score = enemies + asteroids destroyed.
+- **5 lives on Normal** (7 on Easy, 3 on Hard). **Infinite levels.** Score =
+  enemies + asteroids destroyed. See [Difficulty](#difficulty-september-2026)
+  for what else each setting changes.
 
 ---
 
 ## Engine
 
-~700 lines of hand-written WAT, 3.8 KB compiled, zero dependencies, zero runtime
+~800 lines of hand-written WAT, 4.3 KB compiled, zero dependencies, zero runtime
 network requests.
 
 ### Memory layout
@@ -125,8 +129,10 @@ network requests.
 5,672 bytes total — 8.7% of the single 64 KiB page the module declares. It never
 grows.
 
-**If you change this layout in `game.wat`, update the matching constants at the
-top of `pixel-wave.js`.** Nothing links the two and nothing will fail to build.
+**If you change this layout in `game.wat`, update the matching constants and
+the `FIELD` table at the top of `pixel-wave.js`.** Nothing links the two at
+build time, but `npm run check` fails if an offset, a stride, or the position of
+a field inside a record disagrees.
 
 ### Exports
 
@@ -134,6 +140,7 @@ top of `pixel-wave.js`.** Nothing links the two and nothing will fail to build.
 memory · init() · set_input(rot: f32, thrust: i32, fire: i32) · step(dt: f32)
 get_score() · get_lives() · get_level() · is_game_over() · bots_alive_count()
 get_shots() · get_enemy_shots() · get_kills() · get_rocks() · get_hurts() · get_waves()
+set_difficulty(d: i32) · get_difficulty()
 ```
 
 The last six are **event counters**: integers that only ever go up, one per
@@ -198,12 +205,11 @@ must be the same length.
 |---|---|---|
 | `$MAX_SPEED` | Player top speed | 270 |
 | `$PLAYER_FIRE_CD` | Seconds between player shots | 0.14 |
-| `$BOT_SPEED_BASE` | Enemy speed before the level-30 ramps | 50 |
+| `$apply_difficulty` | Everything that differs by setting: lives, enemy speed and fire, wave size, asteroids | see [Difficulty](#difficulty-september-2026) |
 | `$WORLD_W` / `$WORLD_H` | Arena size | 1200 × 750 |
 | `$MID_Y` | Lower edge of the swarm's patrol | 375 |
 | `$ROT_SPEED` | Turn rate, **radians/sec** | 2.5 |
 | `$BURST_SIZE` / `$BURST_GAP` / `$BURST_RECOVER` | Burst fire | 3 / 0.09 s / 0.35 s |
-| lives (in `$init`) | Starting lives | 5.0 |
 
 Then rebuild from the repository root:
 
@@ -212,6 +218,72 @@ npm install
 npm run build:pixel-wave    # game.wat → game.wasm, re-embedded into the .js
 npm run check               # verify the binary matches its source
 ```
+
+---
+
+## Difficulty, September 2026
+
+Three settings, picked with the HUD button or `mount(el, { difficulty: 'hard' })`.
+The table lives in the engine: `set_difficulty(d)` records the choice (0 easy,
+1 normal, 2 hard) and `init()` applies it, so a setting never changes halfway
+through a run. The widget only remembers which setting was asked for, and
+changing it starts a fresh run.
+
+| | Easy | Normal | Hard |
+|---|---|---|---|
+| Starting lives | 7 | 5 | 3 |
+| A wave's first shot | 4.0–7.0 s | 1.5–4.0 s | 1.5–4.0 s |
+| Enemy fire cooldown | 5.5–9.0 s | 4.2–7.0 s | 3.0–5.5 s |
+| Enemy bullet speed | 200 | 280 | 280 |
+| Enemy speed: base / per level after 30 / cap | 42 / 4 / 160 | 50 / 5 / 190 | 60 / 8 / 230 |
+| Wave size | 1 + level, cap 20 | 1 + level, cap 24 | 3 + level, cap 33 |
+| Asteroid gap | 5.5–8.5 s | 4.5–7.0 s | 3.0–5.0 s |
+| Asteroid fall, per level after 30 | 60–100, +3 | 70–115, +4 | 90–150, +6 |
+
+**Normal is the August balance, exactly.** Identical input replayed through the
+previous engine and this one gave byte-identical linear memory on every frame:
+across three ordinary runs, and across a run held at five lives that reached
+level 40, where the late ramps are read.
+
+**Hard is the balance from before the August easing** (the *Was* column below),
+with today's controls. The 241°/s turn rate and hold-to-stream fire were
+unplayable rather than hard, so no setting brings them back.
+
+**Easy was tuned by measurement, and the first version did nothing useful.** It
+only lengthened the enemy fire cooldowns, and benches at 5.5–9 s and at 7–11 s
+came out identical to the last death. A bot's *first* shot is timed when its wave
+spawns, and a player who clears a wave in a few seconds rarely lets any bot fire
+twice. So before level 30, most of the fire anyone faces is each wave's opening
+volley, which the cooldowns never touched. Delaying that volley is what moved
+the numbers:
+
+| Easy's first shot | Bad pilot's median run | Median level |
+|---|---|---|
+| 1.5–4.0 s (Normal's) | 25 s | 7 |
+| 3.0–6.0 s | 38 s | 9 |
+| **4.0–7.0 s** | **49 s** | **10** |
+
+Slower enemy bullets barely registered: 4.0–7.0 s with bullets at 280 also
+lasted 49 s, because the bench pilot never dodges. Easy keeps 200 for the players
+who do.
+
+The settings as shipped, 16 runs each with a pilot that aims loosely at the
+nearest enemy, fires on a fixed rhythm and never dodges:
+
+| | Survived: worst / median / best | Median level | Runs reaching level 3 |
+|---|---|---|---|
+| Easy | 36 / 49 / 72 s | 10 | 16 of 16 |
+| Normal | 13 / 19 / 28 s | 5 | 16 of 16 |
+| Hard | 7 / 12 / 22 s | 3 | 10 of 16 |
+
+Easy's worst run outlasts Normal's best, and no Easy run hit the 10-minute cap:
+easier, still losable. On every setting nearly every life went to enemy bullets
+(74 of 80 on Normal), not to asteroids or ramming.
+
+**Best scores are kept per setting.** The page shell records Normal under the
+same key as before, so a best set before difficulty existed is still Normal's,
+and the hub card keeps showing it. Easy and Hard get `pixel-wave:easy` and
+`pixel-wave:hard`.
 
 ---
 
@@ -236,9 +308,10 @@ Measured with the same scripted pilot before and after: died at 32.2 s with
 score 34 on level 6 → died at 76.8 s with score 104 on level 13. Still losable —
 the aim was approachable, not trivial.
 
-**`index.html` still embeds the original, harder engine.** The build script only
-re-embeds `pixel-wave.js`, which makes the standalone build a working record of
-the original balance. That is deliberate; leave it.
+**The *Was* column is the only record of the original balance.** `index.html`
+used to embed its own copy of the old engine, which made it a working record of
+the harder game, but it now links `pixel-wave.js` like every other page shell,
+so that copy is gone.
 
 ---
 

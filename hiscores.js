@@ -27,7 +27,9 @@
  *   of the repository — which the READMEs say you can — costs you the best
  *   score and nothing else.
  *
- * Scores live under `arcade-library:best:<slug>` as `{ score, date }`. Only a
+ * Scores live under `arcade-library:best:<key>` as `{ score, date }`. The key is
+ * the game's slug, or whatever a page shell's watch() function picks from the
+ * finished run: Pixel Wave files a Hard run under `pixel-wave:hard`. Only a
  * finished run is recorded: restarting mid-run does not bank the score, which
  * is what an arcade cabinet does too.
  *
@@ -82,6 +84,11 @@
    * Watch a mounted widget and record its score whenever a run ends. Returns a
    * function that stops watching. `onBest(score)` is called on a new best, if
    * given.
+   *
+   * `slug` may also be a function of the finished run's getState(), returning
+   * the key to record under. That is how a title with difficulty settings keeps
+   * one best per setting while this file still knows nothing about difficulty:
+   * the page shell decides what a key means, and this only stores it.
    */
   function watch(slug, game, onBest) {
     if (!game || typeof game.getState !== 'function') return function () {};
@@ -91,8 +98,14 @@
       try { st = game.getState(); } catch (e) { return; }
       if (!st) return;                 // engine still loading
       var over = !!st.gameOver;
-      if (over && !wasOver && record(slug, st.score) && onBest) {
-        try { onBest(Math.floor(st.score)); } catch (e) {}
+      if (over && !wasOver) {
+        var key = slug;
+        if (typeof slug === 'function') {
+          try { key = slug(st); } catch (e) { key = null; }
+        }
+        if (key && record(key, st.score) && onBest) {
+          try { onBest(Math.floor(st.score)); } catch (e) {}
+        }
       }
       wasOver = over;
     }, POLL_MS);

@@ -274,6 +274,13 @@ That is the version to write if you ever want deterministic replay, which
 tool available for a simulation. No engine here does, and it is the one
 design choice in them I would change.
 
+Pixel Wave has since gained a second global that `init` reads and never resets,
+for the same reason: `$difficulty`. The widget calls `set_difficulty(d)` and
+then `init()`, and `init` copies that setting's row of tuning values into the
+globals `step` reads. The choice has to survive the restart it is made for, so
+it stays out of the reset list, and the tuning it selects is re-applied in full
+every time, so an Easy run followed by a Normal one cannot keep any of Easy.
+
 ---
 
 ## Instance isolation

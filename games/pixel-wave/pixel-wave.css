@@ -204,9 +204,9 @@
   cursor: pointer;
 }
 .ss-mute:hover { background: rgba(51, 255, 102, 0.15); }
-/* Borrows SOUND's look and sits beside it. Touch has no P key, so on a phone
-   this button is the only way to pause. */
-.ss-pause { margin-left: 8px; }
+/* PAUSE and the difficulty button borrow SOUND's look and sit beside it. Touch
+   has no P key, so on a phone PAUSE is the only way to pause. */
+.ss-pause, .ss-diff { margin-left: 8px; }
 
 .ss-overlay {
   /* The stage sets line-height: 0 to kill the inline gap under the canvas, and

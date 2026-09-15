@@ -357,6 +357,12 @@ parameter so the host can choose:</p>
 <a href="13-debugging-and-profiling.html">chapter 13</a> argues is the strongest debugging
 tool available for a simulation. No engine here does, and it is the one
 design choice in them I would change.</p>
+<p>Pixel Wave has since gained a second global that <code>init</code> reads and never resets,
+for the same reason: <code>$difficulty</code>. The widget calls <code>set_difficulty(d)</code> and
+then <code>init()</code>, and <code>init</code> copies that setting&#39;s row of tuning values into the
+globals <code>step</code> reads. The choice has to survive the restart it is made for, so
+it stays out of the reset list, and the tuning it selects is re-applied in full
+every time, so an Easy run followed by a Normal one cannot keep any of Easy.</p>
 <hr>
 <h2>Instance isolation</h2>
 <p>Each <code>WebAssembly.Instance</code> gets its <strong>own</strong> globals and its <strong>own</strong> memory,

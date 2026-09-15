@@ -51,13 +51,13 @@
   (global $PLAYER_BULLET_SPEED f32 (f32.const 620.0))
   ;; ---- difficulty tuning, 2026-08 ---------------------------------------
   ;; Eased so a first-time visitor gets past the opening levels. Original values
-  ;; are noted per line; the untouched engine is still embedded in
-  ;; pixel-wave-standalone.html if the old balance is ever wanted back.
+  ;; are noted per line and tabulated under "Difficulty tuning" in README.md.
+  ;; Outside git history no copy of the old engine survives, so those notes are
+  ;; the record.
   (global $PLAYER_FIRE_CD f32 (f32.const 0.14))   ;; was 0.2
   (global $SHIP_R f32 (f32.const 19.0))
   (global $BOT_R f32 (f32.const 18.0))
   (global $BULLET_HIT_R f32 (f32.const 18.0))
-  (global $BOT_SPEED_BASE f32 (f32.const 50.0))   ;; was 60
 
   (global $rng (mut i32) (i32.const 88172645))
   (global $level (mut i32) (i32.const 1))
@@ -67,6 +67,73 @@
   (global $playerCooldown (mut f32) (f32.const 0.0))
   (global $gameOver (mut i32) (i32.const 0))
   (global $astTimer (mut f32) (f32.const 2.0))
+
+  ;; ---- difficulty ---------------------------------------------------------
+  ;; Easy / Normal / Hard. The widget calls set_difficulty(d) and then init();
+  ;; init() copies one column of this table into the globals below, and step()
+  ;; and the spawners read only the globals.
+  ;;
+  ;;                         easy      normal     hard
+  ;;   starting lives          7          5          3
+  ;;   enemy speed base       42         50         60
+  ;;   ... per level 31+       4          5          8
+  ;;   ... cap               160        190        230
+  ;;   enemy fire cooldown  5.5-9.0    4.2-7.0    3.0-5.5 s
+  ;;   enemy bullet speed    200        280        280 px/s
+  ;;   a wave's first shot  4.0-7.0    1.5-4.0    1.5-4.0 s after it spawns
+  ;;   wave size            1+level    1+level    3+level
+  ;;   ... cap                20         24         33
+  ;;   asteroid gap         5.5-8.5    4.5-7.0    3.0-5.0 s
+  ;;   asteroid fall        60-100     70-115     90-150
+  ;;   ... per level 31+       3          4          6
+  ;;
+  ;; Three things about it are deliberate.
+  ;;
+  ;; **Normal is the August 2026 balance to the bit.** Every expression that
+  ;; used a literal now reads the same f32 from a global, so a Normal run
+  ;; replays the old engine exactly. That was checked by replaying identical
+  ;; input through the old binary and this one and comparing linear memory
+  ;; every frame, including a run held at five lives that reached level 40,
+  ;; where the late ramps are read.
+  ;;
+  ;; **Hard is the balance from before the August easing** — the "Was" column
+  ;; in README.md. It restores the numbers, not the controls: the 241°/s turn
+  ;; rate and hold-to-stream fire were unplayable rather than hard, so every
+  ;; setting keeps today's. The fire-rate and asteroid floors after level 30
+  ;; stay shared too; the old ones let a level-60 swarm fire almost
+  ;; continuously, which is a pathology, not a harder game.
+  ;;
+  ;; **Easy is mostly a later first shot.** The first Easy only lengthened the
+  ;; cooldowns, and benches at 5.5-9 s and at 7-11 s came out identical to the
+  ;; last death. A bot's first shot is timed when its wave spawns, and a pilot
+  ;; who clears a wave in seconds rarely lets any bot fire twice, so before
+  ;; level 30 the opening volley is most of the fire there is. Moving it from
+  ;; 1.5-4.0 s to 4.0-7.0 s took a bad pilot's median run from 25 s to 49 s
+  ;; (Normal: 19 s), and Easy's worst run of 16 outlasted Normal's best.
+  ;; Slower bullets barely showed, because that pilot never dodges; Easy keeps
+  ;; them for the players who do.
+  ;;
+  ;; **$difficulty is not reset by init.** It is a choice about the next run,
+  ;; so a restart has to carry it, not wipe it — the same reasoning chapter 8
+  ;; gives for $rng. A change mid-run takes effect at the next init(), never
+  ;; halfway through a wave.
+  (global $difficulty (mut i32) (i32.const 1))   ;; 0 easy, 1 normal, 2 hard
+  (global $livesStart (mut f32) (f32.const 5.0))
+  (global $botSpeedBase (mut f32) (f32.const 50.0))
+  (global $botSpeedRamp (mut f32) (f32.const 5.0))
+  (global $botSpeedCap (mut f32) (f32.const 190.0))
+  (global $fireCdMin (mut f32) (f32.const 4.2))
+  (global $fireCdMax (mut f32) (f32.const 7.0))
+  (global $waveBase (mut i32) (i32.const 1))
+  (global $waveCap (mut i32) (i32.const 24))
+  (global $astGapMin (mut f32) (f32.const 4.5))
+  (global $astGapMax (mut f32) (f32.const 7.0))
+  (global $astFallMin (mut f32) (f32.const 70.0))
+  (global $astFallMax (mut f32) (f32.const 115.0))
+  (global $astFallRamp (mut f32) (f32.const 4.0))
+  (global $enemyBulletSpeed (mut f32) (f32.const 280.0))
+  (global $openCdMin (mut f32) (f32.const 1.5))
+  (global $openCdMax (mut f32) (f32.const 4.0))
 
   ;; ---- burst fire ---------------------------------------------------------
   ;; Holding Space used to stream bullets for as long as it was down. One press
@@ -166,8 +233,8 @@
             (f32.store offset=0 (local.get $a) (call $frand (f32.const 24.0) (f32.sub (global.get $WORLD_W) (f32.const 24.0))))
             (f32.store offset=4 (local.get $a) (f32.const -30.0))
             (f32.store offset=8 (local.get $a) (call $frand (f32.const -45.0) (f32.const 45.0)))
-            ;; fall speed, was 90–150 with a +6/level ramp
-            (f32.store offset=12 (local.get $a) (f32.add (call $frand (f32.const 70.0) (f32.const 115.0)) (f32.mul (call $ramp_f) (f32.const 4.0))))
+            ;; fall speed and its ramp come from the difficulty table
+            (f32.store offset=12 (local.get $a) (f32.add (call $frand (global.get $astFallMin) (global.get $astFallMax)) (f32.mul (call $ramp_f) (global.get $astFallRamp))))
             (f32.store offset=16 (local.get $a) (call $frand (f32.const 16.0) (f32.const 34.0)))
             (f32.store offset=20 (local.get $a) (f32.const 1.0))
             (br $done)))
@@ -189,7 +256,9 @@
             (f32.store offset=8 (local.get $a) (f32.const 0.0))
             (f32.store offset=12 (local.get $a) (f32.const 0.0))
             (f32.store offset=20 (local.get $a) (f32.const 1.0))
-            (f32.store offset=24 (local.get $a) (call $frand (f32.const 1.5) (f32.const 4.0)))
+            ;; first-shot delay, from the difficulty table: until level 30 this
+            ;; opening volley is most of the fire the player ever faces
+            (f32.store offset=24 (local.get $a) (call $frand (global.get $openCdMin) (global.get $openCdMax)))
             (f32.store offset=28 (local.get $a) (f32.const 0.0))
             (f32.store offset=32 (local.get $a) (call $frand (f32.const 34.0) (f32.sub (global.get $WORLD_W) (f32.const 34.0))))
             (f32.store offset=36 (local.get $a) (call $frand (f32.const 34.0) (f32.sub (global.get $MID_Y) (f32.const 34.0)))))
@@ -215,17 +284,81 @@
   ;; gentler slope keeps the same shape — pure numbers until the cap, then the
   ;; stat ramps below take over — while giving a new player a level 1 they can
   ;; actually read. The pool is still 33 wide; only the wave is smaller.
+  ;; Those are Normal's numbers; the base and cap now come from the difficulty
+  ;; table, and Hard's 3 + level capped at 33 is the old formula.
   (func $wave_size (result i32)
     (local $n i32)
-    (local.set $n (i32.add (i32.const 1) (global.get $level)))
-    (if (i32.gt_s (local.get $n) (i32.const 24)) (then (local.set $n (i32.const 24))))
+    (local.set $n (i32.add (global.get $waveBase) (global.get $level)))
+    (if (i32.gt_s (local.get $n) (global.get $waveCap)) (then (local.set $n (global.get $waveCap))))
     (if (i32.gt_s (local.get $n) (global.get $MAX_BOTS)) (then (local.set $n (global.get $MAX_BOTS))))
     (local.get $n))
+
+  ;; Copy one column of the difficulty table into the globals step() reads.
+  ;; Called only from init, so balance never changes halfway through a run.
+  ;; Normal restates the initialisers, because a restart after an Easy or Hard
+  ;; run has to put them back.
+  (func $apply_difficulty
+    (if (i32.eqz (global.get $difficulty))
+      (then   ;; easy
+        (global.set $livesStart (f32.const 7.0))
+        (global.set $botSpeedBase (f32.const 42.0))
+        (global.set $botSpeedRamp (f32.const 4.0))
+        (global.set $botSpeedCap (f32.const 160.0))
+        (global.set $fireCdMin (f32.const 5.5))
+        (global.set $fireCdMax (f32.const 9.0))
+        (global.set $enemyBulletSpeed (f32.const 200.0))
+        (global.set $openCdMin (f32.const 4.0))
+        (global.set $openCdMax (f32.const 7.0))
+        (global.set $waveBase (i32.const 1))
+        (global.set $waveCap (i32.const 20))
+        (global.set $astGapMin (f32.const 5.5))
+        (global.set $astGapMax (f32.const 8.5))
+        (global.set $astFallMin (f32.const 60.0))
+        (global.set $astFallMax (f32.const 100.0))
+        (global.set $astFallRamp (f32.const 3.0)))
+      (else
+        (if (i32.eq (global.get $difficulty) (i32.const 2))
+          (then   ;; hard
+            (global.set $livesStart (f32.const 3.0))
+            (global.set $botSpeedBase (f32.const 60.0))
+            (global.set $botSpeedRamp (f32.const 8.0))
+            (global.set $botSpeedCap (f32.const 230.0))
+            (global.set $fireCdMin (f32.const 3.0))
+            (global.set $fireCdMax (f32.const 5.5))
+            (global.set $enemyBulletSpeed (f32.const 280.0))
+            (global.set $openCdMin (f32.const 1.5))
+            (global.set $openCdMax (f32.const 4.0))
+            (global.set $waveBase (i32.const 3))
+            (global.set $waveCap (i32.const 33))
+            (global.set $astGapMin (f32.const 3.0))
+            (global.set $astGapMax (f32.const 5.0))
+            (global.set $astFallMin (f32.const 90.0))
+            (global.set $astFallMax (f32.const 150.0))
+            (global.set $astFallRamp (f32.const 6.0)))
+          (else   ;; normal
+            (global.set $livesStart (f32.const 5.0))
+            (global.set $botSpeedBase (f32.const 50.0))
+            (global.set $botSpeedRamp (f32.const 5.0))
+            (global.set $botSpeedCap (f32.const 190.0))
+            (global.set $fireCdMin (f32.const 4.2))
+            (global.set $fireCdMax (f32.const 7.0))
+            (global.set $enemyBulletSpeed (f32.const 280.0))
+            (global.set $openCdMin (f32.const 1.5))
+            (global.set $openCdMax (f32.const 4.0))
+            (global.set $waveBase (i32.const 1))
+            (global.set $waveCap (i32.const 24))
+            (global.set $astGapMin (f32.const 4.5))
+            (global.set $astGapMax (f32.const 7.0))
+            (global.set $astFallMin (f32.const 70.0))
+            (global.set $astFallMax (f32.const 115.0))
+            (global.set $astFallRamp (f32.const 4.0)))))))
 
   ;; ---------------- init / input / queries ----------------
 
   (func $init (export "init")
     (local $i i32)
+    ;; first, because the lives and the opening wave below depend on it
+    (call $apply_difficulty)
     (global.set $level (i32.const 1))
     (global.set $gameOver (i32.const 0))
     (global.set $playerCooldown (f32.const 0.0))
@@ -253,7 +386,7 @@
     (f32.store offset=20 (i32.const 0) (f32.const 1.0))
 
     (f32.store (global.get $SCORE_OFF) (f32.const 0.0))
-    (f32.store (global.get $LIVES_OFF) (f32.const 5.0))   ;; was 3.0
+    (f32.store (global.get $LIVES_OFF) (global.get $livesStart))
 
     (call $spawn_wave (call $wave_size))
 
@@ -288,6 +421,15 @@
   (func $get_rocks (export "get_rocks") (result i32) (global.get $rocks))
   (func $get_hurts (export "get_hurts") (result i32) (global.get $hurts))
   (func $get_waves (export "get_waves") (result i32) (global.get $waves))
+
+  ;; 0 easy, 1 normal, 2 hard. Out-of-range values are clamped rather than
+  ;; trusted, and a JavaScript call with no argument arrives as 0, so it clamps
+  ;; to Easy, not to garbage. Takes effect at the next init().
+  (func $set_difficulty (export "set_difficulty") (param $d i32)
+    (if (i32.lt_s (local.get $d) (i32.const 0)) (then (local.set $d (i32.const 0))))
+    (if (i32.gt_s (local.get $d) (i32.const 2)) (then (local.set $d (i32.const 2))))
+    (global.set $difficulty (local.get $d)))
+  (func $get_difficulty (export "get_difficulty") (result i32) (global.get $difficulty))
 
   ;; ---------------- main step ----------------
 
@@ -381,13 +523,14 @@
 
     ;; ===== difficulty: flat until level 30, then stat ramps =====
     (local.set $ramp (call $ramp_f))
-    ;; ramp softened: +5/level was +8, and the fire-rate floors were 0.5/1.2 —
-    ;; low enough that a level-60 swarm fired almost continuously
-    (local.set $botSpeed (f32.add (global.get $BOT_SPEED_BASE) (f32.mul (local.get $ramp) (f32.const 5.0))))
-    (if (f32.gt (local.get $botSpeed) (f32.const 190.0)) (then (local.set $botSpeed (f32.const 190.0))))   ;; was 230
-    (local.set $cdMin (f32.sub (f32.const 4.2) (f32.mul (local.get $ramp) (f32.const 0.2))))               ;; was 3.0
+    ;; Bases, ramps and caps come from the difficulty table. The cooldown slopes
+    ;; and floors stay literal and shared: the old floors were 0.5/1.2, low
+    ;; enough that a level-60 swarm fired almost continuously on any setting.
+    (local.set $botSpeed (f32.add (global.get $botSpeedBase) (f32.mul (local.get $ramp) (global.get $botSpeedRamp))))
+    (if (f32.gt (local.get $botSpeed) (global.get $botSpeedCap)) (then (local.set $botSpeed (global.get $botSpeedCap))))
+    (local.set $cdMin (f32.sub (global.get $fireCdMin) (f32.mul (local.get $ramp) (f32.const 0.2))))
     (if (f32.lt (local.get $cdMin) (f32.const 1.2)) (then (local.set $cdMin (f32.const 1.2))))
-    (local.set $cdMax (f32.sub (f32.const 7.0) (f32.mul (local.get $ramp) (f32.const 0.28))))              ;; was 5.5
+    (local.set $cdMax (f32.sub (global.get $fireCdMax) (f32.mul (local.get $ramp) (f32.const 0.28))))
     (if (f32.lt (local.get $cdMax) (f32.const 2.0)) (then (local.set $cdMax (f32.const 2.0))))
 
     ;; ===== bots: random wander + occasional aimed fire =====
@@ -443,8 +586,8 @@
                 (if (f32.gt (local.get $dist) (f32.const 0.001))
                   (then
                     (call $spawn_bullet (i32.const 1) (local.get $bx) (local.get $by)
-                      (f32.mul (f32.div (local.get $dx) (local.get $dist)) (f32.const 280.0))
-                      (f32.mul (f32.div (local.get $dy) (local.get $dist)) (f32.const 280.0)))
+                      (f32.mul (f32.div (local.get $dx) (local.get $dist)) (global.get $enemyBulletSpeed))
+                      (f32.mul (f32.div (local.get $dy) (local.get $dist)) (global.get $enemyBulletSpeed)))
                     (global.set $enemyShots (i32.add (global.get $enemyShots) (i32.const 1)))))
                 (local.set $bcd (call $frand (local.get $cdMin) (local.get $cdMax)))))
 
@@ -460,10 +603,11 @@
         (br $lp)))
 
     ;; ===== asteroids: spawn timer (flat until 30, faster after) =====
-    ;; asteroids arrive less often, was 3.0–5.0 with floors of 0.7/1.4
-    (local.set $astIntMin (f32.sub (f32.const 4.5) (f32.mul (local.get $ramp) (f32.const 0.18))))
+    ;; the gap comes from the difficulty table; the slopes and floors are shared
+    ;; (the old floors were 0.7/1.4)
+    (local.set $astIntMin (f32.sub (global.get $astGapMin) (f32.mul (local.get $ramp) (f32.const 0.18))))
     (if (f32.lt (local.get $astIntMin) (f32.const 1.5)) (then (local.set $astIntMin (f32.const 1.5))))
-    (local.set $astIntMax (f32.sub (f32.const 7.0) (f32.mul (local.get $ramp) (f32.const 0.24))))
+    (local.set $astIntMax (f32.sub (global.get $astGapMax) (f32.mul (local.get $ramp) (f32.const 0.24))))
     (if (f32.lt (local.get $astIntMax) (f32.const 2.5)) (then (local.set $astIntMax (f32.const 2.5))))
 
     (global.set $astTimer (f32.sub (global.get $astTimer) (local.get $dt)))

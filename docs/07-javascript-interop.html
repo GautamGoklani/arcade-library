@@ -392,7 +392,7 @@ title here now carries its own renderer.</p>
 a <code>mount()</code> API. Every game here works this way. Pixel Wave, for instance:</p>
 <pre><code class="language-js">const game = PixelWave.mount(&#39;#container&#39;);
 game.restart();
-game.getState();     // { score, lives, level, enemiesAlive, gameOver, paused }
+game.getState();     // { score, lives, level, enemiesAlive, gameOver, paused, difficulty }
 game.destroy();
 </code></pre>
 <p>No offsets escape the package, integration is two files and one line, and
