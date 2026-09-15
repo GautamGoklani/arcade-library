@@ -39,6 +39,7 @@ see. It cannot test *feel*, which is what is still missing.
 |---|---|---|
 | `pulse` | **The soundtrack.** Every note is synthesised and has only ever been read, not heard. The whole title turns on whether the beat is findable by ear | High — it is the one thing the design rests on |
 | `pixel-wave` | **All of its sound**, which is new: shot, enemy fire, kill, asteroid, hurt, wave cleared, game over, and the mute button | Medium — levels and the rate limit on enemy fire are guesses |
+| `pixel-wave` | **How pause looks and feels**: the PAUSED overlay, the PAUSE button beside SOUND, tap-to-resume on a phone. The behaviour was driven headlessly through the real widget with a stub DOM — engine memory byte-identical across 180 paused frames, and every way in and out of pause toggling correctly — but nobody has seen it on a screen | Low — no engine change |
 | `pixel-wave`, `grid-breaker`, `worm-chase` | **The retro retrofit.** Each was checked in the browser for a first few seconds of play; nobody has played one through at the new resolution. Rotated sprites in Pixel Wave now alias at 400×250, and Grid Breaker's 26px tile rows do not divide by three, so its rows come out 21 and 24 low-res pixels tall in turn | Low — worth a look, not a worry |
 | `grid-breaker` | The paddle, power-up and launch sounds, which existed for the title's whole life but were first played when the engine got event counters | Low |
 | hub | Best-score tags on the cards, and `hiscores.js` recording a finished run from each page shell. Exercised in a browser once, not across real play sessions | Low |
@@ -61,10 +62,10 @@ still the cheapest high-value work outstanding.
 
 ### Pixel Wave's own roadmap — *product decisions*
 
-Pause, power-ups, boss waves, per-species enemy behaviour, gamepad support,
+Power-ups, boss waves, per-species enemy behaviour, gamepad support,
 difficulty settings. Listed in full at the bottom of
-[`games/plans-for-other-games.md`](games/plans-for-other-games.md). Sound is
-done. Each of the rest changes what the game *is*, so they are for the owner to
+[`games/plans-for-other-games.md`](games/plans-for-other-games.md). Sound and
+pause are done. Each of the rest changes what the game *is*, so they are for the owner to
 choose between rather than for anyone to work through in order.
 
 ---

@@ -155,8 +155,8 @@ it is worth <em>keeping</em> even where a clock is available:</p>
 exact state at frame 180 (<a href="09-toolchain.html">chapter 9</a> has the tests).</li>
 <li><strong>Replay.</strong> A run is a function of the inputs and the <code>dt</code> sequence.</li>
 <li><strong>Slow motion, fast-forward, pause</strong> are all &quot;pass a different <code>dt</code>&quot;, or none.
-Pixel Wave&#39;s pause is <code>return</code> before <code>step</code>, and there is no pause code in the
-engine at all.</li>
+Pixel Wave&#39;s pause is its widget not calling <code>step</code>, and there is no pause code
+in the engine at all.</li>
 <li><strong>Portability.</strong> The engine does not care whether it is driven by
 <code>requestAnimationFrame</code>, a fixed-rate worker, or a headless test loop.</li>
 </ul>

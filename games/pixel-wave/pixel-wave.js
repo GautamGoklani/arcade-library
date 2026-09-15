@@ -321,11 +321,13 @@
         '<span>LEVEL <b class="ss-y" data-ss="level">1</b></span>' +
         '<span>ENEMIES <b data-ss="bots">0</b></span>' +
         '<button type="button" class="ss-mute" data-ss="mute">SOUND ON</button>' +
+        '<button type="button" class="ss-mute ss-pause" data-ss="pause">PAUSE</button>' +
       '</div>' +
       '<div class="ss-stage">' +
         '<canvas class="ss-canvas" width="' + WORLD_W + '" height="' + WORLD_H + '"></canvas>' +
         '<div class="ss-scan" aria-hidden="true"></div>' +
         '<div class="ss-overlay ss-msg" data-ss="msg">GAME OVER<small data-ss="msgsmall">PRESS R TO RESTART</small></div>' +
+        '<div class="ss-overlay ss-msg ss-paused" data-ss="paused">PAUSED<small data-ss="pausedsmall">PRESS P TO RESUME</small></div>' +
         '<div class="ss-overlay ss-levelbanner" data-ss="banner">LEVEL 1</div>' +
         '<div class="ss-touch">' +
           // Left half is one big capture zone; the ring inside it re-anchors to
@@ -340,7 +342,7 @@
           '<div class="ss-btn ss-btn-fire" data-ss="btnF">FIRE</div>' +
         '</div>' +
       '</div>' +
-      '<div class="ss-help" data-ss="help">[W] THRUST &nbsp; [A]/[D] ROTATE &nbsp; [SPACE] FIRE &nbsp; [R] RESTART &nbsp; [M] MUTE</div>';
+      '<div class="ss-help" data-ss="help">[W] THRUST &nbsp; [A]/[D] ROTATE &nbsp; [SPACE] FIRE &nbsp; [P] PAUSE &nbsp; [R] RESTART &nbsp; [M] MUTE</div>';
     container.appendChild(root);
 
     var q = function (name) { return root.querySelector('[data-ss="' + name + '"]'); };
@@ -407,8 +409,9 @@
       root.classList.toggle('ss-is-touch', on);
       helpEl.textContent = on
         ? 'DRAG LEFT TO AIM \u2022 THRUST + FIRE RIGHT \u2022 TAP GAME OVER TO RESTART'
-        : '[W] THRUST \u00a0 [A]/[D] ROTATE \u00a0 [SPACE] FIRE \u00a0 [R] RESTART \u00a0 [M] MUTE';
+        : '[W] THRUST \u00a0 [A]/[D] ROTATE \u00a0 [SPACE] FIRE \u00a0 [P] PAUSE \u00a0 [R] RESTART \u00a0 [M] MUTE';
       q('msgsmall').textContent = on ? 'TAP TO RESTART' : 'PRESS R TO RESTART';
+      q('pausedsmall').textContent = on ? 'TAP TO RESUME' : 'PRESS P TO RESUME';
       // Switching away from touch has to drop anything the on-screen controls
       // were holding, or a hidden button stays latched on forever.
       if (!on) releaseAllPointers();
@@ -416,7 +419,7 @@
 
     // ---------- per-instance state ----------
     var wasm = null, f32 = null;
-    var running = false, destroyed = false;
+    var running = false, destroyed = false, paused = false;
     var tGlobal = 0;
     var input = { left: false, right: false, thrust: false, fire: false };
     // Thumbstick: `angle` is the heading being asked for in screen space, which
@@ -440,7 +443,7 @@
     // shortcut or assistive-tech keypress does not flip the mode.
     function isGameKey(k) {
       return k === 'a' || k === 'd' || k === 'w' || k === 'r' || k === 'R' || k === ' ' ||
-             k === 'm' || k === 'M' ||
+             k === 'm' || k === 'M' || k === 'p' || k === 'P' || k === 'Escape' ||
              k === 'ArrowLeft' || k === 'ArrowRight' || k === 'ArrowUp';
     }
     // Every key the game claims is also swallowed. Arrow keys and space scroll
@@ -456,6 +459,8 @@
       if (e.key === ' ') input.fire = true;
       if (e.key === 'r' || e.key === 'R') restart();
       if (e.key === 'm' || e.key === 'M') toggleMute();
+      // A held key auto-repeats, and a toggle on every repeat would flicker.
+      if ((e.key === 'p' || e.key === 'P' || e.key === 'Escape') && !e.repeat) setPaused(!paused);
       e.preventDefault();
     }
     function onKeyUp(e) {
@@ -475,7 +480,10 @@
     }
     global.addEventListener('keydown', onKeyDown);
     global.addEventListener('keyup', onKeyUp);
-    global.addEventListener('blur', releaseAll);
+    // Losing focus pauses as well: whoever alt-tabbed away was not planning to
+    // come back to a wave already in progress.
+    function onBlur() { releaseAll(); setPaused(true); }
+    global.addEventListener('blur', onBlur);
 
     function toggleMute() {
       muted = !muted;
@@ -483,6 +491,24 @@
       muteBtn.textContent = muted ? 'SOUND OFF' : 'SOUND ON';
     }
     muteBtn.addEventListener('click', function () { toggleMute(); muteBtn.blur(); });
+
+    // ---------- pause ----------
+    // Pause lives here and not in the engine, because it is a decision about the
+    // clock rather than about the game. The engine has no clock — it advances by
+    // whatever dt it is handed — so pausing is the loop no longer handing it one,
+    // which is the argument chapter 15 makes. The loop keeps drawing, so the
+    // frozen frame stays on screen.
+    var pausedEl = q('paused'), pauseBtn = q('pause');
+    function setPaused(on) {
+      if (on && !running) return;   // nothing to pause on the game-over screen
+      paused = on;
+      pausedEl.style.display = on ? 'block' : 'none';
+      pauseBtn.textContent = on ? 'RESUME' : 'PAUSE';
+      // Anything held when play stopped must not still be held when it resumes:
+      // the same latch releaseAll() exists to prevent on blur.
+      if (on) { releaseAll(); releaseAllPointers(); }
+    }
+    pauseBtn.addEventListener('click', function () { setPaused(!paused); pauseBtn.blur(); });
 
     // ---------- touch: one stick, two buttons ----------
     // Everything routes through a single set of listeners on the stage, keyed by
@@ -560,6 +586,13 @@
       if (msgEl.style.display === 'block' && msgEl.contains(e.target)) {
         e.preventDefault();
         restart();
+        return;
+      }
+      // Paused, any press on the arena resumes and does nothing else: a thumb
+      // that lands on the stick zone should not also start steering.
+      if (paused) {
+        e.preventDefault();
+        setPaused(false);
         return;
       }
       if (!touchMode) return;
@@ -809,6 +842,7 @@
       prevAstActive.fill(0);
       syncCounters();
       explosions.length = 0;
+      setPaused(false);
       running = true;
     }
 
@@ -818,9 +852,13 @@
       if (destroyed) return;
       var dt = Math.min((now - lastT) / 1000, 0.05);
       lastT = now;
+      // Paused stops the animation clock too, so explosions and sprite frames
+      // hold still with the world instead of playing on over it. lastT still
+      // advances, so the first frame back is one frame long, not the whole pause.
+      if (paused) dt = 0;
       tGlobal += dt;
 
-      if (running) {
+      if (running && !paused) {
         // set_input takes rotation as an f32 and the engine applies it as
         // `heading += rot * ROT_SPEED * dt`, so anything in [-1,1] is valid —
         // keys just happen to only ever ask for the extremes.
@@ -964,7 +1002,7 @@
         cancelAnimationFrame(rafId);
         global.removeEventListener('keydown', onKeyDown);
         global.removeEventListener('keyup', onKeyUp);
-        global.removeEventListener('blur', releaseAll);
+        global.removeEventListener('blur', onBlur);
         global.removeEventListener('pointermove', onPointerMove);
         global.removeEventListener('pointerup', onPointerUp);
         global.removeEventListener('pointercancel', onPointerUp);
@@ -978,7 +1016,8 @@
           lives: wasm.exports.get_lives(),
           level: wasm.exports.get_level(),
           enemiesAlive: wasm.exports.bots_alive_count(),
-          gameOver: !!wasm.exports.is_game_over()
+          gameOver: !!wasm.exports.is_game_over(),
+          paused: paused
         };
       }
     };

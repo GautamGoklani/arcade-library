@@ -204,6 +204,9 @@
   cursor: pointer;
 }
 .ss-mute:hover { background: rgba(51, 255, 102, 0.15); }
+/* Borrows SOUND's look and sits beside it. Touch has no P key, so on a phone
+   this button is the only way to pause. */
+.ss-pause { margin-left: 8px; }
 
 .ss-overlay {
   /* The stage sets line-height: 0 to kill the inline gap under the canvas, and
@@ -241,6 +244,13 @@
   color: #33ff66;
   margin-top: 14px;
   letter-spacing: 3px;
+}
+
+/* Same overlay as GAME OVER, in the level banner's yellow: this one is a
+   waiting state, not a loss, and it should not read as one. */
+.ss-paused {
+  color: #ffdd33;
+  text-shadow: 0 0 18px #ffdd33, 3px 3px 0 #664400;
 }
 
 .ss-levelbanner {

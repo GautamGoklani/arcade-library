@@ -304,7 +304,7 @@ a `mount()` API. Every game here works this way. Pixel Wave, for instance:
 ```js
 const game = PixelWave.mount('#container');
 game.restart();
-game.getState();     // { score, lives, level, enemiesAlive, gameOver }
+game.getState();     // { score, lives, level, enemiesAlive, gameOver, paused }
 game.destroy();
 ```
 

@@ -134,10 +134,13 @@ Pixel Wave (the first title) has its own planned evolution that the later games
 will inherit pieces of:
 
 - **Near term:** sound effects/music, high-score persistence, pause support,
-  power-ups, run-stats game-over screen. *Sound effects arrived in every title
-  from Grid Breaker onward except Pixel Wave itself, which still has none.
-  Music arrived in [Pulse](pulse/), by a route this list did not anticipate:
-  the engine sequences it.*
+  power-ups, run-stats game-over screen. *Sound effects arrived in Pixel Wave
+  last of all, once its engine gained event counters to play them from. Best
+  scores are kept by the hub's `hiscores.js` for every title rather than by
+  the game. Music arrived in [Pulse](pulse/), by a route this list did not
+  anticipate: the engine sequences it. Pause arrived in the widget rather than
+  the engine: [chapter 15](../docs/15-game-loop-architecture.md) had already
+  argued the engine has no clock to stop.*
 - **Medium term:** boss waves every 10 levels, distinct per-species enemy
   behaviour, screen shake/hit-stop, gamepad support, difficulty settings.
 - **Long term:** local co-op and online versus multiplayer (lockstep WASM), a

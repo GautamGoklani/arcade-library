@@ -54,7 +54,7 @@ your container, sizes itself to the container's width, and starts.
 const game = PixelWave.mount(containerOrSelector, options?);
 
 game.restart();    // fresh run
-game.getState();   // { score, lives, level, enemiesAlive, gameOver }
+game.getState();   // { score, lives, level, enemiesAlive, gameOver, paused }
 game.destroy();    // stop the loop, remove DOM and every listener
 ```
 
@@ -75,10 +75,18 @@ wasm instance, and therefore its own memory and globals.
 | Rotate | `A` / `D` or `←` / `→` | ◀ / ▶ |
 | Thrust | `W` or `↑` | THRUST |
 | Fire | `Space` — a **3-round burst** per press | FIRE |
+| Pause | `P` or `Esc`; leaving the tab pauses too | the PAUSE button; tap the arena to resume |
 | Restart | `R` | tap GAME OVER |
 | Mute | `M` | the SOUND button |
 
 Touch controls appear on coarse-pointer devices and support multi-touch.
+
+Pause is entirely the widget's. The engine has no clock of its own and advances
+by whatever `dt` it is handed, so pausing means the loop stops calling `step`
+and stops its animation clock, and goes on drawing the frozen memory. There is
+no pause code in `game.wat`, and the `.wasm` did not change when pause arrived.
+[Chapter 15](../../docs/15-game-loop-architecture.md) makes the case for keeping
+it that way.
 
 ---
 

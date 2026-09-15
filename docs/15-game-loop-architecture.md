@@ -52,8 +52,8 @@ it is worth *keeping* even where a clock is available:
   exact state at frame 180 ([chapter 9](09-toolchain.md) has the tests).
 - **Replay.** A run is a function of the inputs and the `dt` sequence.
 - **Slow motion, fast-forward, pause** are all "pass a different `dt`", or none.
-  Pixel Wave's pause is `return` before `step`, and there is no pause code in the
-  engine at all.
+  Pixel Wave's pause is its widget not calling `step`, and there is no pause code
+  in the engine at all.
 - **Portability.** The engine does not care whether it is driven by
   `requestAnimationFrame`, a fixed-rate worker, or a headless test loop.
 
