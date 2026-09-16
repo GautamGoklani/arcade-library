@@ -37,20 +37,60 @@ shared helper.
 **Pause and gamepad support are done everywhere**, all nine titles, each a
 hand-written copy of the same shape.
 
-| Title | Would take | What it involves |
-|---|---|---|
-| `grid-breaker` | Difficulty settings | Paddle width, ball speed, starting lives. It already has power-ups |
-| `worm-chase` | Difficulty settings | Chaser count and speed, hazard density |
-| `asteroid-miner` | Difficulty settings; a depot upgrade | Fuel burn and rock density; or spend cargo on hold size, fuel or hull |
-| `sector-defense` | Difficulty settings; a heavy attacker | Its intent lives per entity already, so a new kind is mostly a new column of constants |
-| `circuit-runner` | A gentler opening | Speed is its only difficulty curve, so "easier" means starting slower and ramping later, not a new mechanic |
-| `starfield-runner` | Difficulty settings | Graze band width and rock density. The band *is* the scoring rule, so widening it is the honest knob |
-| `tower-defense` | Difficulty settings; tower upgrades | Starting funds and wave strength; upgrading a tower in place rather than adding a fourth kind |
-| `pulse` | Difficulty settings | Tempo, and how full each bar is. The engine already owns the sequencer, so this is its table to extend |
+Each of Pixel Wave's three remaining ideas — difficulty settings, power-ups,
+boss waves — was asked of every title, and **not all of them fit**. A feature
+that would blunt what a game is about is listed as a no, with the reason, so
+nobody has to re-derive it later.
 
-Difficulty settings anywhere mean the same shape as Pixel Wave's: a tuning table
-the engine's `init()` applies, a re-bench of every setting with a pilot that
-plays badly, and one best score per setting.
+| Title | Difficulty settings | Power-ups | Boss waves | Its own idea |
+|---|---|---|---|---|
+| `pixel-wave` | **done** | yes | yes | — |
+| `grid-breaker` | yes | **has them** | yes | a tile that repairs its neighbours |
+| `worm-chase` | yes | yes | yes | a hunter that cuts your trail |
+| `asteroid-miner` | yes | yes | maybe | spend cargo at the depot |
+| `sector-defense` | yes | yes | yes | a carrier that lands attackers |
+| `circuit-runner` | a gentler opening | **has them** | no | a named stretch of board |
+| `starfield-runner` | yes | **no** | yes | a squeeze that scores double |
+| `tower-defense` | yes | as abilities | yes | upgrade a tower in place |
+| `pulse` | yes | **no** | yes | a second instrument line |
+
+**Difficulty settings** anywhere mean the same shape as Pixel Wave's: a tuning
+table the engine's `init()` applies, a re-bench of every setting with a pilot
+that plays badly, and one best score per setting. Per game: Grid Breaker is
+paddle width, ball speed and starting lives; Worm Chase is chaser count, speed
+and hazard density; Asteroid Miner is fuel burn, rock density and the quota;
+Sector Defense is descent rate, fire rate and which kinds arrive when;
+Starfield Runner is graze band width and rock density (the band *is* the scoring
+rule, so widening it is the honest knob); Tower Defense is starting scrap and
+wave strength; Pulse is the tempo floor and how full each bar is, which is the
+sequencer's own table to extend. **Circuit Runner is the exception**: speed is
+its only curve, so "easier" is starting slower and ramping later, not a setting
+with columns.
+
+**Power-ups.** Grid Breaker already has them (WIDE, MULTI, SLOW, STICKY) and
+Circuit Runner's charges and boosts are the same idea wearing its economy's
+clothes — both would take new *kinds*, not a new system. Worm Chase could drop a
+freeze or a burst of speed onto a claimed cell; Asteroid Miner could carry a
+magnet or a bigger drill home; Sector Defense could drop a shield module from a
+kill; Tower Defense's version is a bought one-shot ability rather than a pickup,
+since nothing there flies over the board to collect. **Two say no.** Starfield
+Runner's whole economy is that a close pass is the only score *and* the only
+repair — a pickup that also repairs cuts the spine out of it. Pulse pays for
+on-beat shots; a power-up that fires faster or harder is a way to stop listening,
+which is the one thing the game asks of you.
+
+**Boss waves.** The natural fits are the games with a wave structure already:
+Sector Defense (a carrier that lands attackers instead of walking in), Tower
+Defense (an armoured leader among the damper wave), Grid Breaker (an armoured
+tile that repairs its neighbours until you break it first), Worm Chase (a hunter
+chaser every few levels that cuts the trail rather than chasing the head), Pulse
+(a boss on the drop, killable only on the beat, which its bar already knows how
+to express). Starfield Runner's would be a leviathan to thread rather than a
+thing to shoot. **Circuit Runner is a no**: there is nothing to shoot and no
+waves — its equivalent is a named stretch of board, a gauntlet with a
+recognisable shape, which is the "its own idea" column instead. Asteroid Miner
+is a maybe: a rival miner working the same rocks is a better fit for it than a
+boss with a health bar, and that is closer to its depot idea than to a wave.
 
 ---
 
