@@ -170,6 +170,13 @@ region ends.
    `opts.wasmBase64` are supported everywhere. Include
    `var WASM_B64 = "";` — the builder fills it — and a `var FIELD` table copied
    from the `@fields` lines, and read every record field through it.
+   Two conventions every title now carries, copied by hand like the rest:
+   **pause** (`P`/`Esc`, a PAUSE button beside SOUND, a press on the stage to
+   resume, pausing on blur; the loop stops calling `step` and holds `dt` at
+   zero, and `getState()` reports `paused`) and **gamepad** (standard mapping,
+   polled once a frame because `getGamepads()` only refreshes when called;
+   `Start` pauses, `Back` restarts, a shoulder button mutes, and the steering
+   maps onto whatever that game's input already is).
 3. `games/<slug>/<slug>.css` — everything under `.<prefix>-root`.
 4. `index.html` (standalone page) and `demo.html` (minimal integration example).
    Copy an existing pair; the `--<prefix>-max-width` hook is how the standalone

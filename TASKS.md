@@ -29,16 +29,16 @@ choose between rather than for anyone to work through in order.
 
 ### Features the other eight could take — *product decisions*
 
-Two of Pixel Wave's additions are widget-only and would work in any title; the
-rest are ideas fitted to particular games. None of this is a defect — it is a
-menu, written down so the choice gets made once and on purpose. **Invariant 1
-means every row is per-game work**: each title gets its own hand-written copy,
-never a shared helper.
+Ideas fitted to particular games. None of this is a defect — it is a menu,
+written down so the choice gets made once and on purpose. **Invariant 1 means
+every row is per-game work**: each title gets its own hand-written copy, never a
+shared helper.
+
+**Pause and gamepad support are done everywhere**, all nine titles, each a
+hand-written copy of the same shape.
 
 | Title | Would take | What it involves |
 |---|---|---|
-| all eight | **Pause** | Widget-only. The engine has no clock to stop, so pausing is the loop not calling `step` — see [chapter 15](docs/15-game-loop-architecture.md). Pixel Wave has it |
-| all eight | **Gamepad** | Widget-only, standard mapping, polled once a frame. Pixel Wave has it |
 | `grid-breaker` | Difficulty settings | Paddle width, ball speed, starting lives. It already has power-ups |
 | `worm-chase` | Difficulty settings | Chaser count and speed, hazard density |
 | `asteroid-miner` | Difficulty settings; a depot upgrade | Fuel burn and rock density; or spend cargo on hold size, fuel or hull |
