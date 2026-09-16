@@ -96,6 +96,15 @@
   cursor: pointer;
 }
 .wc-mute:hover { background: rgba(94, 240, 138, 0.15); }
+/* PAUSE borrows SOUND's look and sits beside it. Touch has no P key, so on a
+   phone this button is the only way to pause. */
+.wc-pause { margin-left: 8px; }
+/* Same overlay as GAME OVER, in the HUD's green: pause is a waiting state, not
+   a loss, and it should not read as one. */
+.wc-paused {
+  color: #5ef08a;
+  text-shadow: 0 0 18px #5ef08a, 3px 3px 0 #06301a;
+}
 
 .wc-overlay {
   /* The stage sets line-height: 0 to kill the inline gap under the canvas, and

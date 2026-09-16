@@ -82,7 +82,7 @@ For plain integration you only need to copy **two files** into a site:
 var game = WormChase.mount(containerOrSelector, options?);
 
 game.restart();    // start a fresh run
-game.getState();   // { score, lives, level, owned, target, total, gameOver }
+game.getState();   // { score, lives, level, owned, target, total, gameOver, paused }
 game.destroy();    // stop the loop, remove DOM + all event listeners
 ```
 
@@ -101,8 +101,20 @@ Multiple instances on one page are supported — each `mount()` is independent.
 |---------|---------------------------|------------------------|
 | Move    | hold ← ↑ → ↓ or W A S D   | hold and drag anywhere |
 | Stop    | let go                    | lift your thumb        |
+| Pause   | P or Esc; losing focus too | the PAUSE button; tap the board to resume |
 | Restart | R                         | tap the GAME OVER text |
 | Mute    | M                         | the SOUND button       |
+
+**Gamepad**, standard mapping, no setup: left stick or d-pad steers — one axis
+at a time, since the worm turns on a grid — `Start` pauses, `Back` or `Y`
+restarts, a shoulder button mutes. It is polled once a frame rather than
+listened for, because `getGamepads()` only refreshes its snapshots when called.
+Keys and the touch stick outrank it, so a controller resting in a drawer cannot
+cancel a direction someone is holding.
+
+Pause is the widget's, not the engine's: the engine advances by whatever `dt` it
+is handed, so pausing is the loop not calling `step` while it goes on drawing
+the frozen board. See [chapter 15](../../docs/15-game-loop-architecture.md).
 
 ### Hold to move, let go to stop
 

@@ -212,6 +212,7 @@
         '<span>LEVEL <b class="wc-v" data-wc="level">1</b></span>' +
         '<span>HELD <b data-wc="held">3%</b> / <span data-wc="target">34%</span></span>' +
         '<button type="button" class="wc-mute" data-wc="mute">SOUND ON</button>' +
+        '<button type="button" class="wc-mute wc-pause" data-wc="pause">PAUSE</button>' +
       '</div>' +
       '<div class="wc-stage">' +
         '<canvas class="wc-canvas" width="' + WORLD_W + '" height="' + WORLD_H + '"></canvas>' +
@@ -230,9 +231,10 @@
         '<div class="wc-overlay wc-idle" data-wc="idle">HOLD A DIRECTION TO MOVE</div>' +
         '<div class="wc-overlay wc-banner" data-wc="banner">LEVEL 1</div>' +
         '<div class="wc-overlay wc-msg" data-wc="msg">GAME OVER<small data-wc="msgsmall">PRESS R TO RESTART</small></div>' +
+        '<div class="wc-overlay wc-msg wc-paused" data-wc="paused">PAUSED<small data-wc="pausedsmall">PRESS P TO RESUME</small></div>' +
       '</div>' +
       '<div class="wc-help" data-wc="help">' +
-        'HOLD [ARROWS]/[WASD] TO MOVE &nbsp; LEAVE YOUR LAND AND LOOP BACK TO CLAIM &nbsp; [R] RESTART &nbsp; [M] MUTE</div>';
+        'HOLD [ARROWS]/[WASD] TO MOVE &nbsp; LEAVE YOUR LAND AND LOOP BACK TO CLAIM &nbsp; [P] PAUSE &nbsp; [R] RESTART &nbsp; [M] MUTE</div>';
     container.appendChild(root);
 
     var q = function (name) { return root.querySelector('[data-wc="' + name + '"]'); };
@@ -294,14 +296,21 @@
       root.classList.add('wc-is-touch');
       helpEl.textContent = 'HOLD AND DRAG ANYWHERE TO MOVE • LOOP BACK TO YOUR LAND TO CLAIM • TAP GAME OVER TO RESTART';
       q('msgsmall').textContent = 'TAP TO RESTART';
+      q('pausedsmall').textContent = 'TAP TO RESUME';
       idleEl.textContent = 'HOLD AND DRAG TO MOVE';
     }
     if (global.matchMedia && global.matchMedia('(pointer: coarse)').matches) enableTouchUI();
 
     // ---------- per-instance state ----------
     var wasm = null, u8 = null, i32 = null;
-    var destroyed = false;
+    var destroyed = false, paused = false;
     var rafId = 0, lastT = 0, tGlobal = 0;
+    // Gamepad, read once a frame rather than listened for: the Gamepad API only
+    // refreshes its snapshots when getGamepads() is called, so a listener would
+    // report whatever frame it happened to fire on.
+    var PAD_DEADZONE = 0.5;    // a worm turns on a grid: half-throw or it does not count
+    var padDir = { x: 0, y: 0 };
+    var padPrev = { pause: false, restart: false, mute: false };
     var facing = { x: 0, y: -1 };          // last non-zero heading, for the sprite
     var stick = { active: false, ox: 0, oy: 0, dx: 0, dy: 0 };
     var sound = createSound();
@@ -376,6 +385,11 @@
       }
       if (e.key === 'r' || e.key === 'R') restart();
       if (e.key === 'm' || e.key === 'M') toggleMute();
+      // A held key auto-repeats, and a toggle on every repeat would flicker.
+      if ((e.key === 'p' || e.key === 'P' || e.key === 'Escape') && !e.repeat) {
+        setPaused(!paused);
+        e.preventDefault();
+      }
     }
 
     function onKeyUp(e) {
@@ -466,9 +480,81 @@
     global.addEventListener('pointercancel', onStickUp);
     global.addEventListener('keydown', onKeyDown);
     global.addEventListener('keyup', onKeyUp);
-    global.addEventListener('blur', releaseAll);
+    // Losing focus also pauses: whoever alt-tabbed away was not planning to come
+    // back to a worm still driving and chasers still chasing.
+    function onBlur() { releaseAll(); setPaused(true); }
+    global.addEventListener('blur', onBlur);
     muteBtn.addEventListener('click', function () { toggleMute(); muteBtn.blur(); });
     msgEl.addEventListener('click', function () { restart(); });
+
+    // ---------- pause ----------
+    // Pause lives here and not in the engine, because it is a decision about the
+    // clock rather than about the game: the engine advances by whatever dt it is
+    // handed, so pausing is the loop no longer calling step(). The loop keeps
+    // drawing, so the frozen board stays on screen. Chapter 15 makes the case.
+    var pausedEl = q('paused'), pauseBtn = q('pause');
+    function setPaused(on) {
+      if (!wasm) return;
+      if (on && wasm.exports.is_game_over()) return;   // nothing to pause on the game-over screen
+      paused = on;
+      pausedEl.style.display = on ? 'block' : 'none';
+      pauseBtn.textContent = on ? 'RESUME' : 'PAUSE';
+      // A direction held when play stopped must not still be held when it
+      // resumes — this game moves for as long as one is held.
+      if (on) releaseAll();
+    }
+    pauseBtn.addEventListener('click', function () { setPaused(!paused); pauseBtn.blur(); });
+    // Paused, a press anywhere on the board resumes and does nothing else: a
+    // thumb landing to unpause should not also set the worm off.
+    stage.addEventListener('pointerdown', function (e) {
+      if (!paused) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setPaused(false);
+    }, true);
+
+    // ---------- gamepad ----------
+    // Standard mapping: left stick or d-pad steers, Start pauses, Back or Y
+    // restarts, a shoulder button mutes. There is nothing to fire here, so the
+    // face buttons other than those do nothing.
+    function pollGamepad() {
+      var nav = global.navigator;
+      var pads = nav && nav.getGamepads ? nav.getGamepads() : null;
+      if (!pads) return;
+      var p = null, i;
+      for (i = 0; i < pads.length; i++) if (pads[i] && pads[i].connected) { p = pads[i]; break; }
+      if (!p) return;
+
+      var buttons = p.buttons || [], axes = p.axes || [];
+      var btn = function (n) { var b = buttons[n]; return !!(b && (b.pressed || b.value > 0.5)); };
+      var ax = axes[0] || 0, ay = axes[1] || 0;
+      var pdx = 0, pdy = 0;
+      // One axis at a time: the worm turns on a grid, and a diagonal push would
+      // otherwise flip between axes frame by frame on whichever was marginally
+      // larger.
+      if (Math.abs(ax) > PAD_DEADZONE || Math.abs(ay) > PAD_DEADZONE) {
+        if (Math.abs(ax) > Math.abs(ay)) pdx = ax > 0 ? 1 : -1;
+        else pdy = ay > 0 ? 1 : -1;
+      } else if (btn(14)) pdx = -1;
+      else if (btn(15)) pdx = 1;
+      else if (btn(12)) pdy = -1;
+      else if (btn(13)) pdy = 1;
+
+      // Keys and the touch stick outrank the pad, so a controller resting in a
+      // drawer cannot cancel a direction someone is holding.
+      if (held.length || stick.active) {
+        padDir.x = 0; padDir.y = 0;
+      } else if (pdx !== padDir.x || pdy !== padDir.y) {
+        padDir.x = pdx; padDir.y = pdy;
+        steer(pdx, pdy);
+      }
+
+      var pausePress = btn(9), restartPress = btn(8) || btn(3), mutePress = btn(4) || btn(5);
+      if (pausePress && !padPrev.pause) setPaused(!paused);
+      if (restartPress && !padPrev.restart) restart();
+      if (mutePress && !padPrev.mute) toggleMute();
+      padPrev.pause = pausePress; padPrev.restart = restartPress; padPrev.mute = mutePress;
+    }
 
     // ---------- particles ----------
     function burst(x, y, n, color, speed) {
@@ -681,12 +767,21 @@
     // ---------- loop ----------
     function loop(now) {
       if (destroyed) return;
+      // Before the pause gate: Start has to be able to unpause, and Back to
+      // restart from the game-over screen.
+      pollGamepad();
       var dt = Math.min((now - lastT) / 1000, 0.1);
       lastT = now;
+      // Paused stops the animation clock too, so the capture glow and the
+      // particles hold still with the board instead of playing on over it.
+      // lastT still advances, so the first frame back is one frame long.
+      if (paused) dt = 0;
       tGlobal += dt;
 
-      wasm.exports.step(dt);
-      pollEvents();
+      if (!paused) {
+        wasm.exports.step(dt);
+        pollEvents();
+      }
 
       ctx.setTransform(Z, 0, 0, Z, 0, 0);
       ctx.fillStyle = '#060c0e';
@@ -752,6 +847,7 @@
       prevOver = 0;
       msgEl.style.display = 'none';
       bannerEl.style.opacity = '0';
+      setPaused(false);
     }
 
     // ---------- boot ----------
@@ -783,7 +879,7 @@
         cancelAnimationFrame(rafId);
         global.removeEventListener('keydown', onKeyDown);
         global.removeEventListener('keyup', onKeyUp);
-        global.removeEventListener('blur', releaseAll);
+        global.removeEventListener('blur', onBlur);
         global.removeEventListener('pointerup', onStickUp);
         global.removeEventListener('pointercancel', onStickUp);
         sound.close();
@@ -799,6 +895,7 @@
           target: wasm.exports.get_target(),
           total: wasm.exports.get_total(),
           gameOver: !!wasm.exports.is_game_over(),
+          paused: paused,
         };
       },
     };
