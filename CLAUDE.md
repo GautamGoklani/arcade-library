@@ -320,9 +320,9 @@ per game — three engines have no chapter because they would restate one:
 
 ## Roadmap status
 
-**[`TASKS.md`](TASKS.md) is the backlog** — verification debt and Pixel Wave's
-own feature list. Read it before starting anything; it is written to be picked
-up cold.
+**[`TASKS.md`](TASKS.md) is the backlog** — Pixel Wave's own feature list, and
+the documentation choices that are deliberate. Read it before starting
+anything; it is written to be picked up cold.
 
 Shipped: all nine — Pixel Wave, Grid Breaker, Worm Chase, Asteroid Miner,
 Sector Defense, Circuit Runner, Starfield Runner, Tower Defense Lite, Pulse.

@@ -17,68 +17,19 @@ rather than a backlog item.
 
 ---
 
-## 1 · Verification debt
-
-The browser preview pane in the development environment stops issuing animation
-frames within a fraction of a second of load (measured: 0 rAF/sec). Every engine
-is benched headlessly and that catches simulation bugs well — but **rendering
-and input have largely not been exercised by a human**. This remains the largest
-category of risk in the repository and none of it needs new design work, only
-somebody playing the games in a real browser.
-
-Some of this debt was paid down while the last three titles were built, by a
-trick worth reusing: **override `window.requestAnimationFrame` with a queue
-before mounting, then pump it by hand from the console.** The pane's frozen rAF
-is then irrelevant, the widget runs as many frames as you ask for, and you can
-screenshot any moment you like. It found three real rendering bugs — a
-collapsed `line-height` that made every game's overlay overprint itself at
-phone widths, a crash on a negative frame index, and a HUD element too faint to
-see. It cannot test *feel*, which is what is still missing.
-
-| Title | What is unverified | Risk |
-|---|---|---|
-| `pulse` | **The soundtrack.** Every note is synthesised and has only ever been read, not heard. The whole title turns on whether the beat is findable by ear | High — it is the one thing the design rests on |
-| `pixel-wave` | **All of its sound**, which is new: shot, enemy fire, kill, asteroid, hurt, wave cleared, game over, and the mute button | Medium — levels and the rate limit on enemy fire are guesses |
-| `pixel-wave` | **Whether the enemy species read as roles.** The bench shows a skull's lead nearly doubling its hits on a straight-line flier and doing nothing against a weaving one, but not whether a player can tell a hornet from a crab by how it moves, or learns to stop flying straight near skulls | Low: balance was held to within a few percent of before |
-| `pixel-wave` | **Difficulty, played by a person.** Every number was benched with a pilot that never dodges, so Easy's slower enemy bullets are unmeasured, and nobody has checked that Hard feels fair rather than cruel. Also the EASY/NORMAL/HARD button, and a best score landing under the right setting's key | Medium: the bench cannot tell what dodging is worth |
-| `pixel-wave` | **How pause looks and feels**: the PAUSED overlay, the PAUSE button beside SOUND, tap-to-resume on a phone. The behaviour was driven headlessly through the real widget with a stub DOM — engine memory byte-identical across 180 paused frames, and every way in and out of pause toggling correctly — but nobody has seen it on a screen | Low — no engine change |
-| `pixel-wave`, `grid-breaker`, `worm-chase` | **The retro retrofit.** Each was checked in the browser for a first few seconds of play; nobody has played one through at the new resolution. Rotated sprites in Pixel Wave now alias at 400×250, and Grid Breaker's 26px tile rows do not divide by three, so its rows come out 21 and 24 low-res pixels tall in turn | Low — worth a look, not a worry |
-| `grid-breaker` | The paddle, power-up and launch sounds, which existed for the title's whole life but were first played when the engine got event counters | Low |
-| hub | Best-score tags on the cards, and `hiscores.js` recording a finished run from each page shell. Exercised in a browser once, not across real play sessions | Low |
-| `pulse` | Whether ±1 frame of jitter is acceptable in practice. The trade is argued in [chapter 22](docs/22-engine-owned-time.md) and has not been listened to | Medium |
-| `tower-defense` | Right-click-to-sell, and whether the cursor's range ring is legible over a busy board | Low |
-| `starfield-runner` | Whether the graze band *reads* — the ring lights at 30px of clearance, and nobody has checked that a player can tell a graze from a miss | Medium — it is the entire scoring rule |
-| `circuit-runner` | Tap-zone touch controls | Untested on a real touchscreen |
-| `sector-defense` | A wave has never been played through in a browser | Medium — attacker behaviour, the shield bracket, the combo HUD |
-| `worm-chase` | Hold-to-move controls and the trail-connector rendering | Medium — both were changed after the last live look |
-| `asteroid-miner` | Everything past the first few seconds | Medium |
-| all nine | **Every record read in every widget** now goes through a `FIELD` table instead of a bare offset. The layout check and `node --check` pass, but the rewritten widgets have not been loaded in a browser | Low — the check pins every index; a typo would be a thrown ReferenceError on the first frame, not a wrong picture |
-| all nine | Touch controls on an actual device | Every touch scheme here is reasoned about, not tested |
-
-**Everything built on 15–16 September 2026 is in the table above and none of it
-has been seen in a browser** — the `FIELD` rewrite of every widget's memory
-reads, Pixel Wave's pause, its Easy/Normal/Hard settings and its three enemy
-species. Each was driven headlessly instead: the widgets through a stub DOM with
-hand-pumped frames, the engines through benched runs, with the numbers recorded
-in the relevant README. What none of that can test is how any of it feels.
-
-**How to do this:** `npm run serve`, open each game, play for two minutes. It is
-still the cheapest high-value work outstanding.
-
----
-
-## 2 · Library goals not built
+## 1 · Library goals not built
 
 ### Pixel Wave's own roadmap — *product decisions*
 
 Power-ups, boss waves, gamepad support. Listed in full at the bottom of
-[`games/plans-for-other-games.md`](games/plans-for-other-games.md). Sound, pause,
-difficulty settings and per-species enemy behaviour are done. Each of the rest changes what the game *is*, so they are for the owner to
-choose between rather than for anyone to work through in order.
+[`games/plans-for-other-games.md`](games/plans-for-other-games.md). Sound,
+pause, difficulty settings and per-species enemy behaviour are done. Each of
+the rest changes what the game *is*, so they are for the owner to choose
+between rather than for anyone to work through in order.
 
 ---
 
-## 3 · Documentation
+## 2 · Documentation
 
 Nothing outstanding, but three things are deliberate and should not be "fixed":
 
