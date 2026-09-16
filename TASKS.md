@@ -21,11 +21,11 @@ rather than a backlog item.
 
 ### Pixel Wave's own roadmap — *product decisions*
 
-Power-ups, boss waves, gamepad support. Listed in full at the bottom of
+Power-ups and boss waves. Listed in full at the bottom of
 [`games/plans-for-other-games.md`](games/plans-for-other-games.md). Sound,
-pause, difficulty settings and per-species enemy behaviour are done. Each of
-the rest changes what the game *is*, so they are for the owner to choose
-between rather than for anyone to work through in order.
+pause, difficulty settings, per-species enemy behaviour and gamepad support are
+done. Both of the rest change what the game *is*, so they are for the owner to
+choose between rather than for anyone to work through in order.
 
 ---
 

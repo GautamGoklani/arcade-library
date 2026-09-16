@@ -432,6 +432,20 @@
     // is the same convention the engine stores heading in, so it feeds through
     // without conversion. `mag` scales the turn rate — a nudge turns gently.
     var stick = { active: false, angle: 0, mag: 0, originX: 0, originY: 0 };
+    // Gamepad, read once a frame rather than listened for: the Gamepad API only
+    // refreshes its snapshots when you call getGamepads(), so a listener would
+    // report the state of whatever frame it happened to fire on.
+    //
+    // `pad` is this frame's steering, thrust and fire; `padStick` is the left
+    // stick as a heading, the same point-and-aim the touch stick feeds. Both are
+    // rebuilt every poll, so nothing can latch on the way a missed keyup can.
+    var PAD_DEADZONE = 0.28;   // a resting stick reads up to about 0.15 on a worn pad
+    var pad = { rot: 0, thrust: false, fire: false };
+    var padStick = { active: false, angle: 0, mag: 0 };
+    // Buttons that do something once per press rather than while held, so they
+    // need last frame's state to find the edge — the same reason the engine
+    // keeps $prevFiring.
+    var padPrev = { pause: false, restart: false, mute: false };
     var explosions = [];
     var prevBotAlive = new Array(MAX_BOTS).fill(0);
     var prevAstActive = new Array(MAX_AST).fill(0);
@@ -867,10 +881,55 @@
       running = true;
     }
 
+    // Standard mapping, and both a face button and a trigger for each of thrust
+    // and fire, so a pad with worn triggers still plays: left stick or d-pad
+    // steers, A / RT / d-pad up thrusts, X / LT / B fires, Start pauses, Back or
+    // Y restarts, a shoulder button mutes.
+    function pollGamepad() {
+      pad.rot = 0; pad.thrust = false; pad.fire = false; padStick.active = false;
+      var nav = global.navigator;
+      var pads = nav && nav.getGamepads ? nav.getGamepads() : null;
+      if (!pads) return;
+      var p = null, i;
+      for (i = 0; i < pads.length; i++) if (pads[i] && pads[i].connected) { p = pads[i]; break; }
+      if (!p) return;
+
+      var buttons = p.buttons || [];
+      var axes = p.axes || [];
+      // A trigger reports an analog value and may never set `pressed`.
+      var btn = function (n) { var b = buttons[n]; return !!(b && (b.pressed || b.value > 0.5)); };
+      var ax = axes[0] || 0, ay = axes[1] || 0;
+      var mag = Math.sqrt(ax * ax + ay * ay);
+      if (mag > PAD_DEADZONE) {
+        padStick.active = true;
+        padStick.angle = Math.atan2(ay, ax);
+        // Rescale past the deadzone, so the first millimetre of real movement
+        // is a gentle turn rather than a jump to a third of full rate.
+        padStick.mag = Math.min(1, (mag - PAD_DEADZONE) / (1 - PAD_DEADZONE));
+      } else if (btn(14) || btn(15)) {
+        pad.rot = btn(15) ? 1 : -1;
+      }
+      pad.thrust = btn(0) || btn(7) || btn(12);
+      pad.fire = btn(2) || btn(6) || btn(1);
+
+      var pausePress = btn(9), restartPress = btn(8) || btn(3), mutePress = btn(4) || btn(5);
+      if (pausePress && !padPrev.pause) setPaused(!paused);
+      if (restartPress && !padPrev.restart) restart();
+      if (mutePress && !padPrev.mute) toggleMute();
+      padPrev.pause = pausePress; padPrev.restart = restartPress; padPrev.mute = mutePress;
+
+      // Any real pad input means this is not a touch session, the same way a
+      // recognised keypress does.
+      if (padStick.active || pad.rot || pad.thrust || pad.fire || pausePress || restartPress) setTouchMode(false);
+    }
+
     // ---------- main loop ----------
     var lastT = performance.now();
     function loop(now) {
       if (destroyed) return;
+      // Before the running check: Start has to be able to unpause, and Back to
+      // restart from the game-over screen.
+      pollGamepad();
       var dt = Math.min((now - lastT) / 1000, 0.05);
       lastT = now;
       // Paused stops the animation clock too, so explosions and sprite frames
@@ -884,15 +943,20 @@
         // `heading += rot * ROT_SPEED * dt`, so anything in [-1,1] is valid —
         // keys just happen to only ever ask for the extremes.
         var rot = (input.right ? 1 : 0) - (input.left ? 1 : 0);
-        if (stick.active && stick.mag > STICK_DEADZONE) {
-          // Steer toward the angle the thumb is pointing at, along the shortest
-          // arc, easing off as the ship lines up. Point-and-aim rather than
-          // hold-to-turn — the whole reason the stick beats a d-pad here.
-          var err = stick.angle - f32[FIELD.player.heading];
+        if (!rot) rot = pad.rot;
+        // Steer toward the angle the thumb — or the pad's left stick — is
+        // pointing at, along the shortest arc, easing off as the ship lines up.
+        // Point-and-aim rather than hold-to-turn, which is the whole reason a
+        // stick beats a d-pad here. A finger on the touch stick wins, so a pad
+        // resting just inside its deadzone cannot fight one.
+        var aim = (stick.active && stick.mag > STICK_DEADZONE) ? stick
+                : (padStick.active ? padStick : null);
+        if (aim) {
+          var err = aim.angle - f32[FIELD.player.heading];
           err = Math.atan2(Math.sin(err), Math.cos(err));
-          rot = Math.max(-1, Math.min(1, err / STICK_SNAP)) * stick.mag;
+          rot = Math.max(-1, Math.min(1, err / STICK_SNAP)) * aim.mag;
         }
-        wasm.exports.set_input(rot, input.thrust ? 1 : 0, input.fire ? 1 : 0);
+        wasm.exports.set_input(rot, (input.thrust || pad.thrust) ? 1 : 0, (input.fire || pad.fire) ? 1 : 0);
         wasm.exports.step(dt);
         f32 = new Float32Array(wasm.exports.memory.buffer);
 

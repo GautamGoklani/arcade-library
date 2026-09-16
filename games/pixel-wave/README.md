@@ -83,6 +83,23 @@ wasm instance, and therefore its own memory and globals.
 
 Touch controls appear on coarse-pointer devices and support multi-touch.
 
+**Gamepad**, standard mapping, no setup — plug one in and it works:
+
+| Action | Button |
+|---|---|
+| Steer | left stick (point and aim, as on touch) or the d-pad |
+| Thrust | `A`, right trigger, or d-pad up |
+| Fire | `X`, left trigger, or `B` |
+| Pause | `Start` |
+| Restart | `Back` or `Y` |
+| Mute | either shoulder button |
+
+Thrust and fire each have a face button *and* a trigger, so a pad with worn
+triggers still plays. The pad is polled once a frame rather than listened for,
+because `getGamepads()` only refreshes its snapshots when it is called. A finger
+on the touch stick takes priority over the pad's stick, so a controller resting
+inside its deadzone cannot fight one.
+
 Pause is entirely the widget's. The engine has no clock of its own and advances
 by whatever `dt` it is handed, so pausing means the loop stops calling `step`
 and stops its animation clock, and goes on drawing the frozen memory. There is
