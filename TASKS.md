@@ -27,6 +27,31 @@ pause, difficulty settings, per-species enemy behaviour and gamepad support are
 done. Both of the rest change what the game *is*, so they are for the owner to
 choose between rather than for anyone to work through in order.
 
+### Features the other eight could take — *product decisions*
+
+Two of Pixel Wave's additions are widget-only and would work in any title; the
+rest are ideas fitted to particular games. None of this is a defect — it is a
+menu, written down so the choice gets made once and on purpose. **Invariant 1
+means every row is per-game work**: each title gets its own hand-written copy,
+never a shared helper.
+
+| Title | Would take | What it involves |
+|---|---|---|
+| all eight | **Pause** | Widget-only. The engine has no clock to stop, so pausing is the loop not calling `step` — see [chapter 15](docs/15-game-loop-architecture.md). Pixel Wave has it |
+| all eight | **Gamepad** | Widget-only, standard mapping, polled once a frame. Pixel Wave has it |
+| `grid-breaker` | Difficulty settings | Paddle width, ball speed, starting lives. It already has power-ups |
+| `worm-chase` | Difficulty settings | Chaser count and speed, hazard density |
+| `asteroid-miner` | Difficulty settings; a depot upgrade | Fuel burn and rock density; or spend cargo on hold size, fuel or hull |
+| `sector-defense` | Difficulty settings; a heavy attacker | Its intent lives per entity already, so a new kind is mostly a new column of constants |
+| `circuit-runner` | A gentler opening | Speed is its only difficulty curve, so "easier" means starting slower and ramping later, not a new mechanic |
+| `starfield-runner` | Difficulty settings | Graze band width and rock density. The band *is* the scoring rule, so widening it is the honest knob |
+| `tower-defense` | Difficulty settings; tower upgrades | Starting funds and wave strength; upgrading a tower in place rather than adding a fourth kind |
+| `pulse` | Difficulty settings | Tempo, and how full each bar is. The engine already owns the sequencer, so this is its table to extend |
+
+Difficulty settings anywhere mean the same shape as Pixel Wave's: a tuning table
+the engine's `init()` applies, a re-bench of every setting with a pilot that
+plays badly, and one best score per setting.
+
 ---
 
 ## 2 · Documentation
