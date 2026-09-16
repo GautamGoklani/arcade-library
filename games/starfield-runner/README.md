@@ -99,7 +99,7 @@ var game = StarfieldRunner.mount(containerOrSelector, options?);
 
 game.restart();    // start a fresh run
 game.getState();   // { score, distance, speed, hull, charge, multiplier,
-                   //   grazes, squeezes, gameOver }
+                   //   grazes, squeezes, gameOver, paused }
 game.destroy();    // stop the loop, remove DOM + all event listeners
 ```
 
@@ -117,8 +117,20 @@ Multiple instances on one page are supported — each `mount()` is independent.
 | Action  | Desktop        | Mobile                       |
 |---------|----------------|------------------------------|
 | Fly     | ← / → or A / D | slide anywhere on the lower half |
+| Pause   | P or Esc; losing focus too | the PAUSE button; tap the field to resume |
 | Restart | R              | tap the GAME OVER text       |
 | Mute    | M              | the SOUND button             |
+
+**Gamepad**, standard mapping, no setup: left stick or d-pad flies, `Start`
+pauses, `Back` or `Y` restarts, a shoulder button mutes. The stick is analogue
+and rescaled past its deadzone, because grazing is measured in pixels of
+clearance and the fine end of the stick is the end that matters. It is polled
+once a frame rather than listened for, because `getGamepads()` only refreshes
+its snapshots when called.
+
+Pause is the widget's, not the engine's: the engine advances by whatever `dt` it
+is handed, so pausing is the loop not calling `step` while it goes on drawing
+the frozen field. See [chapter 15](../../docs/15-game-loop-architecture.md).
 
 **An analogue rail rather than tap zones**, which is the opposite of the call
 [Circuit Runner](../circuit-runner/README.md) makes, for the opposite reason.

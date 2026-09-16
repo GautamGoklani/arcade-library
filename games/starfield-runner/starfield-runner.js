@@ -239,6 +239,7 @@
         '<span class="sr-gauge">CHARGE <span class="sr-bar"><i data-sr="charge"></i></span></span>' +
         '<span class="sr-mult sr-one" data-sr="mult">x1<u data-sr="multbar"></u></span>' +
         '<button type="button" class="sr-mute" data-sr="mute">SOUND ON</button>' +
+        '<button type="button" class="sr-mute sr-pause" data-sr="pause">PAUSE</button>' +
       '</div>' +
       '<div class="sr-stage">' +
         '<canvas class="sr-canvas" width="' + WORLD_W + '" height="' + WORLD_H + '"></canvas>' +
@@ -250,10 +251,11 @@
         '<div class="sr-scan" aria-hidden="true"></div>' +
         '<div class="sr-overlay sr-note" data-sr="note">SQUEEZE</div>' +
         '<div class="sr-overlay sr-msg" data-sr="msg">HULL BREACH<small data-sr="msgsmall">PRESS R TO RESTART</small></div>' +
+        '<div class="sr-overlay sr-msg sr-paused" data-sr="paused">PAUSED<small data-sr="pausedsmall">PRESS P TO RESUME</small></div>' +
       '</div>' +
       '<div class="sr-help" data-sr="help">' +
         '[&larr;][&rarr;] FLY &nbsp; SHAVE THE ROCKS — CLOSE PASSES ARE THE ONLY SCORE ' +
-        'AND THE ONLY REPAIR &nbsp; [R] RESTART &nbsp; [M] MUTE</div>';
+        'AND THE ONLY REPAIR &nbsp; [P] PAUSE &nbsp; [R] RESTART &nbsp; [M] MUTE</div>';
     container.appendChild(root);
 
     var q = function (name) { return root.querySelector('[data-sr="' + name + '"]'); };
@@ -293,14 +295,22 @@
       helpEl.textContent =
         'SLIDE TO FLY • SHAVE THE ROCKS — CLOSE PASSES ARE THE ONLY SCORE AND THE ONLY REPAIR • TAP TO RESTART';
       q('msgsmall').textContent = 'TAP TO RESTART';
+      q('pausedsmall').textContent = 'TAP TO RESUME';
     }
     if (global.matchMedia && global.matchMedia('(pointer: coarse)').matches) enableTouchUI();
 
     // ---------- per-instance state ----------
     var wasm = null, f32 = null;
-    var destroyed = false;
+    var destroyed = false, paused = false;
     var rafId = 0, lastT = 0, tGlobal = 0;
     var keys = { left: false, right: false };
+    // Gamepad, read once a frame rather than listened for: the Gamepad API only
+    // refreshes its snapshots when getGamepads() is called, so a listener would
+    // report whatever frame it happened to fire on. Rebuilt every poll, so
+    // nothing latches the way a missed keyup can.
+    var PAD_DEADZONE = 0.28;   // a resting stick reads up to about 0.15 on a worn pad
+    var pad = { move: 0 };
+    var padPrev = { pause: false, restart: false, mute: false };
     var stick = { active: false, ox: 0, dir: 0 };
     var sound = createSound();
     var muted = false;
@@ -338,6 +348,11 @@
       if (k) { keys[k] = true; stick.dir = 0; e.preventDefault(); return; }
       if (e.key === 'r' || e.key === 'R') restart();
       if (e.key === 'm' || e.key === 'M') toggleMute();
+      // A held key auto-repeats, and a toggle on every repeat would flicker.
+      if ((e.key === 'p' || e.key === 'P' || e.key === 'Escape') && !e.repeat) {
+        setPaused(!paused);
+        e.preventDefault();
+      }
     }
     function onKeyUp(e) {
       var k = KEY_MAP[e.key];
@@ -408,7 +423,67 @@
     global.addEventListener('pointercancel', onWindowPointerCancel);
     global.addEventListener('keydown', onKeyDown);
     global.addEventListener('keyup', onKeyUp);
-    global.addEventListener('blur', releaseAll);
+    // Losing focus also pauses: whoever alt-tabbed away was not planning to come
+    // back to a ship still flying into the field.
+    function onBlur() { releaseAll(); setPaused(true); }
+    global.addEventListener('blur', onBlur);
+
+    // ---------- pause ----------
+    // Pause lives here and not in the engine, because it is a decision about the
+    // clock rather than about the game: the engine advances by whatever dt it is
+    // handed, so pausing is the loop no longer calling step(). The loop keeps
+    // drawing, so the frozen field stays on screen. Chapter 15 makes the case.
+    var pausedEl = q('paused'), pauseBtn = q('pause');
+    function setPaused(on) {
+      if (!wasm) return;
+      if (on && wasm.exports.is_game_over()) return;   // nothing to pause once the hull is gone
+      paused = on;
+      pausedEl.style.display = on ? 'block' : 'none';
+      pauseBtn.textContent = on ? 'RESUME' : 'PAUSE';
+      // Anything held when play stopped must not still be held when it resumes:
+      // the same latch releaseAll() exists to prevent on blur.
+      if (on) releaseAll();
+    }
+    pauseBtn.addEventListener('click', function () { setPaused(!paused); pauseBtn.blur(); });
+    // Paused, a press anywhere on the field resumes and does nothing else: a
+    // thumb landing to unpause should not also start flying.
+    stage.addEventListener('pointerdown', function (e) {
+      if (!paused) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setPaused(false);
+    }, true);
+
+    // ---------- gamepad ----------
+    // Standard mapping: left stick or d-pad flies, Start pauses, Back or Y
+    // restarts, a shoulder button mutes. There is nothing to shoot here — close
+    // passes are the whole game — so the face buttons do nothing else.
+    function pollGamepad() {
+      pad.move = 0;
+      var nav = global.navigator;
+      var pads = nav && nav.getGamepads ? nav.getGamepads() : null;
+      if (!pads) return;
+      var p = null, i;
+      for (i = 0; i < pads.length; i++) if (pads[i] && pads[i].connected) { p = pads[i]; break; }
+      if (!p) return;
+
+      var buttons = p.buttons || [], axes = p.axes || [];
+      var btn = function (n) { var b = buttons[n]; return !!(b && (b.pressed || b.value > 0.5)); };
+      var ax = axes[0] || 0;
+      if (Math.abs(ax) > PAD_DEADZONE) {
+        // Rescale past the deadzone. Grazing is measured in pixels of
+        // clearance, so the fine end of the stick is the end that matters.
+        pad.move = (ax > 0 ? 1 : -1) * Math.min(1, (Math.abs(ax) - PAD_DEADZONE) / (1 - PAD_DEADZONE));
+      } else if (btn(14) || btn(15)) {
+        pad.move = btn(15) ? 1 : -1;
+      }
+
+      var pausePress = btn(9), restartPress = btn(8) || btn(3), mutePress = btn(4) || btn(5);
+      if (pausePress && !padPrev.pause) setPaused(!paused);
+      if (restartPress && !padPrev.restart) restart();
+      if (mutePress && !padPrev.mute) toggleMute();
+      padPrev.pause = pausePress; padPrev.restart = restartPress; padPrev.mute = mutePress;
+    }
     muteBtn.addEventListener('click', function () { toggleMute(); muteBtn.blur(); });
     msgEl.addEventListener('click', function () { restart(); });
 
@@ -659,6 +734,9 @@
     // ---------- loop ----------
     function loop(now) {
       if (destroyed) return;
+      // Before the pause gate: Start has to be able to unpause, and Back to
+      // restart from the game-over screen.
+      pollGamepad();
       // Clamped at both ends. The ceiling is the usual one — a tab that was
       // backgrounded for ten seconds must not advance the board ten seconds
       // in one step. The floor is not decoration: a timestamp that goes
@@ -667,17 +745,25 @@
       // counter then reads off the front of it.
       var dt = Math.max(0, Math.min((now - lastT) / 1000, 0.05));
       lastT = now;
+      // Paused stops the animation clock too, so the starfield, the particles
+      // and the shake hold still instead of streaming past a frozen ship. lastT
+      // still advances, so the first frame back is one frame long.
+      if (paused) dt = 0;
       tGlobal += dt;
 
-      // Keyboard is two states, the stick is analogue, and the engine takes an
-      // f32 either way. Held left and right cancel rather than fighting.
+      // Keyboard is two states, the stick and the pad are analogue, and the
+      // engine takes an f32 either way. Held left and right cancel rather than
+      // fighting.
       var move = stick.dir;
+      if (pad.move) move = pad.move;
       if (keys.left || keys.right) {
         move = (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
       }
-      wasm.exports.set_input(move);
-      wasm.exports.step(dt);
-      pollEvents();
+      if (!paused) {
+        wasm.exports.set_input(move);
+        wasm.exports.step(dt);
+        pollEvents();
+      }
 
       var speed = wasm.exports.get_speed();
       var Z = 1 / LOW_SCALE;
@@ -735,6 +821,7 @@
       prevHull = Math.round(wasm.exports.get_hull());
       prevOver = 0;
       msgEl.style.display = 'none';
+      setPaused(false);
       for (var i = 0; i < plateEls.length; i++) {
         plateEls[i].classList.remove('sr-off', 'sr-lost');
       }
@@ -769,7 +856,7 @@
         cancelAnimationFrame(rafId);
         global.removeEventListener('keydown', onKeyDown);
         global.removeEventListener('keyup', onKeyUp);
-        global.removeEventListener('blur', releaseAll);
+        global.removeEventListener('blur', onBlur);
         global.removeEventListener('pointerup', onWindowPointerUp);
         global.removeEventListener('pointercancel', onWindowPointerCancel);
         sound.close();
@@ -787,6 +874,7 @@
           grazes: wasm.exports.get_grazes(),
           squeezes: wasm.exports.get_squeezes(),
           gameOver: !!wasm.exports.is_game_over(),
+          paused: paused,
         };
       },
     };
