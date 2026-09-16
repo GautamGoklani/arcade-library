@@ -69,7 +69,7 @@ For plain integration you only need to copy **two files** into a site:
 var game = GridBreaker.mount(containerOrSelector, options?);
 
 game.restart();    // start a fresh run
-game.getState();   // { score, lives, level, tilesLeft, gameOver, paused }
+game.getState();   // { score, lives, level, tilesLeft, gameOver, paused, difficulty }
 game.destroy();    // stop the loop, remove DOM + all event listeners
 ```
 
@@ -88,6 +88,7 @@ Multiple instances on one page are supported — each `mount()` is independent.
 |---------|----------------------------|------------------------|
 | Move    | A / D, ← / →, or the mouse | left thumbstick        |
 | Launch  | Space                      | LAUNCH button (right)  |
+| Difficulty | the EASY / NORMAL / HARD button; changing it starts a fresh run | the same button |
 | Pause   | P or Esc; losing focus too  | the PAUSE button; tap the arena to resume |
 | Restart | R                          | tap the GAME OVER text |
 | Mute    | M                          | the SOUND button       |
@@ -196,7 +197,8 @@ slides off it.
                 │ and the event counters: get_breaks,
                 │ get_chips, get_booms, get_bounces,
                 │ get_powers, get_drains, get_launches,
-                │ get_hurts, get_clears, get_last_break_row
+                │ get_hurts, get_clears, get_last_break_row,
+                │ set_difficulty, get_difficulty
 ┌───────────────┴──────────────────────────────────────┐
 │ game.wasm (compiled from hand-written game.wat)      │
 │   • paddle motion, pointer easing, clamping          │
@@ -291,6 +293,54 @@ own cap — breaks a tile and never crosses the wall, at frame times of 1/60,
 1/30 and 0.05s. The same harness confirms a 3x3 block of bombs chain-clears
 completely and terminates, that solid tiles bounce without breaking, and that
 across 40 generated levels `tilesLeft` never disagrees with the grid.
+
+## Difficulty, September 2026
+
+Three settings, picked with the HUD button or
+`mount(el, { difficulty: 'hard' })`. The table lives in the engine:
+`set_difficulty(d)` records the choice (0 easy, 1 normal, 2 hard) and `init()`
+applies it, so a setting never changes halfway through a run.
+
+| | Easy | Normal | Hard |
+|---|---|---|---|
+| Starting lives | 7 | 5 | 3 |
+| Paddle half-width | 86 px | 70 px | 56 px |
+| Paddle speed | 700 px/s | 640 px/s | 600 px/s |
+| Ball speed: base / per level / cap | 380 / 10 / 540 | 430 / 14 / 620 | 480 / 20 / 700 |
+| Power-up drop rate | 0.24 | 0.16 | 0.10 |
+
+**The paddle is the widest lever.** At 86 px the ball has to be badly misjudged
+to be missed at all; at 56 px a return has to be aimed. The drop rate moves with
+it, because WIDE and STICKY are themselves a difficulty knob — an easy game that
+also showered capsules would be two settings deep.
+
+**Normal is the previous balance exactly.** Identical input replayed through the
+committed engine and this one gave byte-identical memory on every frame, over
+162,000 frames of three runs.
+
+Benched with a pilot that plays badly — and for a paddle game that takes care,
+because simply tracking the ball's x is close to optimal and never dies. This
+one reacts a quarter-second late, ignores the ball until it reaches the lower
+third, drifts inside a 40px dead zone, and never predicts a bounce or aims with
+the paddle's edge. 24 runs each:
+
+| | Survived: worst / median / best | Mean | Tiles broken (median) | Levels cleared, 24 runs |
+|---|---|---|---|---|
+| Easy | 56 / 89 / 127 s | 89.8 s | 28 | 6 |
+| Normal | 15 / 37 / 60 s | 35.0 s | 15 | 0 |
+| Hard | 7 / 12 / 20 s | 11.8 s | 6 | 0 |
+
+The library's usual "a bad pilot must reach level 3" rule does not transfer
+here: one level is 180 tiles, so a level is minutes of play rather than seconds.
+Tiles broken and levels cleared are the honest progress measures, and they
+separate the three settings cleanly — Easy clears levels this pilot never
+reaches on Normal.
+
+**Best scores are kept per setting.** The page shell records Normal under the
+same key as before, so a best set before difficulty existed is still Normal's,
+and Easy and Hard get `grid-breaker:easy` and `grid-breaker:hard`.
+
+---
 
 ## Tuning
 

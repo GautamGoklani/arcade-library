@@ -72,8 +72,11 @@
 
   (global $PADDLE_Y f32 (f32.const 660.0))
   (global $PADDLE_HALF_H f32 (f32.const 9.0))
-  (global $PADDLE_HALF_BASE f32 (f32.const 70.0))
-  (global $PADDLE_SPEED f32 (f32.const 640.0))
+  ;; Mutable because the difficulty table writes them — see $apply_difficulty.
+  ;; The initialisers are Normal's values, which is what makes a Normal run
+  ;; identical to the engine that had no settings at all.
+  (global $PADDLE_HALF_BASE (mut f32) (f32.const 70.0))
+  (global $PADDLE_SPEED (mut f32) (f32.const 640.0))
   ;; How wide WIDE makes it, and how far a caught ball can be deflected.
   (global $WIDE_MUL f32 (f32.const 1.55))
   (global $MAX_DEFLECT f32 (f32.const 1.05))
@@ -109,9 +112,9 @@
   ;; Speed is set against the arena, not in the abstract: at 330 the ball took
   ;; ~4s to cross 720px and back, so a 60-tile wall was a four-minute level.
   ;; 430 puts a round trip near 2.7s, which is a level in about a minute.
-  (global $BALL_SPEED_BASE f32 (f32.const 430.0))
-  (global $BALL_SPEED_STEP f32 (f32.const 14.0))
-  (global $BALL_SPEED_CAP f32 (f32.const 620.0))
+  (global $BALL_SPEED_BASE (mut f32) (f32.const 430.0))
+  (global $BALL_SPEED_STEP (mut f32) (f32.const 14.0))
+  (global $BALL_SPEED_CAP (mut f32) (f32.const 620.0))
   ;; SLOW does not change a ball's stored velocity, only how far it is
   ;; advanced per second — so the effect expiring restores the exact
   ;; trajectory rather than an approximation of it.
@@ -119,7 +122,7 @@
 
   (global $POWER_FALL f32 (f32.const 155.0))
   (global $POWER_HALF f32 (f32.const 14.0))
-  (global $DROP_CHANCE f32 (f32.const 0.16))
+  (global $DROP_CHANCE (mut f32) (f32.const 0.16))
   (global $WIDE_TIME f32 (f32.const 12.0))
   (global $SLOW_TIME f32 (f32.const 9.0))
   (global $STICKY_TIME f32 (f32.const 15.0))
@@ -132,7 +135,31 @@
   (global $SCORE_POWER f32 (f32.const 25.0))
   (global $SCORE_LEVEL f32 (f32.const 100.0))
 
-  (global $START_LIVES f32 (f32.const 5.0))
+  (global $START_LIVES (mut f32) (f32.const 5.0))
+
+  ;; ---- difficulty ---------------------------------------------------------
+  ;; Easy / Normal / Hard. The widget calls set_difficulty(d) and then init();
+  ;; init() copies one column of this table into the globals above, and nothing
+  ;; else in the engine knows a setting exists.
+  ;;
+  ;;                        easy    normal    hard
+  ;;   starting lives         7        5        3
+  ;;   paddle half-width     86       70       56    px
+  ;;   paddle speed         700      640      600    px/s
+  ;;   ball speed base      380      430      480    px/s
+  ;;   ... per level         10       14       20
+  ;;   ... cap              540      620      700
+  ;;   power-up drop rate  0.24     0.16     0.10    per tile broken
+  ;;
+  ;; The paddle is the widest lever: at 86 the ball has to be badly misjudged
+  ;; to be missed at all, and at 56 a return has to be aimed. The drop rate
+  ;; moves with it, because WIDE and STICKY are themselves a difficulty knob —
+  ;; an easy game that also showers capsules would be two settings deep.
+  ;;
+  ;; $difficulty is not reset by init: it is a choice about the next run, so a
+  ;; restart has to carry it rather than wipe it. Chapter 8 makes that argument
+  ;; for $rng, and it is the same argument.
+  (global $difficulty (mut i32) (i32.const 1))   ;; 0 easy, 1 normal, 2 hard
 
   (global $rng (mut i32) (i32.const 1973272912))
   (global $level (mut i32) (i32.const 1))
@@ -580,7 +607,51 @@
     (f32.store offset=24 (local.get $a) (f32.const 1.0))
     (f32.store offset=28 (local.get $a) (f32.const 0.0)))
 
+  ;; Copy one column of the difficulty table into the globals the rest of the
+  ;; engine reads. Called only from init, so a run never changes balance
+  ;; halfway through. Normal restates the initialisers, because a restart after
+  ;; an Easy or Hard run has to put them back.
+  (func $apply_difficulty
+    (if (i32.eqz (global.get $difficulty))
+      (then   ;; easy
+        (global.set $START_LIVES (f32.const 7.0))
+        (global.set $PADDLE_HALF_BASE (f32.const 86.0))
+        (global.set $PADDLE_SPEED (f32.const 700.0))
+        (global.set $BALL_SPEED_BASE (f32.const 380.0))
+        (global.set $BALL_SPEED_STEP (f32.const 10.0))
+        (global.set $BALL_SPEED_CAP (f32.const 540.0))
+        (global.set $DROP_CHANCE (f32.const 0.24)))
+      (else
+        (if (i32.eq (global.get $difficulty) (i32.const 2))
+          (then   ;; hard
+            (global.set $START_LIVES (f32.const 3.0))
+            (global.set $PADDLE_HALF_BASE (f32.const 56.0))
+            (global.set $PADDLE_SPEED (f32.const 600.0))
+            (global.set $BALL_SPEED_BASE (f32.const 480.0))
+            (global.set $BALL_SPEED_STEP (f32.const 20.0))
+            (global.set $BALL_SPEED_CAP (f32.const 700.0))
+            (global.set $DROP_CHANCE (f32.const 0.10)))
+          (else   ;; normal
+            (global.set $START_LIVES (f32.const 5.0))
+            (global.set $PADDLE_HALF_BASE (f32.const 70.0))
+            (global.set $PADDLE_SPEED (f32.const 640.0))
+            (global.set $BALL_SPEED_BASE (f32.const 430.0))
+            (global.set $BALL_SPEED_STEP (f32.const 14.0))
+            (global.set $BALL_SPEED_CAP (f32.const 620.0))
+            (global.set $DROP_CHANCE (f32.const 0.16)))))))
+
+  ;; 0 easy, 1 normal, 2 hard; anything else is clamped rather than trusted, and
+  ;; a JavaScript call with no argument arrives as 0. Takes effect at the next
+  ;; init().
+  (func $set_difficulty (export "set_difficulty") (param $d i32)
+    (if (i32.lt_s (local.get $d) (i32.const 0)) (then (local.set $d (i32.const 0))))
+    (if (i32.gt_s (local.get $d) (i32.const 2)) (then (local.set $d (i32.const 2))))
+    (global.set $difficulty (local.get $d)))
+  (func $get_difficulty (export "get_difficulty") (result i32) (global.get $difficulty))
+
   (func $init (export "init")
+    ;; first, because the lives, the paddle and the serve below all read it
+    (call $apply_difficulty)
     (global.set $level (i32.const 1))
     (global.set $gameOver (i32.const 0))
     (global.set $moveDir (f32.const 0.0))
