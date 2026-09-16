@@ -119,7 +119,10 @@ img { max-width: 100%; height: auto; }
 <p>Pixel Wave&#39;s swarm moves as a body. Every bot shares one patrol, and the
 formation is the behaviour — which is why <a href="16-entity-pools.html">chapter 16</a>
 could describe its bot record as mostly <em>position</em>, with a <code>wanderTimer</code> and a
-<code>cooldown</code> bolted on.</p>
+<code>cooldown</code> bolted on. Its three species do behave differently, but the
+difference is keyed off the pool slot rather than stored: a bot in slot 1, 4,
+7… flies like a hornet because of where it sits, not because its record says
+so.</p>
 <p><a href="../games/sector-defense/">Sector Defense</a> puts the behaviour in the record
 instead. Each attacker holds a target column it is walking toward and a clock
 saying when it next shoots, and the wave has no state of its own at all. This

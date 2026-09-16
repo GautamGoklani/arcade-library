@@ -7,7 +7,10 @@
 Pixel Wave's swarm moves as a body. Every bot shares one patrol, and the
 formation is the behaviour — which is why [chapter 16](16-entity-pools.md)
 could describe its bot record as mostly *position*, with a `wanderTimer` and a
-`cooldown` bolted on.
+`cooldown` bolted on. Its three species do behave differently, but the
+difference is keyed off the pool slot rather than stored: a bot in slot 1, 4,
+7… flies like a hornet because of where it sits, not because its record says
+so.
 
 [Sector Defense](../games/sector-defense/) puts the behaviour in the record
 instead. Each attacker holds a target column it is walking toward and a clock

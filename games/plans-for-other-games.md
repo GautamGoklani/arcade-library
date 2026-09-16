@@ -22,7 +22,7 @@ for the reasoning behind keeping designs original.
 
 | Title | Concept | Engine |
 |---|---|---|
-| **[Pixel Wave](pixel-wave/)** | Retro wave shooter: the swarm patrols the upper half of the arena, asteroids fall, every cleared level adds an enemy. | 4.3 KB |
+| **[Pixel Wave](pixel-wave/)** | Retro wave shooter: the swarm patrols the upper half of the arena, asteroids fall, every cleared level adds an enemy. | 4.5 KB |
 | **[Grid Breaker](grid-breaker/)** | Ball-and-paddle destruction with chain-reaction bomb tiles and physics-bending power-ups. | 4.9 KB |
 | **[Worm Chase](worm-chase/)** | Grid territory capture: leave your land, loop back, and everything the loop sealed off becomes yours. Hazards, and chasers that cannot follow you home. | 3.8 KB |
 | **[Asteroid Miner](asteroid-miner/)** | Mine a drifting rock field for gems. Rocks split when shot; fuel and cargo make every run a round trip. | 4.2 KB |
@@ -141,7 +141,9 @@ will inherit pieces of:
   anticipate: the engine sequences it. Pause arrived in the widget rather than
   the engine: [chapter 15](../docs/15-game-loop-architecture.md) had already
   argued the engine has no clock to stop. Difficulty settings arrived as a
-  table in the engine that `init()` applies, with one best score per setting.*
+  table in the engine that `init()` applies, with one best score per setting.
+  Per-species behaviour arrived keyed off the slot index the renderer already
+  used to pick each sprite.*
 - **Medium term:** boss waves every 10 levels, distinct per-species enemy
   behaviour, screen shake/hit-stop, gamepad support, difficulty settings.
 - **Long term:** local co-op and online versus multiplayer (lockstep WASM), a

@@ -345,9 +345,15 @@ const CRAB = [
 ];
 ```
 
-The engine knows nothing about any of this. It stores a position, a heading and
-an alive flag; the renderer decides that bot index `i % 3` is a crab and which
-of its two animation frames to draw. Sprite work is allocation-heavy DOM-adjacent
+The engine knows nothing about any of this. It stores a position and an alive
+flag, and the renderer decides which of a crab's two animation frames to draw.
+The one thing the two sides share is the rule that bot index `i % 3` *is* a crab,
+a hornet or a skull: the renderer uses it to pick a sprite, and the engine uses
+the same arithmetic to decide how that bot flies and aims. There is no species
+field to keep in sync, because there is nothing to store: the slot is the
+species. (A skull's aim is itself no-trig maths in the spirit of this chapter —
+time of flight is distance over bullet speed, and the lead is the player's
+velocity times that, capped.) Sprite work is allocation-heavy DOM-adjacent
 code with no arithmetic worth accelerating — exactly the sort of thing that
 belongs on the JavaScript side of the line ([chapter
 15](15-game-loop-architecture.md)).

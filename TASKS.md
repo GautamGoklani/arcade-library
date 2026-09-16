@@ -39,6 +39,7 @@ see. It cannot test *feel*, which is what is still missing.
 |---|---|---|
 | `pulse` | **The soundtrack.** Every note is synthesised and has only ever been read, not heard. The whole title turns on whether the beat is findable by ear | High — it is the one thing the design rests on |
 | `pixel-wave` | **All of its sound**, which is new: shot, enemy fire, kill, asteroid, hurt, wave cleared, game over, and the mute button | Medium — levels and the rate limit on enemy fire are guesses |
+| `pixel-wave` | **Whether the enemy species read as roles.** The bench shows a skull's lead nearly doubling its hits on a straight-line flier and doing nothing against a weaving one, but not whether a player can tell a hornet from a crab by how it moves, or learns to stop flying straight near skulls | Low: balance was held to within a few percent of before |
 | `pixel-wave` | **Difficulty, played by a person.** Every number was benched with a pilot that never dodges, so Easy's slower enemy bullets are unmeasured, and nobody has checked that Hard feels fair rather than cruel. Also the EASY/NORMAL/HARD button, and a best score landing under the right setting's key | Medium: the bench cannot tell what dodging is worth |
 | `pixel-wave` | **How pause looks and feels**: the PAUSED overlay, the PAUSE button beside SOUND, tap-to-resume on a phone. The behaviour was driven headlessly through the real widget with a stub DOM — engine memory byte-identical across 180 paused frames, and every way in and out of pause toggling correctly — but nobody has seen it on a screen | Low — no engine change |
 | `pixel-wave`, `grid-breaker`, `worm-chase` | **The retro retrofit.** Each was checked in the browser for a first few seconds of play; nobody has played one through at the new resolution. Rotated sprites in Pixel Wave now alias at 400×250, and Grid Breaker's 26px tile rows do not divide by three, so its rows come out 21 and 24 low-res pixels tall in turn | Low — worth a look, not a worry |
@@ -54,6 +55,13 @@ see. It cannot test *feel*, which is what is still missing.
 | all nine | **Every record read in every widget** now goes through a `FIELD` table instead of a bare offset. The layout check and `node --check` pass, but the rewritten widgets have not been loaded in a browser | Low — the check pins every index; a typo would be a thrown ReferenceError on the first frame, not a wrong picture |
 | all nine | Touch controls on an actual device | Every touch scheme here is reasoned about, not tested |
 
+**Everything built on 15–16 September 2026 is in the table above and none of it
+has been seen in a browser** — the `FIELD` rewrite of every widget's memory
+reads, Pixel Wave's pause, its Easy/Normal/Hard settings and its three enemy
+species. Each was driven headlessly instead: the widgets through a stub DOM with
+hand-pumped frames, the engines through benched runs, with the numbers recorded
+in the relevant README. What none of that can test is how any of it feels.
+
 **How to do this:** `npm run serve`, open each game, play for two minutes. It is
 still the cheapest high-value work outstanding.
 
@@ -63,9 +71,9 @@ still the cheapest high-value work outstanding.
 
 ### Pixel Wave's own roadmap — *product decisions*
 
-Power-ups, boss waves, per-species enemy behaviour, gamepad support. Listed in full at the bottom of
-[`games/plans-for-other-games.md`](games/plans-for-other-games.md). Sound, pause
-and difficulty settings are done. Each of the rest changes what the game *is*, so they are for the owner to
+Power-ups, boss waves, gamepad support. Listed in full at the bottom of
+[`games/plans-for-other-games.md`](games/plans-for-other-games.md). Sound, pause,
+difficulty settings and per-species enemy behaviour are done. Each of the rest changes what the game *is*, so they are for the owner to
 choose between rather than for anyone to work through in order.
 
 ---

@@ -96,7 +96,11 @@ it that way.
 
 - Your fighter roams the **whole arena**; the swarm patrols the upper half, so
   climbing into it means taking the fight to them.
-- Enemies wander and fire aimed shots only occasionally.
+- Enemies wander and fire aimed shots only occasionally, in three roles.
+  **Crabs** are the baseline. **Hornets** fly half again as fast, change course
+  more often and fire less. **Skulls** fly slowly and aim where you are going,
+  so flying in a straight line is how they hit you. See
+  [Enemy species](#enemy-species-september-2026).
 - Colliding with an enemy destroys both: **one life, no score**. Shoot, don't ram.
 - Asteroids fall from the top. They damage **you** and not the swarm, and can be
   shot for score.
@@ -112,7 +116,7 @@ it that way.
 
 ## Engine
 
-~800 lines of hand-written WAT, 4.3 KB compiled, zero dependencies, zero runtime
+~870 lines of hand-written WAT, 4.5 KB compiled, zero dependencies, zero runtime
 network requests.
 
 ### Memory layout
@@ -240,10 +244,10 @@ changing it starts a fresh run.
 | Asteroid gap | 5.5–8.5 s | 4.5–7.0 s | 3.0–5.0 s |
 | Asteroid fall, per level after 30 | 60–100, +3 | 70–115, +4 | 90–150, +6 |
 
-**Normal is the August balance, exactly.** Identical input replayed through the
-previous engine and this one gave byte-identical linear memory on every frame:
-across three ordinary runs, and across a run held at five lives that reached
-level 40, where the late ramps are read.
+**Normal is the August balance.** When difficulty arrived, identical input
+replayed through the previous engine and the new one gave byte-identical linear
+memory on every frame, through level 40. The enemy species broke that replay on
+purpose, and were balanced so the curve stayed where it was instead.
 
 **Hard is the balance from before the August easing** (the *Was* column below),
 with today's controls. The 241°/s turn rate and hold-to-stream fire were
@@ -257,6 +261,8 @@ twice. So before level 30, most of the fire anyone faces is each wave's opening
 volley, which the cooldowns never touched. Delaying that volley is what moved
 the numbers:
 
+(16 runs each, measured before the enemy species existed.)
+
 | Easy's first shot | Bad pilot's median run | Median level |
 |---|---|---|
 | 1.5–4.0 s (Normal's) | 25 s | 7 |
@@ -267,23 +273,71 @@ Slower enemy bullets barely registered: 4.0–7.0 s with bullets at 280 also
 lasted 49 s, because the bench pilot never dodges. Easy keeps 200 for the players
 who do.
 
-The settings as shipped, 16 runs each with a pilot that aims loosely at the
+The settings as shipped, 64 runs each with a pilot that aims loosely at the
 nearest enemy, fires on a fixed rhythm and never dodges:
 
 | | Survived: worst / median / best | Median level | Runs reaching level 3 |
 |---|---|---|---|
-| Easy | 36 / 49 / 72 s | 10 | 16 of 16 |
-| Normal | 13 / 19 / 28 s | 5 | 16 of 16 |
-| Hard | 7 / 12 / 22 s | 3 | 10 of 16 |
+| Easy | 35 / 55 / 78 s | 11 | 64 of 64 |
+| Normal | 12 / 19 / 32 s | 5 | 64 of 64 |
+| Hard | 5 / 13 / 26 s | 3 | 48 of 64 |
 
-Easy's worst run outlasts Normal's best, and no Easy run hit the 10-minute cap:
-easier, still losable. On every setting nearly every life went to enemy bullets
-(74 of 80 on Normal), not to asteroids or ramming.
+Easy's worst run outlasts Normal's best, and no run on any setting reached the
+10-minute cap: easier, still losable.
+
+What kills changes with the setting. On Normal, enemy fire took 265 of 320 lives
+and ramming 41. On Easy, where fire is thin and runs run long, ramming is the
+single largest cause — 147 of 448 — because a pilot who flies at the swarm and
+never dodges eventually flies into a hornet.
 
 **Best scores are kept per setting.** The page shell records Normal under the
 same key as before, so a best set before difficulty existed is still Normal's,
 and the hub card keeps showing it. Easy and Hard get `pixel-wave:easy` and
 `pixel-wave:hard`.
+
+---
+
+## Enemy species, September 2026
+
+Pool slot `i` holds species `i % 3`: 0 crab, 1 hornet, 2 skull. The renderer has
+always picked sprites that way; now the engine decides behaviour off the same
+arithmetic, so there is no species field to store or keep in sync.
+
+| | Crab | Hornet | Skull |
+|---|---|---|---|
+| Speed | the difficulty table's | ×1.5 | ×0.7 |
+| Re-picks a target every | 1.2–3.2 s | 0.5–1.4 s | 1.2–3.2 s |
+| Waits between shots | the table's | ×1.5 | the table's |
+| Aims at | where you are | where you are | where you will be |
+
+A skull leads its shot: time of flight to your current position, times your
+velocity, capped at 1.5 seconds. That is one step of the intercept rather than
+the exact quadratic, which is enough for the job it has.
+
+**The lead does what it is for.** Measured on Hard with pilots that never shoot,
+64 runs each, changing only the lead cap so crabs stay a control:
+
+| Pilot | No lead | 1.5 s (shipped) | 3.0 s |
+|---|---|---|---|
+| Flies in straight lines | 5.4% | **10.0%** | 7.6% |
+| Reverses every 2 s | 11.1% | 9.3% | 9.8% |
+
+Hit rate is lives taken per shot fired. The lead nearly doubles a skull's hits
+on a straight-line flier and buys nothing against one that turns, which is the
+role. A longer cap is worse: it aims past the wall the ship turns at.
+
+**The roles were balanced so the difficulty curve did not move.** As first
+built, hornets waited twice as long between shots and skulls 1.3×, and a bad
+pilot's mean run grew by about a quarter on every setting (Normal 19.3 s →
+24.9 s, 64 runs). Hornets at ×1.5, with skulls firing as often as crabs, put it
+back: 54.9 / 20.0 / 13.0 s on Easy / Normal / Hard against 50.4 / 19.3 / 12.8 s
+before species existed.
+
+In play on Normal, 64 runs: crabs fire most (249 shots, 55.8% of them taking a
+life); skulls fire 138 and hit 60.1%, up from 37.3% for the same slots before
+the lead existed; hornets fire least (83, down from 207) and live longest —
+median 2.5 s against a crab's 2.2 s and a skull's 1.8 s. Hard to hit, not
+deadly, as intended.
 
 ---
 

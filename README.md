@@ -13,7 +13,7 @@ arcade-library/
 ├── TASKS.md            ← the open backlog
 ├── index.html          ← landing page; open it, or npm run serve
 ├── games/
-│   ├── pixel-wave/     ← retro wave shooter, 4.3 KB engine, keyboard + touch
+│   ├── pixel-wave/     ← retro wave shooter, 4.5 KB engine, keyboard + touch
 │   ├── grid-breaker/   ← brick breaker, 4.9 KB engine, keyboard + pointer + touch
 │   ├── worm-chase/     ← grid territory capture, 3.8 KB engine, no imports
 │   ├── asteroid-miner/ ← mining run, 4.2 KB engine, fuel and cargo, 320x240

@@ -89,12 +89,12 @@
   ;;
   ;; Three things about it are deliberate.
   ;;
-  ;; **Normal is the August 2026 balance to the bit.** Every expression that
-  ;; used a literal now reads the same f32 from a global, so a Normal run
-  ;; replays the old engine exactly. That was checked by replaying identical
-  ;; input through the old binary and this one and comparing linear memory
-  ;; every frame, including a run held at five lives that reached level 40,
-  ;; where the late ramps are read.
+  ;; **Normal is the August 2026 balance.** When difficulty arrived, every
+  ;; expression that had used a literal read the same f32 from a global, and a
+  ;; Normal run replayed the old engine byte for byte, checked frame by frame
+  ;; through level 40. The species roles below change what individual bots do,
+  ;; so that replay no longer holds; they were balanced instead so a bad
+  ;; pilot's mean run on each setting stayed within a few percent.
   ;;
   ;; **Hard is the balance from before the August easing** — the "Was" column
   ;; in README.md. It restores the numbers, not the controls: the 241°/s turn
@@ -103,7 +103,8 @@
   ;; stay shared too; the old ones let a level-60 swarm fire almost
   ;; continuously, which is a pathology, not a harder game.
   ;;
-  ;; **Easy is mostly a later first shot.** The first Easy only lengthened the
+  ;; **Easy is mostly a later first shot** (measured before species roles,
+  ;; which were then balanced not to move it). The first Easy only lengthened the
   ;; cooldowns, and benches at 5.5-9 s and at 7-11 s came out identical to the
   ;; last death. A bot's first shot is timed when its wave spawns, and a pilot
   ;; who clears a wave in seconds rarely lets any bot fire twice, so before
@@ -134,6 +135,40 @@
   (global $enemyBulletSpeed (mut f32) (f32.const 280.0))
   (global $openCdMin (mut f32) (f32.const 1.5))
   (global $openCdMax (mut f32) (f32.const 4.0))
+
+  ;; ---- species ------------------------------------------------------------
+  ;; Pool slot i holds species i % 3: 0 crab, 1 hornet, 2 skull. The renderer
+  ;; has always drawn them that way; now they behave that way too. The rule is
+  ;; the same arithmetic on both sides of the boundary, so there is no field to
+  ;; keep in sync and nothing for check-layout to guard.
+  ;;
+  ;;   crab    the anchor: the wander and the aimed shot every bot used to have
+  ;;   hornet  fast and twitchy, fires two-thirds as often: hard to hit
+  ;;   skull   slow, aims where the player is going: punishes straight lines
+  ;;
+  ;; Each is a multiplier on the difficulty table rather than a column of its
+  ;; own. A species is a role; the difficulty is how hard every role plays it.
+  ;;
+  ;; **The roles were balanced so the difficulty curve did not move.** As first
+  ;; built, hornets waited twice as long between shots and skulls 1.3 times, and
+  ;; a bad pilot's mean run grew by about a quarter on every setting (Normal
+  ;; 19.3 s -> 24.9 s, 64 runs each). Hornets at x1.5, with skulls firing as
+  ;; often as crabs, put it back: 54.9 / 20.0 / 13.0 s on Easy / Normal / Hard,
+  ;; against 50.4 / 19.3 / 12.8 s before species. A skull's threat is where it
+  ;; aims, not how often, so it has no fire multiplier at all.
+  (global $HORNET_SPEED f32 (f32.const 1.5))       ;; x the table's enemy speed
+  (global $HORNET_FIRE f32 (f32.const 1.5))        ;; x every wait, the first shot's too
+  (global $HORNET_WANDER_MIN f32 (f32.const 0.5))  ;; crab and skull re-pick every 1.2-3.2 s
+  (global $HORNET_WANDER_MAX f32 (f32.const 1.4))
+  (global $SKULL_SPEED f32 (f32.const 0.7))
+  ;; Seconds of lead, at most. Measured on Hard with pilots that never shoot,
+  ;; 64 runs each, changing only this cap so crabs are the control: against a
+  ;; ship flying straight lines a skull hit with 5.4% of its shots at 0 (no
+  ;; lead), 10.0% at 1.5 and 7.6% at 3.0, and against one reversing every 2 s
+  ;; 11.1%, 9.3% and 9.8%. So the lead nearly doubles a skull's hits on a
+  ;; straight flier and buys nothing against a weaving one, which is the role.
+  ;; A longer cap was worse, because it aims past the wall the ship turns at.
+  (global $LEAD_MAX f32 (f32.const 1.5))
 
   ;; ---- burst fire ---------------------------------------------------------
   ;; Holding Space used to stream bullets for as long as it was down. One press
@@ -202,6 +237,21 @@
     (if (f32.lt (local.get $r) (f32.const 0.0)) (then (local.set $r (f32.const 0.0))))
     (local.get $r))
 
+  ;; Species of pool slot $i: 0 crab, 1 hornet, 2 skull. pixel-wave.js draws
+  ;; with the same i % 3.
+  (func $species (param $i i32) (result i32)
+    (i32.rem_u (local.get $i) (i32.const 3)))
+
+  ;; How much longer this species waits between shots than a crab does; only a
+  ;; hornet waits longer. It applies to a wave's first shot as well as every
+  ;; later one, because before level 30 that first shot is most of the fire
+  ;; there is (see the difficulty notes above), so a multiplier that skipped it
+  ;; would change almost nothing.
+  (func $fire_mul (param $i i32) (result f32)
+    (if (result f32) (i32.eq (call $species (local.get $i)) (i32.const 1))
+      (then (global.get $HORNET_FIRE))
+      (else (f32.const 1.0))))
+
   (func $spawn_bullet (param $owner i32) (param $x f32) (param $y f32) (param $vx f32) (param $vy f32)
     (local $i i32) (local $a i32)
     (local.set $i (i32.const 0))
@@ -258,7 +308,8 @@
             (f32.store offset=20 (local.get $a) (f32.const 1.0))
             ;; first-shot delay, from the difficulty table: until level 30 this
             ;; opening volley is most of the fire the player ever faces
-            (f32.store offset=24 (local.get $a) (call $frand (global.get $openCdMin) (global.get $openCdMax)))
+            (f32.store offset=24 (local.get $a)
+              (f32.mul (call $frand (global.get $openCdMin) (global.get $openCdMax)) (call $fire_mul (local.get $i))))
             (f32.store offset=28 (local.get $a) (f32.const 0.0))
             (f32.store offset=32 (local.get $a) (call $frand (f32.const 34.0) (f32.sub (global.get $WORLD_W) (f32.const 34.0))))
             (f32.store offset=36 (local.get $a) (call $frand (f32.const 34.0) (f32.sub (global.get $MID_Y) (f32.const 34.0)))))
@@ -439,6 +490,7 @@
     (local $i i32) (local $a i32) (local $b i32)
     (local $bx f32) (local $by f32) (local $bvx f32) (local $bvy f32) (local $balive f32)
     (local $bcd f32) (local $bwt f32) (local $btx f32) (local $bty f32)
+    (local $sp i32) (local $bspeed f32) (local $lead f32)
     (local $dx f32) (local $dy f32) (local $dist f32)
     (local $steerX f32) (local $steerY f32)
     (local $ox f32) (local $oy f32) (local $ovx f32) (local $ovy f32) (local $owner f32) (local $active f32)
@@ -539,6 +591,7 @@
       (loop $lp
         (br_if $donebots (i32.ge_s (local.get $i) (global.get $MAX_BOTS)))
         (local.set $a (call $bot_addr (local.get $i)))
+        (local.set $sp (call $species (local.get $i)))
         (local.set $balive (f32.load offset=20 (local.get $a)))
         (if (f32.gt (local.get $balive) (f32.const 0.0))
           (then
@@ -559,10 +612,20 @@
               (then
                 (local.set $btx (call $frand (f32.const 34.0) (f32.sub (global.get $WORLD_W) (f32.const 34.0))))
                 (local.set $bty (call $frand (f32.const 34.0) (f32.sub (global.get $MID_Y) (f32.const 34.0))))
-                (local.set $bwt (call $frand (f32.const 1.2) (f32.const 3.2)))
+                ;; a hornet changes its mind two or three times as often
+                (if (i32.eq (local.get $sp) (i32.const 1))
+                  (then (local.set $bwt (call $frand (global.get $HORNET_WANDER_MIN) (global.get $HORNET_WANDER_MAX))))
+                  (else (local.set $bwt (call $frand (f32.const 1.2) (f32.const 3.2)))))
                 (local.set $dx (f32.sub (local.get $btx) (local.get $bx)))
                 (local.set $dy (f32.sub (local.get $bty) (local.get $by)))
                 (local.set $dist (f32.sqrt (f32.add (f32.mul (local.get $dx) (local.get $dx)) (f32.mul (local.get $dy) (local.get $dy)))))))
+
+            ;; hornets fly faster than the table's enemy speed, skulls slower
+            (local.set $bspeed (local.get $botSpeed))
+            (if (i32.eq (local.get $sp) (i32.const 1))
+              (then (local.set $bspeed (f32.mul (local.get $botSpeed) (global.get $HORNET_SPEED)))))
+            (if (i32.eq (local.get $sp) (i32.const 2))
+              (then (local.set $bspeed (f32.mul (local.get $botSpeed) (global.get $SKULL_SPEED)))))
 
             (local.set $steerX (f32.const 0.0))
             (local.set $steerY (f32.const 0.0))
@@ -571,8 +634,8 @@
                 (local.set $steerX (f32.div (local.get $dx) (local.get $dist)))
                 (local.set $steerY (f32.div (local.get $dy) (local.get $dist)))))
 
-            (local.set $bvx (f32.add (local.get $bvx) (f32.mul (f32.sub (f32.mul (local.get $steerX) (local.get $botSpeed)) (local.get $bvx)) (f32.mul (local.get $dt) (f32.const 2.5)))))
-            (local.set $bvy (f32.add (local.get $bvy) (f32.mul (f32.sub (f32.mul (local.get $steerY) (local.get $botSpeed)) (local.get $bvy)) (f32.mul (local.get $dt) (f32.const 2.5)))))
+            (local.set $bvx (f32.add (local.get $bvx) (f32.mul (f32.sub (f32.mul (local.get $steerX) (local.get $bspeed)) (local.get $bvx)) (f32.mul (local.get $dt) (f32.const 2.5)))))
+            (local.set $bvy (f32.add (local.get $bvy) (f32.mul (f32.sub (f32.mul (local.get $steerY) (local.get $bspeed)) (local.get $bvy)) (f32.mul (local.get $dt) (f32.const 2.5)))))
 
             (local.set $bx (call $clampf (f32.add (local.get $bx) (f32.mul (local.get $bvx) (local.get $dt))) (f32.const 18.0) (f32.sub (global.get $WORLD_W) (f32.const 18.0))))
             (local.set $by (call $clampf (f32.add (local.get $by) (f32.mul (local.get $bvy) (local.get $dt))) (f32.const 18.0) (f32.sub (global.get $MID_Y) (f32.const 18.0))))
@@ -583,13 +646,27 @@
                 (local.set $dx (f32.sub (local.get $px) (local.get $bx)))
                 (local.set $dy (f32.sub (local.get $py) (local.get $by)))
                 (local.set $dist (f32.sqrt (f32.add (f32.mul (local.get $dx) (local.get $dx)) (f32.mul (local.get $dy) (local.get $dy)))))
+                ;; A skull aims where the player will be when the shot arrives,
+                ;; not where they are: time of flight to the current position,
+                ;; then lead by the player's velocity for that long. That is one
+                ;; step of the intercept rather than the exact quadratic, which
+                ;; is enough for its job: a player flying straight gets hit, a
+                ;; player who turns does not. The cap stops a distant skull
+                ;; firing at a point the player could never reach.
+                (if (i32.eq (local.get $sp) (i32.const 2))
+                  (then
+                    (local.set $lead (f32.div (local.get $dist) (global.get $enemyBulletSpeed)))
+                    (if (f32.gt (local.get $lead) (global.get $LEAD_MAX)) (then (local.set $lead (global.get $LEAD_MAX))))
+                    (local.set $dx (f32.add (local.get $dx) (f32.mul (local.get $pvx) (local.get $lead))))
+                    (local.set $dy (f32.add (local.get $dy) (f32.mul (local.get $pvy) (local.get $lead))))
+                    (local.set $dist (f32.sqrt (f32.add (f32.mul (local.get $dx) (local.get $dx)) (f32.mul (local.get $dy) (local.get $dy)))))))
                 (if (f32.gt (local.get $dist) (f32.const 0.001))
                   (then
                     (call $spawn_bullet (i32.const 1) (local.get $bx) (local.get $by)
                       (f32.mul (f32.div (local.get $dx) (local.get $dist)) (global.get $enemyBulletSpeed))
                       (f32.mul (f32.div (local.get $dy) (local.get $dist)) (global.get $enemyBulletSpeed)))
                     (global.set $enemyShots (i32.add (global.get $enemyShots) (i32.const 1)))))
-                (local.set $bcd (call $frand (local.get $cdMin) (local.get $cdMax)))))
+                (local.set $bcd (f32.mul (call $frand (local.get $cdMin) (local.get $cdMax)) (call $fire_mul (local.get $i))))))
 
             (f32.store offset=0 (local.get $a) (local.get $bx))
             (f32.store offset=4 (local.get $a) (local.get $by))

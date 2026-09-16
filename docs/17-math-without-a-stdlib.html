@@ -366,9 +366,15 @@ in JavaScript, pre-rendered once at mount to offscreen canvases and then blitted
   // &#39;.&#39; is transparent; each letter indexes a palette
 ];
 </code></pre>
-<p>The engine knows nothing about any of this. It stores a position, a heading and
-an alive flag; the renderer decides that bot index <code>i % 3</code> is a crab and which
-of its two animation frames to draw. Sprite work is allocation-heavy DOM-adjacent
+<p>The engine knows nothing about any of this. It stores a position and an alive
+flag, and the renderer decides which of a crab&#39;s two animation frames to draw.
+The one thing the two sides share is the rule that bot index <code>i % 3</code> <em>is</em> a crab,
+a hornet or a skull: the renderer uses it to pick a sprite, and the engine uses
+the same arithmetic to decide how that bot flies and aims. There is no species
+field to keep in sync, because there is nothing to store: the slot is the
+species. (A skull&#39;s aim is itself no-trig maths in the spirit of this chapter —
+time of flight is distance over bullet speed, and the lead is the player&#39;s
+velocity times that, capped.) Sprite work is allocation-heavy DOM-adjacent
 code with no arithmetic worth accelerating — exactly the sort of thing that
 belongs on the JavaScript side of the line (<a href="15-game-loop-architecture.html">chapter
 15</a>).</p>

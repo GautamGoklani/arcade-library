@@ -109,8 +109,9 @@ Hand-written WAT usually does not. Every engine here has zero tables, because
 their dispatch is a small fixed set best written as an `if` chain:
 
 ```wat
-;; enemy species: 0 crab, 1 hornet, 2 skull — behaviour differs only in
-;; constants, so there is nothing to dispatch to
+;; enemy species: 0 crab, 1 hornet, 2 skull — a hornet flies faster and
+;; waits longer to fire, a skull leads its shot: three small branches inside
+;; the one bot loop, so there is nothing to dispatch to
 ```
 
 Reach for a table when you have **open-ended** dispatch: a plugin registry,

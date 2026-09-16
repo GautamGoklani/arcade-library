@@ -194,8 +194,9 @@ without going through JavaScript.</p>
 <h2>When you actually need a table</h2>
 <p>Hand-written WAT usually does not. Every engine here has zero tables, because
 their dispatch is a small fixed set best written as an <code>if</code> chain:</p>
-<pre><code class="language-wat">;; enemy species: 0 crab, 1 hornet, 2 skull — behaviour differs only in
-;; constants, so there is nothing to dispatch to
+<pre><code class="language-wat">;; enemy species: 0 crab, 1 hornet, 2 skull — a hornet flies faster and
+;; waits longer to fire, a skull leads its shot: three small branches inside
+;; the one bot loop, so there is nothing to dispatch to
 </code></pre>
 <p>Reach for a table when you have <strong>open-ended</strong> dispatch: a plugin registry,
 user-supplied callbacks, a large <code>switch</code> over function bodies rather than
