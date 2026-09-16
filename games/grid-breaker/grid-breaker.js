@@ -235,11 +235,13 @@
         '<span>LEVEL <b class="gb-v" data-gb="level">1</b></span>' +
         '<span>TILES <b data-gb="tiles">0</b></span>' +
         '<button type="button" class="gb-mute" data-gb="mute">SOUND ON</button>' +
+        '<button type="button" class="gb-mute gb-pause" data-gb="pause">PAUSE</button>' +
       '</div>' +
       '<div class="gb-stage">' +
         '<canvas class="gb-canvas" width="' + WORLD_W + '" height="' + WORLD_H + '"></canvas>' +
         '<div class="gb-scan" aria-hidden="true"></div>' +
         '<div class="gb-overlay gb-msg" data-gb="msg">GAME OVER<small data-gb="msgsmall">PRESS R TO RESTART</small></div>' +
+        '<div class="gb-overlay gb-msg gb-paused" data-gb="paused">PAUSED<small data-gb="pausedsmall">PRESS P TO RESUME</small></div>' +
         '<div class="gb-overlay gb-banner" data-gb="banner">LEVEL 1</div>' +
         '<div class="gb-overlay gb-serve" data-gb="serve">PRESS SPACE TO LAUNCH</div>' +
         '<div class="gb-touch" aria-hidden="true">' +
@@ -257,7 +259,7 @@
         '</div>' +
       '</div>' +
       '<div class="gb-help" data-gb="help">' +
-        '[A]/[D] or MOUSE MOVE &nbsp; [SPACE] LAUNCH &nbsp; [R] RESTART &nbsp; [M] MUTE</div>';
+        '[A]/[D] or MOUSE MOVE &nbsp; [SPACE] LAUNCH &nbsp; [P] PAUSE &nbsp; [R] RESTART &nbsp; [M] MUTE</div>';
     container.appendChild(root);
 
     var q = function (name) { return root.querySelector('[data-gb="' + name + '"]'); };
@@ -327,15 +329,23 @@
       root.classList.add('gb-is-touch');
       helpEl.textContent = 'LEFT THUMBSTICK TO MOVE • LAUNCH BUTTON RIGHT • TAP GAME OVER TO RESTART';
       q('msgsmall').textContent = 'TAP TO RESTART';
+      q('pausedsmall').textContent = 'TAP TO RESUME';
       serveEl.textContent = 'PRESS LAUNCH';
     }
     if (global.matchMedia && global.matchMedia('(pointer: coarse)').matches) enableTouchUI();
 
     // ---------- per-instance state ----------
     var wasm = null, f32 = null, i32 = null;
-    var running = false, destroyed = false;
+    var running = false, destroyed = false, paused = false;
     var rafId = 0, lastT = 0, tGlobal = 0;
     var input = { left: false, right: false, launch: false };
+    // Gamepad, read once a frame rather than listened for: the Gamepad API only
+    // refreshes its snapshots when getGamepads() is called, so a listener would
+    // report whatever frame it happened to fire on. Rebuilt every poll, so
+    // nothing latches the way a missed keyup can.
+    var PAD_DEADZONE = 0.28;   // a resting stick reads up to about 0.15 on a worn pad
+    var pad = { dir: 0, launch: false };
+    var padPrev = { pause: false, restart: false, mute: false };
     var pointer = { active: false, x: WORLD_W / 2 };
     // Thumbstick. `dir` is the analog value handed straight to the engine:
     // set_input takes it as an f32 and applies `x += dir * PADDLE_SPEED * dt`,
@@ -361,6 +371,11 @@
       if (e.key === ' ') { input.launch = true; e.preventDefault(); }
       if (e.key === 'r' || e.key === 'R') restart();
       if (e.key === 'm' || e.key === 'M') toggleMute();
+      // A held key auto-repeats, and a toggle on every repeat would flicker.
+      if ((e.key === 'p' || e.key === 'P' || e.key === 'Escape') && !e.repeat) {
+        setPaused(!paused);
+        e.preventDefault();
+      }
     }
     function onKeyUp(e) {
       if (e.key === 'a' || e.key === 'A' || e.key === 'ArrowLeft') input.left = false;
@@ -376,7 +391,10 @@
 
     global.addEventListener('keydown', onKeyDown);
     global.addEventListener('keyup', onKeyUp);
-    global.addEventListener('blur', releaseAll);
+    // Losing focus also pauses: whoever alt-tabbed away was not planning to come
+    // back to a ball already in flight.
+    function onBlur() { releaseAll(); setPaused(true); }
+    global.addEventListener('blur', onBlur);
 
     // Touch and mouse are two control schemes sharing one set of listeners.
     // They cannot fight, because a pointer is routed by its `pointerType`: a
@@ -436,6 +454,13 @@
       if (msgEl.style.display === 'block' && msgEl.contains(e.target)) {
         e.preventDefault();
         restart();
+        return;
+      }
+      // Paused, any press on the stage resumes and does nothing else: a click
+      // meant to unpause should not also launch the ball.
+      if (paused) {
+        e.preventDefault();
+        setPaused(false);
         return;
       }
 
@@ -516,6 +541,58 @@
     global.addEventListener('pointerup', onPointerUp);
     global.addEventListener('pointercancel', onPointerUp);
     msgEl.addEventListener('click', function () { restart(); });
+
+    // ---------- pause ----------
+    // Pause lives here and not in the engine, because it is a decision about the
+    // clock rather than about the game: the engine advances by whatever dt it is
+    // handed, so pausing is the loop no longer handing it one. The loop keeps
+    // drawing, so the frozen frame stays on screen. Chapter 15 makes the case.
+    var pausedEl = q('paused'), pauseBtn = q('pause');
+    function setPaused(on) {
+      if (on && !running) return;   // nothing to pause on the game-over screen
+      paused = on;
+      pausedEl.style.display = on ? 'block' : 'none';
+      pauseBtn.textContent = on ? 'RESUME' : 'PAUSE';
+      // Anything held when play stopped must not still be held when it resumes:
+      // the same latch releaseAll() exists to prevent on blur.
+      if (on) releaseAll();
+    }
+    pauseBtn.addEventListener('click', function () { setPaused(!paused); pauseBtn.blur(); });
+
+    // ---------- gamepad ----------
+    // Standard mapping, and both a face button and a trigger for launch, so a
+    // pad with worn triggers still plays: left stick or d-pad steers the paddle,
+    // A / X / triggers launch, Start pauses, Back or Y restarts, a shoulder
+    // button mutes. The stick is analog and the paddle takes an analog dir, so
+    // it goes straight through.
+    function pollGamepad() {
+      pad.dir = 0; pad.launch = false;
+      var nav = global.navigator;
+      var pads = nav && nav.getGamepads ? nav.getGamepads() : null;
+      if (!pads) return;
+      var p = null, i;
+      for (i = 0; i < pads.length; i++) if (pads[i] && pads[i].connected) { p = pads[i]; break; }
+      if (!p) return;
+
+      var buttons = p.buttons || [], axes = p.axes || [];
+      // A trigger reports an analog value and may never set `pressed`.
+      var btn = function (n) { var b = buttons[n]; return !!(b && (b.pressed || b.value > 0.5)); };
+      var ax = axes[0] || 0;
+      if (Math.abs(ax) > PAD_DEADZONE) {
+        // Rescale past the deadzone, so the first millimetre of real movement
+        // walks the paddle rather than jumping it to a third speed.
+        pad.dir = (ax > 0 ? 1 : -1) * Math.min(1, (Math.abs(ax) - PAD_DEADZONE) / (1 - PAD_DEADZONE));
+      } else if (btn(14) || btn(15)) {
+        pad.dir = btn(15) ? 1 : -1;
+      }
+      pad.launch = btn(0) || btn(2) || btn(6) || btn(7);
+
+      var pausePress = btn(9), restartPress = btn(8) || btn(3), mutePress = btn(4) || btn(5);
+      if (pausePress && !padPrev.pause) setPaused(!paused);
+      if (restartPress && !padPrev.restart) restart();
+      if (mutePress && !padPrev.mute) toggleMute();
+      padPrev.pause = pausePress; padPrev.restart = restartPress; padPrev.mute = mutePress;
+    }
 
     function toggleMute() {
       muted = !muted;
@@ -775,12 +852,16 @@
       shake = 0; flash = 0;
       snapshotTiles();
       syncCounters();
+      setPaused(false);
       running = true;
     }
 
     // ---------- main loop ----------
     function loop(now) {
       if (destroyed) return;
+      // Before the running check: Start has to be able to unpause, and Back to
+      // restart from the game-over screen.
+      pollGamepad();
       // Clamped at both ends. The ceiling stops a backgrounded tab teleporting
       // the ball across the arena on its first frame back; the floor matters
       // because a negative dt walks the ball to a NaN position, and the first
@@ -790,15 +871,22 @@
       lastT = now;
       tGlobal += dt;
 
+      // Paused stops the animation clock too, so particles and shake hold still
+      // with the ball rather than playing on over it. lastT still advances, so
+      // the first frame back is one frame long, not the whole pause.
+      if (paused) dt = 0;
+
       var anyStuck = false;
 
-      if (running) {
+      if (running && !paused) {
         var dir = (input.right ? 1 : 0) - (input.left ? 1 : 0);
         // The stick is analog: a nudge walks the paddle, a full push sprints it.
         // Held past the deadzone it overrides the keys, which cannot express
-        // anything between 0 and 1 anyway.
+        // anything between 0 and 1 anyway. A pad's stick says the same thing in
+        // the same units, so it comes through the same door.
+        if (pad.dir) dir = pad.dir;
         if (stick.active && Math.abs(stick.dir) > STICK_DEADZONE) dir = stick.dir;
-        wasm.exports.set_input(dir, input.launch ? 1 : 0, pointer.active ? 1 : 0, pointer.x);
+        wasm.exports.set_input(dir, (input.launch || pad.launch) ? 1 : 0, pointer.active ? 1 : 0, pointer.x);
         wasm.exports.step(dt);
         // Re-viewed every frame: a memory.grow would detach the old buffer and
         // every read through it would come back as zero.
@@ -902,7 +990,7 @@
         cancelAnimationFrame(rafId);
         global.removeEventListener('keydown', onKeyDown);
         global.removeEventListener('keyup', onKeyUp);
-        global.removeEventListener('blur', releaseAll);
+        global.removeEventListener('blur', onBlur);
         global.removeEventListener('pointerup', onPointerUp);
         global.removeEventListener('pointercancel', onPointerUp);
         sound.close();
@@ -916,6 +1004,7 @@
           level: wasm.exports.get_level(),
           tilesLeft: wasm.exports.get_tiles_left(),
           gameOver: !!wasm.exports.is_game_over(),
+          paused: paused,
         };
       },
     };

@@ -69,7 +69,7 @@ For plain integration you only need to copy **two files** into a site:
 var game = GridBreaker.mount(containerOrSelector, options?);
 
 game.restart();    // start a fresh run
-game.getState();   // { score, lives, level, tilesLeft, gameOver }
+game.getState();   // { score, lives, level, tilesLeft, gameOver, paused }
 game.destroy();    // stop the loop, remove DOM + all event listeners
 ```
 
@@ -88,8 +88,19 @@ Multiple instances on one page are supported — each `mount()` is independent.
 |---------|----------------------------|------------------------|
 | Move    | A / D, ← / →, or the mouse | left thumbstick        |
 | Launch  | Space                      | LAUNCH button (right)  |
+| Pause   | P or Esc; losing focus too  | the PAUSE button; tap the arena to resume |
 | Restart | R                          | tap the GAME OVER text |
 | Mute    | M                          | the SOUND button       |
+
+**Gamepad**, standard mapping, no setup: left stick or d-pad steers the paddle
+(the stick is analog, like the touch one), `A` / `X` / either trigger launches,
+`Start` pauses, `Back` or `Y` restarts, a shoulder button mutes. It is polled
+once a frame rather than listened for, because `getGamepads()` only refreshes
+its snapshots when called.
+
+Pause is the widget's, not the engine's: the engine advances by whatever `dt` it
+is handed, so pausing is the loop not handing it one while it keeps drawing the
+frozen frame. See [chapter 15](../../docs/15-game-loop-architecture.md).
 
 On desktop, moving the mouse takes over steering and pressing a key hands it
 back. The engine is told which is driving (`ptrActive`), so the two never fight.

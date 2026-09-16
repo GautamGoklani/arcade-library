@@ -99,6 +99,9 @@
   cursor: pointer;
 }
 .gb-mute:hover { background: rgba(255, 176, 46, 0.15); }
+/* PAUSE borrows SOUND's look and sits beside it. Touch has no P key, so on a
+   phone this button is the only way to pause. */
+.gb-pause { margin-left: 8px; }
 
 .gb-overlay {
   /* The stage sets line-height: 0 to kill the inline gap under the canvas, and
@@ -131,6 +134,13 @@
   color: #ffb02e;
   margin-top: 14px;
   letter-spacing: 3px;
+}
+
+/* Same overlay as GAME OVER, in the level banner's violet: pause is a waiting
+   state, not a loss, and it should not read as one. */
+.gb-paused {
+  color: #b45cff;
+  text-shadow: 0 0 18px #b45cff, 3px 3px 0 #2a0d4d;
 }
 
 .gb-banner {
