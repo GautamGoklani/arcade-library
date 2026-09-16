@@ -82,7 +82,7 @@ For plain integration you only need to copy **two files** into a site:
 var game = WormChase.mount(containerOrSelector, options?);
 
 game.restart();    // start a fresh run
-game.getState();   // { score, lives, level, owned, target, total, gameOver, paused }
+game.getState();   // { score, lives, level, owned, target, total, gameOver, paused, difficulty }
 game.destroy();    // stop the loop, remove DOM + all event listeners
 ```
 
@@ -101,6 +101,7 @@ Multiple instances on one page are supported — each `mount()` is independent.
 |---------|---------------------------|------------------------|
 | Move    | hold ← ↑ → ↓ or W A S D   | hold and drag anywhere |
 | Stop    | let go                    | lift your thumb        |
+| Difficulty | the EASY / NORMAL / HARD button; changing it starts a fresh run | the same button |
 | Pause   | P or Esc; losing focus too | the PAUSE button; tap the board to resume |
 | Restart | R                         | tap the GAME OVER text |
 | Mute    | M                         | the SOUND button       |
@@ -305,6 +306,57 @@ the worst case and there is no allocator to ask for more. It runs on the tick
 that closes a loop and nowhere else. It is also completely indifferent to what
 shape the trail was, which is what lets the game accept a figure-of-eight, a
 loop drawn back across old territory, or a trail that touches the board edge.
+
+## Difficulty, September 2026
+
+Three settings, picked with the HUD button or
+`mount(el, { difficulty: 'hard' })`. The table lives in the engine:
+`set_difficulty(d)` records the choice (0 easy, 1 normal, 2 hard) and `init()`
+applies it, so a setting never changes halfway through a run.
+
+| | Easy | Normal | Hard |
+|---|---|---|---|
+| Starting lives | 7 | 5 | 3 |
+| Chaser step | 0.34 s | 0.26 s | 0.20 s |
+| ... faster per level | 0.009 | 0.011 | 0.014 |
+| ... floor | 0.14 s | 0.105 s | 0.085 s |
+| A new chaser every | 3 levels | 2 levels | 1 level |
+| Hazards | 2, +4 a level | 2, +6 a level | 4, +8 a level |
+| Land to clear a level | 26% +3 a level, cap 60% | 30% +4, cap 72% | 34% +5, cap 80% |
+
+**The worm's own clock is not in the table.** `$TICK_BASE` and its ramp are the
+feel of the controls rather than the challenge, and a worm that crawled on Easy
+would be a different game to learn on rather than an easier one. What changes is
+what is chasing it, how cluttered the board is, and how much of it a level asks
+for.
+
+**Normal is the previous balance exactly.** Identical input replayed through the
+committed engine and this one gave byte-identical memory on every frame, over
+13,795 frames of twelve runs. (Lives are an engine global rather than a memory
+cell here, so there is no way to pin them from outside the way Pixel Wave's
+replay does; the coverage comes from more runs instead.)
+
+Benched with a pilot that plays badly: it runs in straight lines, turns at
+random, never plans a loop, never checks where a chaser is and never heads home
+to bank a claim — so whatever land it takes, it takes by accident. 24 runs each:
+
+| | Survived: worst / median / best | Mean | Captures (median) | Cells held (median) |
+|---|---|---|---|---|
+| Easy | 22 / 28 / 48 s | 28.2 s | 3 | 47 |
+| Normal | 13 / 18 / 29 s | 19.2 s | 2 | 39 |
+| Hard | 6 / 10 / 17 s | 10.3 s | 1 | 31 |
+
+**What that bench does not cover:** this pilot never clears level 1, so the
+per-level parts of the table — how fast a new chaser arrives, how the hazard
+count grows, how the target tightens — are untested by it. What is measured is
+the chaser's speed, the hazard floor and the starting lives. A player who clears
+levels is testing the rest, and nobody has yet.
+
+**Best scores are kept per setting.** The page shell records Normal under the
+same key as before, so a best set before difficulty existed is still Normal's,
+and Easy and Hard get `worm-chase:easy` and `worm-chase:hard`.
+
+---
 
 ## Tuning
 

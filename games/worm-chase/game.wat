@@ -78,11 +78,43 @@
   ;; level 15. A chaser ticking in lockstep with the worm would be either
   ;; always catchable or never, depending on parity, which is why the two
   ;; clocks are separate numbers rather than one.
-  (global $CHASE_BASE f32 (f32.const 0.260))
-  (global $CHASE_STEP f32 (f32.const 0.011))
-  (global $CHASE_MIN f32 (f32.const 0.105))
+  ;; Mutable because the difficulty table writes them — see $apply_difficulty.
+  ;; The initialisers are Normal's values, which is what makes a Normal run
+  ;; identical to the engine that had no settings at all.
+  (global $CHASE_BASE (mut f32) (f32.const 0.260))
+  (global $CHASE_STEP (mut f32) (f32.const 0.011))
+  (global $CHASE_MIN (mut f32) (f32.const 0.105))
 
-  (global $START_LIVES f32 (f32.const 5.0))
+  (global $START_LIVES (mut f32) (f32.const 5.0))
+
+  ;; ---- difficulty ---------------------------------------------------------
+  ;; Easy / Normal / Hard. The widget calls set_difficulty(d) and then init();
+  ;; init() copies one column of this table into the globals below, and the rest
+  ;; of the engine reads only those.
+  ;;
+  ;;                           easy      normal     hard
+  ;;   starting lives            7          5         3
+  ;;   chaser step (s)         0.34       0.26      0.20
+  ;;   ... faster per level    0.009      0.011     0.014
+  ;;   ... floor               0.14       0.105     0.085
+  ;;   a new chaser every     3 levels   2 levels  1 level
+  ;;   hazards                 2 + 4/lvl  2 + 6/lvl 4 + 8/lvl
+  ;;   land to clear a level  26% + 3/lvl 30% + 4  34% + 5
+  ;;   ... capped at            60%        72%       80%
+  ;;
+  ;; The worm's own clock ($TICK_*) is *not* in the table. It is the feel of the
+  ;; controls rather than the challenge, and a worm that crawls on Easy would be
+  ;; a different game to learn on rather than an easier one.
+  ;;
+  ;; $difficulty is not reset by init: it is a choice about the next run, so a
+  ;; restart has to carry it rather than wipe it — chapter 8's argument for $rng.
+  (global $difficulty (mut i32) (i32.const 1))   ;; 0 easy, 1 normal, 2 hard
+  (global $CHASER_EVERY (mut i32) (i32.const 2))
+  (global $HAZ_BASE (mut i32) (i32.const 2))
+  (global $HAZ_STEP (mut i32) (i32.const 6))
+  (global $TARGET_BASE (mut i32) (i32.const 30))
+  (global $TARGET_STEP (mut i32) (i32.const 4))
+  (global $TARGET_CAP (mut i32) (i32.const 72))
   (global $HOME_HALF i32 (i32.const 2))     ;; starting block is 5x5 cells
 
   ;; Scoring.
@@ -209,8 +241,8 @@
   (func $target_cells (result i32)
     (local $pct i32)
     (local.set $pct
-      (call $clampi (i32.add (i32.const 30) (i32.mul (global.get $level) (i32.const 4)))
-                    (i32.const 30) (i32.const 72)))
+      (call $clampi (i32.add (global.get $TARGET_BASE) (i32.mul (global.get $level) (global.get $TARGET_STEP)))
+                    (global.get $TARGET_BASE) (global.get $TARGET_CAP)))
     (i32.div_s (i32.mul (global.get $CELLS) (local.get $pct)) (i32.const 100)))
 
   (func $add_score (param $n f32)
@@ -260,8 +292,8 @@
     (local $n i32) (local $tries i32) (local $c i32) (local $r i32) (local $a i32)
     (local.set $n
       (call $clampi
-        (i32.add (i32.const 2) (i32.mul (i32.sub (global.get $level) (i32.const 1)) (i32.const 6)))
-        (i32.const 2) (i32.const 96)))
+        (i32.add (global.get $HAZ_BASE) (i32.mul (i32.sub (global.get $level) (i32.const 1)) (global.get $HAZ_STEP)))
+        (global.get $HAZ_BASE) (i32.const 96)))
     (local.set $tries (i32.const 0))
     (block $done
       (loop $lp
@@ -290,7 +322,7 @@
     ;; teach the loop-and-claim rule before it starts punishing it.
     (local.set $n
       (call $clampi
-        (i32.add (i32.const 1) (i32.div_s (i32.sub (global.get $level) (i32.const 1)) (i32.const 2)))
+        (i32.add (i32.const 1) (i32.div_s (i32.sub (global.get $level) (i32.const 1)) (global.get $CHASER_EVERY)))
         (i32.const 1) (global.get $MAX_CHASERS)))
     (local.set $i (i32.const 0))
     (block $done
@@ -361,7 +393,60 @@
     (global.set $target (call $target_cells))
     (call $respawn))
 
+  ;; Copy one column of the difficulty table into the globals the rest of the
+  ;; engine reads. Called only from init, so a run never changes balance halfway
+  ;; through. Normal restates the initialisers, because a restart after an Easy
+  ;; or Hard run has to put them back.
+  (func $apply_difficulty
+    (if (i32.eqz (global.get $difficulty))
+      (then   ;; easy
+        (global.set $START_LIVES (f32.const 7.0))
+        (global.set $CHASE_BASE (f32.const 0.340))
+        (global.set $CHASE_STEP (f32.const 0.009))
+        (global.set $CHASE_MIN (f32.const 0.140))
+        (global.set $CHASER_EVERY (i32.const 3))
+        (global.set $HAZ_BASE (i32.const 2))
+        (global.set $HAZ_STEP (i32.const 4))
+        (global.set $TARGET_BASE (i32.const 26))
+        (global.set $TARGET_STEP (i32.const 3))
+        (global.set $TARGET_CAP (i32.const 60)))
+      (else
+        (if (i32.eq (global.get $difficulty) (i32.const 2))
+          (then   ;; hard
+            (global.set $START_LIVES (f32.const 3.0))
+            (global.set $CHASE_BASE (f32.const 0.200))
+            (global.set $CHASE_STEP (f32.const 0.014))
+            (global.set $CHASE_MIN (f32.const 0.085))
+            (global.set $CHASER_EVERY (i32.const 1))
+            (global.set $HAZ_BASE (i32.const 4))
+            (global.set $HAZ_STEP (i32.const 8))
+            (global.set $TARGET_BASE (i32.const 34))
+            (global.set $TARGET_STEP (i32.const 5))
+            (global.set $TARGET_CAP (i32.const 80)))
+          (else   ;; normal
+            (global.set $START_LIVES (f32.const 5.0))
+            (global.set $CHASE_BASE (f32.const 0.260))
+            (global.set $CHASE_STEP (f32.const 0.011))
+            (global.set $CHASE_MIN (f32.const 0.105))
+            (global.set $CHASER_EVERY (i32.const 2))
+            (global.set $HAZ_BASE (i32.const 2))
+            (global.set $HAZ_STEP (i32.const 6))
+            (global.set $TARGET_BASE (i32.const 30))
+            (global.set $TARGET_STEP (i32.const 4))
+            (global.set $TARGET_CAP (i32.const 72)))))))
+
+  ;; 0 easy, 1 normal, 2 hard; anything else is clamped rather than trusted, and
+  ;; a JavaScript call with no argument arrives as 0. Takes effect at the next
+  ;; init().
+  (func $set_difficulty (export "set_difficulty") (param $d i32)
+    (if (i32.lt_s (local.get $d) (i32.const 0)) (then (local.set $d (i32.const 0))))
+    (if (i32.gt_s (local.get $d) (i32.const 2)) (then (local.set $d (i32.const 2))))
+    (global.set $difficulty (local.get $d)))
+  (func $get_difficulty (export "get_difficulty") (result i32) (global.get $difficulty))
+
   (func $init (export "init")
+    ;; first, because the lives and the level built below all read it
+    (call $apply_difficulty)
     (global.set $rng (i32.const 2463534242))
     (global.set $level (i32.const 1))
     (global.set $gameOver (i32.const 0))
