@@ -131,6 +131,15 @@
   cursor: pointer;
 }
 .am-mute:hover { background: rgba(255, 184, 77, 0.15); }
+/* PAUSE borrows SOUND's look and sits beside it. Touch has no P key, so on a
+   phone this button is the only way to pause. */
+.am-pause { margin-left: 8px; }
+/* Same overlay as GAME OVER, in the HUD's amber: pause is a waiting state, not
+   a loss, and it should not read as one. */
+.am-paused {
+  color: #ffb84d;
+  text-shadow: 0 0 18px #ffb84d, 3px 3px 0 #4a2a00;
+}
 
 .am-overlay {
   /* The stage sets line-height: 0 to kill the inline gap under the canvas, and

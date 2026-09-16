@@ -65,7 +65,7 @@ For plain integration you only need to copy **two files** into a site:
 var game = AsteroidMiner.mount(containerOrSelector, options?);
 
 game.restart();    // start a fresh run
-game.getState();   // { score, lives, level, fuel, cargo, delivered, quota, gameOver }
+game.getState();   // { score, lives, level, fuel, cargo, delivered, quota, gameOver, paused }
 game.destroy();    // stop the loop, remove DOM + all event listeners
 ```
 
@@ -85,8 +85,20 @@ Multiple instances on one page are supported — each `mount()` is independent.
 | Turn    | ← / → or A / D     | left stick — it aims   |
 | Thrust  | ↑ or W             | round **THR** button   |
 | Mine    | Space              | round **FIRE** button  |
+| Pause   | P or Esc; losing focus too | the PAUSE button; tap the arena to resume |
 | Restart | R                  | tap the GAME OVER text |
 | Mute    | M                  | the SOUND button       |
+
+**Gamepad**, standard mapping, no setup: left stick or d-pad turns, `A` / right
+trigger / d-pad up thrusts, `X` / left trigger / `B` mines, `Start` pauses,
+`Back` or `Y` restarts, a shoulder button mutes. Thrust and mine each have a
+face button *and* a trigger, so a pad with worn triggers still plays. It is
+polled once a frame rather than listened for, because `getGamepads()` only
+refreshes its snapshots when called.
+
+Pause is the widget's, not the engine's: the engine advances by whatever `dt` it
+is handed, so pausing is the loop not calling `step` while it goes on drawing
+the frozen frame. See [chapter 15](../../docs/15-game-loop-architecture.md).
 
 ### The stick names a heading; the keys name a turn rate
 
