@@ -116,6 +116,15 @@
   cursor: pointer;
 }
 .cr-mute:hover { background: rgba(110, 231, 168, 0.15); }
+/* PAUSE borrows SOUND's look and sits beside it. Touch has no P key, so on a
+   phone this button is the only way to pause. */
+.cr-pause { margin-left: 8px; }
+/* Same overlay as POWER LOST, in the HUD's green: pause is a waiting state, not
+   a loss, and it should not read as one. */
+.cr-paused {
+  color: #6ee7a8;
+  text-shadow: 0 0 18px #6ee7a8, 3px 3px 0 #06301c;
+}
 
 .cr-overlay {
   /* The stage sets line-height: 0 to kill the inline gap under the canvas, and

@@ -79,7 +79,7 @@ For plain integration you only need to copy **two files** into a site:
 var game = CircuitRunner.mount(containerOrSelector, options?);
 
 game.restart();    // start a fresh run
-game.getState();   // { score, distance, current, speed, lane, overclock, gameOver }
+game.getState();   // { score, distance, current, speed, lane, overclock, gameOver, paused }
 game.destroy();    // stop the loop, remove DOM + all event listeners
 ```
 
@@ -97,8 +97,19 @@ Multiple instances on one page are supported — each `mount()` is independent.
 | Action  | Desktop        | Mobile                    |
 |---------|----------------|---------------------------|
 | Change trace | ← / → or A / D | tap the left or right side |
+| Pause   | P or Esc; losing focus too | the PAUSE button; tap the board to resume |
 | Restart | R              | tap the GAME OVER text    |
 | Mute    | M              | the SOUND button          |
+
+**Gamepad**, standard mapping, no setup: left stick or d-pad changes trace,
+`Start` pauses, `Back` or `Y` restarts, a shoulder button mutes. The pad is
+digital here for the same reason the touch controls are tap zones — a lane
+change is one press — and it is polled once a frame rather than listened for,
+because `getGamepads()` only refreshes its snapshots when called.
+
+Pause is the widget's, not the engine's: the engine advances by whatever `dt` it
+is handed, so pausing is the loop not calling `step` while it goes on drawing
+the frozen board. See [chapter 15](../../docs/15-game-loop-architecture.md).
 
 **Tap zones rather than a stick**, and this is the one title in the library
 where that is the right answer: the input is *discrete*. Every other game here

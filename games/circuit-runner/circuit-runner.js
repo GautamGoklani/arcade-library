@@ -205,6 +205,7 @@
         '<span class="cr-gauge">CURRENT <span class="cr-bar" data-cr="bar"><i data-cr="cur"></i></span></span>' +
         '<span class="cr-over" data-cr="over">OVERCLOCK x2</span>' +
         '<button type="button" class="cr-mute" data-cr="mute">SOUND ON</button>' +
+        '<button type="button" class="cr-mute cr-pause" data-cr="pause">PAUSE</button>' +
       '</div>' +
       '<div class="cr-stage">' +
         '<canvas class="cr-canvas" width="' + WORLD_W + '" height="' + WORLD_H + '"></canvas>' +
@@ -215,10 +216,11 @@
         '<div class="cr-scan" aria-hidden="true"></div>' +
         '<div class="cr-overlay cr-note" data-cr="note">CURRENT LOW</div>' +
         '<div class="cr-overlay cr-msg" data-cr="msg">POWER LOST<small data-cr="msgsmall">PRESS R TO RESTART</small></div>' +
+        '<div class="cr-overlay cr-msg cr-paused" data-cr="paused">PAUSED<small data-cr="pausedsmall">PRESS P TO RESUME</small></div>' +
       '</div>' +
       '<div class="cr-help" data-cr="help">' +
         '[&larr;][&rarr;] CHANGE TRACE &nbsp; COLLECT CURRENT OR IT RUNS OUT &nbsp; ' +
-        '[R] RESTART &nbsp; [M] MUTE</div>';
+        '[P] PAUSE &nbsp; [R] RESTART &nbsp; [M] MUTE</div>';
     container.appendChild(root);
 
     var q = function (name) { return root.querySelector('[data-cr="' + name + '"]'); };
@@ -244,14 +246,22 @@
       root.classList.add('cr-is-touch');
       helpEl.textContent = 'TAP A SIDE TO CHANGE TRACE • COLLECT CURRENT OR IT RUNS OUT • TAP TO RESTART';
       q('msgsmall').textContent = 'TAP TO RESTART';
+      q('pausedsmall').textContent = 'TAP TO RESUME';
     }
     if (global.matchMedia && global.matchMedia('(pointer: coarse)').matches) enableTouchUI();
 
     // ---------- per-instance state ----------
     var wasm = null, f32 = null;
-    var destroyed = false;
+    var destroyed = false, paused = false;
     var rafId = 0, lastT = 0, tGlobal = 0;
     var keys = { left: false, right: false };
+    // Gamepad, read once a frame rather than listened for: the Gamepad API only
+    // refreshes its snapshots when getGamepads() is called, so a listener would
+    // report whatever frame it happened to fire on. Digital, like the keys: this
+    // game changes trace by trace, so there is nothing for an analog push to say.
+    var PAD_DEADZONE = 0.5;
+    var pad = { left: false, right: false };
+    var padPrev = { pause: false, restart: false, mute: false };
     var tap = { left: false, right: false };
     var sound = createSound();
     var muted = false;
@@ -279,6 +289,11 @@
       if (k) { keys[k] = true; e.preventDefault(); return; }
       if (e.key === 'r' || e.key === 'R') restart();
       if (e.key === 'm' || e.key === 'M') toggleMute();
+      // A held key auto-repeats, and a toggle on every repeat would flicker.
+      if ((e.key === 'p' || e.key === 'P' || e.key === 'Escape') && !e.repeat) {
+        setPaused(!paused);
+        e.preventDefault();
+      }
     }
     function onKeyUp(e) {
       var k = KEY_MAP[e.key];
@@ -321,7 +336,63 @@
 
     global.addEventListener('keydown', onKeyDown);
     global.addEventListener('keyup', onKeyUp);
-    global.addEventListener('blur', releaseAll);
+    // Losing focus also pauses: whoever alt-tabbed away was not planning to come
+    // back to a runner still sprinting down the board.
+    function onBlur() { releaseAll(); setPaused(true); }
+    global.addEventListener('blur', onBlur);
+
+    // ---------- pause ----------
+    // Pause lives here and not in the engine, because it is a decision about the
+    // clock rather than about the game: the engine advances by whatever dt it is
+    // handed, so pausing is the loop no longer calling step(). The loop keeps
+    // drawing, so the frozen board stays on screen. Chapter 15 makes the case.
+    var pausedEl = q('paused'), pauseBtn = q('pause');
+    function setPaused(on) {
+      if (!wasm) return;
+      if (on && wasm.exports.is_game_over()) return;   // nothing to pause once the power is gone
+      paused = on;
+      pausedEl.style.display = on ? 'block' : 'none';
+      pauseBtn.textContent = on ? 'RESUME' : 'PAUSE';
+      // Anything held when play stopped must not still be held when it resumes:
+      // the same latch releaseAll() exists to prevent on blur.
+      if (on) releaseAll();
+    }
+    pauseBtn.addEventListener('click', function () { setPaused(!paused); pauseBtn.blur(); });
+    // Paused, a press anywhere on the board resumes and does nothing else: this
+    // game's tap zones are the whole stage, so a tap meant to unpause would
+    // otherwise also change trace.
+    stage.addEventListener('pointerdown', function (e) {
+      if (!paused) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setPaused(false);
+    }, true);
+
+    // ---------- gamepad ----------
+    // Standard mapping: left stick or d-pad changes trace, Start pauses, Back or
+    // Y restarts, a shoulder button mutes. There is nothing to shoot here, so
+    // the other face buttons do nothing.
+    function pollGamepad() {
+      pad.left = false; pad.right = false;
+      var nav = global.navigator;
+      var pads = nav && nav.getGamepads ? nav.getGamepads() : null;
+      if (!pads) return;
+      var p = null, i;
+      for (i = 0; i < pads.length; i++) if (pads[i] && pads[i].connected) { p = pads[i]; break; }
+      if (!p) return;
+
+      var buttons = p.buttons || [], axes = p.axes || [];
+      var btn = function (n) { var b = buttons[n]; return !!(b && (b.pressed || b.value > 0.5)); };
+      var ax = axes[0] || 0;
+      pad.left = ax < -PAD_DEADZONE || btn(14);
+      pad.right = ax > PAD_DEADZONE || btn(15);
+
+      var pausePress = btn(9), restartPress = btn(8) || btn(3), mutePress = btn(4) || btn(5);
+      if (pausePress && !padPrev.pause) setPaused(!paused);
+      if (restartPress && !padPrev.restart) restart();
+      if (mutePress && !padPrev.mute) toggleMute();
+      padPrev.pause = pausePress; padPrev.restart = restartPress; padPrev.mute = mutePress;
+    }
     muteBtn.addEventListener('click', function () { toggleMute(); muteBtn.blur(); });
     msgEl.addEventListener('click', function () { restart(); });
 
@@ -514,18 +585,28 @@
     // ---------- loop ----------
     function loop(now) {
       if (destroyed) return;
+      // Before the pause gate: Start has to be able to unpause, and Back to
+      // restart from the game-over screen.
+      pollGamepad();
       var dt = Math.min((now - lastT) / 1000, 0.05);
       lastT = now;
+      // Paused stops the animation clock too, so the scrolling board, the
+      // particles and the shake hold still instead of playing on over a frozen
+      // runner. lastT still advances, so the first frame back is one frame long.
+      if (paused) dt = 0;
       tGlobal += dt;
 
-      // Held left and right cancel rather than fighting, and the engine only
-      // accepts a change once the previous slide has finished — so holding a
-      // key walks trace by trace instead of queueing turns the player has not
-      // had a chance to see the board for.
-      var move = ((keys.right || tap.right) ? 1 : 0) - ((keys.left || tap.left) ? 1 : 0);
-      wasm.exports.set_input(move);
-      wasm.exports.step(dt);
-      pollEvents(dt);
+      if (!paused) {
+        // Held left and right cancel rather than fighting, and the engine only
+        // accepts a change once the previous slide has finished — so holding a
+        // key walks trace by trace instead of queueing turns the player has not
+        // had a chance to see the board for. A pad says the same thing digitally.
+        var move = ((keys.right || tap.right || pad.right) ? 1 : 0) -
+                   ((keys.left || tap.left || pad.left) ? 1 : 0);
+        wasm.exports.set_input(move);
+        wasm.exports.step(dt);
+        pollEvents(dt);
+      }
 
       if (!wasm.exports.is_game_over()) {
         scroll = (scroll + wasm.exports.get_speed() * dt) % 120;
@@ -590,6 +671,7 @@
       prevBoosts = wasm.exports.get_boosts();
       prevOver = 0;
       msgEl.style.display = 'none';
+      setPaused(false);
     }
 
     // ---------- boot ----------
@@ -621,7 +703,7 @@
         cancelAnimationFrame(rafId);
         global.removeEventListener('keydown', onKeyDown);
         global.removeEventListener('keyup', onKeyUp);
-        global.removeEventListener('blur', releaseAll);
+        global.removeEventListener('blur', onBlur);
         sound.close();
         root.remove();
       },
@@ -635,6 +717,7 @@
           lane: wasm.exports.get_lane(),
           overclock: wasm.exports.get_overclock(),
           gameOver: !!wasm.exports.is_game_over(),
+          paused: paused,
         };
       },
     };
