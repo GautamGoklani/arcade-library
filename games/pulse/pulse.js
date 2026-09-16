@@ -199,6 +199,7 @@
         '<span>x<b class="pl-a" data-pl="mult">1.0</b></span>' +
         '<span class="pl-c" data-pl="bpm">96 BPM</span>' +
         '<button type="button" class="pl-mute" data-pl="mute">SOUND ON</button>' +
+        '<button type="button" class="pl-mute pl-pause" data-pl="pause">PAUSE</button>' +
       '</div>' +
       '<div class="pl-stage">' +
         '<canvas class="pl-canvas" width="' + WORLD_W + '" height="' + WORLD_H + '"></canvas>' +
@@ -210,10 +211,11 @@
         '<div class="pl-scan" aria-hidden="true"></div>' +
         '<div class="pl-overlay pl-note" data-pl="note"></div>' +
         '<div class="pl-overlay pl-msg" data-pl="msg">SILENCE<small data-pl="msgsmall">PRESS R TO RESTART</small></div>' +
+        '<div class="pl-overlay pl-msg pl-paused" data-pl="paused">PAUSED<small data-pl="pausedsmall">PRESS P TO RESUME</small></div>' +
       '</div>' +
       '<div class="pl-help" data-pl="help">' +
         '[&larr;][&rarr;] ROTATE &nbsp; [SPACE] FIRE — ON THE EIGHTH NOTE IT HITS THREE TIMES AS HARD ' +
-        '&nbsp; [R] RESTART &nbsp; [M] MUTE</div>';
+        '&nbsp; [P] PAUSE &nbsp; [R] RESTART &nbsp; [M] MUTE</div>';
     container.appendChild(root);
 
     var q = function (name) { return root.querySelector('[data-pl="' + name + '"]'); };
@@ -239,14 +241,22 @@
       helpEl.textContent =
         'TAP A SIDE TO ROTATE • TAP FIRE ON THE BEAT — IN TIME IT HITS THREE TIMES AS HARD • TAP TO RESTART';
       q('msgsmall').textContent = 'TAP TO RESTART';
+      q('pausedsmall').textContent = 'TAP TO RESUME';
     }
     if (global.matchMedia && global.matchMedia('(pointer: coarse)').matches) enableTouchUI();
 
     // ---------- per-instance state ----------
     var wasm = null, f32 = null, u8 = null;
-    var destroyed = false;
+    var destroyed = false, paused = false;
     var rafId = 0, lastT = 0, tGlobal = 0;
     var keys = { left: false, right: false, fire: false };
+    // Gamepad, read once a frame rather than listened for: the Gamepad API only
+    // refreshes its snapshots when getGamepads() is called, so a listener would
+    // report whatever frame it happened to fire on. Rebuilt every poll, so
+    // nothing latches the way a missed keyup can.
+    var PAD_DEADZONE = 0.5;    // rotation is one segment at a time, like the keys
+    var pad = { left: false, right: false, fire: false };
+    var padPrev = { pause: false, restart: false, mute: false };
     var tap = { left: false, right: false, fire: false };
     var sound = createSound();
     var muted = false;
@@ -268,6 +278,11 @@
       if (k) { keys[k] = true; e.preventDefault(); return; }
       if (e.key === 'r' || e.key === 'R') restart();
       if (e.key === 'm' || e.key === 'M') toggleMute();
+      // A held key auto-repeats, and a toggle on every repeat would flicker.
+      if ((e.key === 'p' || e.key === 'P' || e.key === 'Escape') && !e.repeat) {
+        setPaused(!paused);
+        e.preventDefault();
+      }
     }
     function onKeyUp(e) {
       var k = KEY_MAP[e.key];
@@ -311,7 +326,73 @@
 
     global.addEventListener('keydown', onKeyDown);
     global.addEventListener('keyup', onKeyUp);
-    global.addEventListener('blur', releaseAll);
+    // Losing focus also pauses: whoever alt-tabbed away was not planning to come
+    // back to a bar still playing and enemies still climbing.
+    function onBlur() { releaseAll(); setPaused(true); }
+    global.addEventListener('blur', onBlur);
+
+    // ---------- pause ----------
+    // Pause lives here and not in the engine, because it is a decision about the
+    // clock rather than about the game: the engine advances by whatever dt it is
+    // handed, so pausing is the loop no longer calling step(). The loop keeps
+    // drawing, so the frozen tube stays on screen.
+    //
+    // This title is the one where that matters most. The engine *is* the
+    // sequencer — it owns the tempo, the bar and the step counter, and the
+    // widget plays notes off them — so stopping step() stops the music dead,
+    // with nothing queued to flush and nothing to resynchronise on the way back
+    // in. That is exactly the property chapter 22 argues for.
+    var stage = root.querySelector('.pl-stage');
+    var pausedEl = q('paused'), pauseBtn = q('pause');
+    function setPaused(on) {
+      if (!wasm) return;
+      if (on && wasm.exports.is_game_over()) return;   // nothing to pause once it has fallen silent
+      paused = on;
+      pausedEl.style.display = on ? 'block' : 'none';
+      pauseBtn.textContent = on ? 'RESUME' : 'PAUSE';
+      // Anything held when play stopped must not still be held when it resumes:
+      // the same latch releaseAll() exists to prevent on blur.
+      if (on) releaseAll();
+    }
+    pauseBtn.addEventListener('click', function () { setPaused(!paused); pauseBtn.blur(); });
+    // Paused, a press anywhere on the tube resumes and does nothing else: the
+    // tap zones cover the stage, so a tap meant to unpause would otherwise also
+    // rotate or fire.
+    stage.addEventListener('pointerdown', function (e) {
+      if (!paused) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setPaused(false);
+    }, true);
+
+    // ---------- gamepad ----------
+    // Standard mapping, and both a face button and a trigger for fire, so a pad
+    // with worn triggers still plays: left stick or d-pad rotates, A / X / either
+    // trigger fires, Start pauses, Back or Y restarts, a shoulder button mutes.
+    // Rotation is digital, because the tube turns one segment at a time.
+    function pollGamepad() {
+      pad.left = false; pad.right = false; pad.fire = false;
+      var nav = global.navigator;
+      var pads = nav && nav.getGamepads ? nav.getGamepads() : null;
+      if (!pads) return;
+      var p = null, i;
+      for (i = 0; i < pads.length; i++) if (pads[i] && pads[i].connected) { p = pads[i]; break; }
+      if (!p) return;
+
+      var buttons = p.buttons || [], axes = p.axes || [];
+      // A trigger reports an analog value and may never set `pressed`.
+      var btn = function (n) { var b = buttons[n]; return !!(b && (b.pressed || b.value > 0.5)); };
+      var ax = axes[0] || 0;
+      pad.left = ax < -PAD_DEADZONE || btn(14);
+      pad.right = ax > PAD_DEADZONE || btn(15);
+      pad.fire = btn(0) || btn(2) || btn(6) || btn(7);
+
+      var pausePress = btn(9), restartPress = btn(8) || btn(3), mutePress = btn(4) || btn(5);
+      if (pausePress && !padPrev.pause) setPaused(!paused);
+      if (restartPress && !padPrev.restart) restart();
+      if (mutePress && !padPrev.mute) toggleMute();
+      padPrev.pause = pausePress; padPrev.restart = restartPress; padPrev.mute = mutePress;
+    }
     muteBtn.addEventListener('click', function () { toggleMute(); muteBtn.blur(); });
     msgEl.addEventListener('click', function () { restart(); });
 
@@ -598,14 +679,24 @@
     // ---------- loop ----------
     function loop(now) {
       if (destroyed) return;
+      // Before the pause gate: Start has to be able to unpause, and Back to
+      // restart from the game-over screen.
+      pollGamepad();
       var dt = Math.max(0, Math.min((now - lastT) / 1000, 0.05));
       lastT = now;
+      // Paused stops the animation clock too, so the ring, the particles and the
+      // shake hold still with the bar instead of playing on over it. lastT still
+      // advances, so the first frame back is one frame long.
+      if (paused) dt = 0;
       tGlobal += dt;
 
-      var move = ((keys.right || tap.right) ? 1 : 0) - ((keys.left || tap.left) ? 1 : 0);
-      wasm.exports.set_input(move, (keys.fire || tap.fire) ? 1 : 0);
-      wasm.exports.step(dt);
-      pollEvents();
+      if (!paused) {
+        var move = ((keys.right || tap.right || pad.right) ? 1 : 0) -
+                   ((keys.left || tap.left || pad.left) ? 1 : 0);
+        wasm.exports.set_input(move, (keys.fire || tap.fire || pad.fire) ? 1 : 0);
+        wasm.exports.step(dt);
+        pollEvents();
+      }
 
       var Z = 1 / LOW_SCALE;
       g.setTransform(Z, 0, 0, Z, 0, 0);
@@ -675,6 +766,7 @@
       prevPerfects = wasm.exports.get_perfects();
       prevOver = 0;
       msgEl.style.display = 'none';
+      setPaused(false);
     }
 
     // ---------- boot ----------
@@ -707,7 +799,7 @@
         cancelAnimationFrame(rafId);
         global.removeEventListener('keydown', onKeyDown);
         global.removeEventListener('keyup', onKeyUp);
-        global.removeEventListener('blur', releaseAll);
+        global.removeEventListener('blur', onBlur);
         sound.close();
         root.remove();
       },
@@ -724,6 +816,7 @@
           onBeatShots: wasm.exports.get_beat_shots(),
           shots: wasm.exports.get_shots(),
           gameOver: !!wasm.exports.is_game_over(),
+          paused: paused,
         };
       },
     };

@@ -116,7 +116,7 @@ var game = Pulse.mount(containerOrSelector, options?);
 
 game.restart();    // start a fresh run
 game.getState();   // { score, shield, groove, multiplier, bpm, level, bar,
-                   //   onBeatShots, shots, gameOver }
+                   //   onBeatShots, shots, gameOver, paused }
 game.destroy();    // stop the loop, remove DOM + all event listeners
 ```
 
@@ -138,8 +138,22 @@ tap. Everything else works without it.
 |---|---|---|
 | Rotate | ← / → or A / D | tap the left or right side |
 | Fire | Space | the FIRE pad |
+| Pause | P or Esc; losing focus too | the PAUSE button; tap the tube to resume |
 | Restart | R | tap the GAME OVER text |
 | Mute | M | the SOUND button |
+
+**Gamepad**, standard mapping, no setup: left stick or d-pad rotates (digital,
+because the ring turns one segment at a time), `A` / `X` / either trigger fires,
+`Start` pauses, `Back` or `Y` restarts, a shoulder button mutes. It is polled
+once a frame rather than listened for, because `getGamepads()` only refreshes
+its snapshots when called.
+
+**Pause is the cleanest demonstration of this engine's design.** The engine *is*
+the sequencer — it owns the tempo, the bar and the step counter, and the widget
+plays notes off them — so pausing is the loop no longer calling `step`, and the
+music stops dead with the simulation: nothing queued to flush, nothing to
+resynchronise on the way back in. That is the property
+[chapter 22](../../docs/22-engine-owned-time.md) argues for.
 
 **Tap zones rather than a stick**, as in [Circuit Runner](../circuit-runner/),
 for the same reason: the ring is a *discrete* input, twelve segments and one
