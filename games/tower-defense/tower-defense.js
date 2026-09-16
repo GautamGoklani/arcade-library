@@ -269,12 +269,14 @@
         '<span>WAVE <b data-td="level">1</b></span>' +
         '<span data-td="phase">BUILD 14s</span>' +
         '<button type="button" class="td-mute" data-td="mute">SOUND ON</button>' +
+        '<button type="button" class="td-mute td-pause" data-td="pause">PAUSE</button>' +
       '</div>' +
       '<div class="td-stage">' +
         '<canvas class="td-canvas" width="' + WORLD_W + '" height="' + WORLD_H + '"></canvas>' +
         '<div class="td-scan" aria-hidden="true"></div>' +
         '<div class="td-overlay td-note" data-td="note"></div>' +
         '<div class="td-overlay td-msg" data-td="msg">CORE LOST<small data-td="msgsmall">PRESS R TO RESTART</small></div>' +
+        '<div class="td-overlay td-msg td-paused" data-td="paused">PAUSED<small data-td="pausedsmall">PRESS P TO RESUME</small></div>' +
       '</div>' +
       '<div class="td-tools">' +
         '<button type="button" class="td-tool td-on" data-td="t0"><b>1 PYLON</b><span>20 · fast gun</span></button>' +
@@ -285,7 +287,7 @@
       '</div>' +
       '<div class="td-help" data-td="help">' +
         'CLICK A SQUARE TO BUILD &nbsp; GUNS OVERHEAT — VENTS COOL THE EIGHT SQUARES AROUND THEM ' +
-        '&nbsp; [R] RESTART &nbsp; [M] MUTE</div>';
+        '&nbsp; [P] PAUSE &nbsp; [R] RESTART &nbsp; [M] MUTE</div>';
     container.appendChild(root);
 
     var q = function (name) { return root.querySelector('[data-td="' + name + '"]'); };
@@ -312,13 +314,26 @@
       helpEl.textContent =
         'PICK A TOOL, THEN TAP A SQUARE • GUNS OVERHEAT — VENTS COOL THE EIGHT SQUARES AROUND THEM • TAP TO RESTART';
       q('msgsmall').textContent = 'TAP TO RESTART';
+      q('pausedsmall').textContent = 'TAP TO RESUME';
     }
     if (global.matchMedia && global.matchMedia('(pointer: coarse)').matches) enableTouchUI();
 
     // ---------- per-instance state ----------
     var wasm = null, f32 = null, u8 = null;
-    var destroyed = false;
+    var destroyed = false, paused = false;
     var rafId = 0, lastT = 0, tGlobal = 0;
+    // Gamepad, read once a frame rather than listened for: the Gamepad API only
+    // refreshes its snapshots when getGamepads() is called, so a listener would
+    // report whatever frame it happened to fire on.
+    //
+    // This game has a cursor rather than a steerable thing, so the pad drives
+    // one square at a time with a key-repeat: a first step, a long wait, then a
+    // faster run, the same rhythm a held arrow key has. Without the wait, one
+    // flick of the stick crosses the board.
+    var PAD_DEADZONE = 0.5;
+    var PAD_REPEAT_FIRST = 0.30, PAD_REPEAT_NEXT = 0.10;
+    var padCursor = { active: false, c: 0, r: 0, wait: 0, lastDir: 0 };
+    var padPrev = { pause: false, restart: false, mute: false, build: false, sell: false, tool: false, go: false };
     var sound = createSound();
     var muted = false;
     var particles = [];
@@ -372,6 +387,11 @@
       if (e.key === ' ') { pendingAction = 5; e.preventDefault(); return; }
       if (e.key === 'r' || e.key === 'R') restart();
       if (e.key === 'm' || e.key === 'M') toggleMute();
+      // A held key auto-repeats, and a toggle on every repeat would flicker.
+      if ((e.key === 'p' || e.key === 'P' || e.key === 'Escape') && !e.repeat) {
+        setPaused(!paused);
+        e.preventDefault();
+      }
     }
 
     function stageCell(e) {
@@ -418,6 +438,98 @@
     muteBtn.addEventListener('click', function () { toggleMute(); muteBtn.blur(); });
     goBtn.addEventListener('click', function () { pendingAction = 5; goBtn.blur(); });
     msgEl.addEventListener('click', function () { restart(); });
+    // This title holds nothing down — you place things — so it never needed a
+    // blur handler. It needs one now: losing focus pauses.
+    function onBlur() { setPaused(true); }
+    global.addEventListener('blur', onBlur);
+
+    // ---------- pause ----------
+    // Pause lives here and not in the engine, because it is a decision about the
+    // clock rather than about the game: the engine advances by whatever dt it is
+    // handed, so pausing is the loop no longer calling step(). The loop keeps
+    // drawing, so the frozen board stays on screen. Chapter 15 makes the case.
+    var pausedEl = q('paused'), pauseBtn = q('pause');
+    function setPaused(on) {
+      if (!wasm) return;
+      if (on && wasm.exports.is_game_over()) return;   // nothing to pause once the core is lost
+      paused = on;
+      pausedEl.style.display = on ? 'block' : 'none';
+      pauseBtn.textContent = on ? 'RESUME' : 'PAUSE';
+      // A click queued on the frame everything stopped must not fire on the
+      // frame it starts again.
+      if (on) pendingAction = 0;
+    }
+    pauseBtn.addEventListener('click', function () { setPaused(!paused); pauseBtn.blur(); });
+    // Paused, a press anywhere on the board resumes and does nothing else: a
+    // click meant to unpause should not also build a tower.
+    stage.addEventListener('pointerdown', function (e) {
+      if (!paused) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setPaused(false);
+    }, true);
+
+    // ---------- gamepad ----------
+    // Standard mapping, adapted to a game that builds rather than steers: left
+    // stick or d-pad walks the cursor a square at a time, A builds with the
+    // selected tool, B sells, X cycles the tool, Y starts the next wave (the GO
+    // button), Start pauses, Back restarts, a shoulder button mutes.
+    //
+    // Restart is Back alone here, unlike the other titles, because Y is worth
+    // more as "send the next wave" on a board where waiting is a decision.
+    function pollGamepad(dt) {
+      var nav = global.navigator;
+      var pads = nav && nav.getGamepads ? nav.getGamepads() : null;
+      if (!pads) return;
+      var p = null, i;
+      for (i = 0; i < pads.length; i++) if (pads[i] && pads[i].connected) { p = pads[i]; break; }
+      if (!p) return;
+
+      var buttons = p.buttons || [], axes = p.axes || [];
+      var btn = function (n) { var b = buttons[n]; return !!(b && (b.pressed || b.value > 0.5)); };
+      var ax = axes[0] || 0, ay = axes[1] || 0;
+      var dc = 0, dr = 0;
+      if (ax > PAD_DEADZONE || btn(15)) dc = 1;
+      else if (ax < -PAD_DEADZONE || btn(14)) dc = -1;
+      if (ay > PAD_DEADZONE || btn(13)) dr = 1;
+      else if (ay < -PAD_DEADZONE || btn(12)) dr = -1;
+
+      if (dc || dr) {
+        // Start the cursor wherever the mouse left it, or in the middle.
+        if (!padCursor.active) {
+          padCursor.active = true;
+          padCursor.c = hoverC >= 0 ? hoverC : (COLS >> 1);
+          padCursor.r = hoverR >= 0 ? hoverR : (ROWS >> 1);
+          padCursor.wait = 0;
+        }
+        var dir = dc * 3 + dr;
+        if (dir !== padCursor.lastDir) padCursor.wait = 0;   // a new direction moves at once
+        padCursor.lastDir = dir;
+        if (padCursor.wait <= 0) {
+          padCursor.c = Math.max(0, Math.min(COLS - 1, padCursor.c + dc));
+          padCursor.r = Math.max(0, Math.min(ROWS - 1, padCursor.r + dr));
+          padCursor.wait = padCursor.wait === 0 ? PAD_REPEAT_FIRST : PAD_REPEAT_NEXT;
+        } else {
+          padCursor.wait -= dt;
+          if (padCursor.wait <= 0) padCursor.wait = 0.0001;   // fire on the next frame
+        }
+        hoverC = padCursor.c; hoverR = padCursor.r;
+      } else {
+        padCursor.wait = 0; padCursor.lastDir = 0;
+      }
+
+      var buildPress = btn(0), sellPress = btn(1), toolPress = btn(2), goPress = btn(3);
+      var pausePress = btn(9), restartPress = btn(8), mutePress = btn(4) || btn(5);
+      if (!paused && buildPress && !padPrev.build && hoverC >= 0) pendingAction = tool === 3 ? 4 : tool + 1;
+      if (!paused && sellPress && !padPrev.sell && hoverC >= 0) pendingAction = 4;
+      if (toolPress && !padPrev.tool) setTool((tool + 1) % toolEls.length);
+      if (!paused && goPress && !padPrev.go) pendingAction = 5;
+      if (pausePress && !padPrev.pause) setPaused(!paused);
+      if (restartPress && !padPrev.restart) restart();
+      if (mutePress && !padPrev.mute) toggleMute();
+      padPrev.build = buildPress; padPrev.sell = sellPress; padPrev.tool = toolPress; padPrev.go = goPress;
+      padPrev.pause = pausePress; padPrev.restart = restartPress; padPrev.mute = mutePress;
+    }
 
     // ---------- particles ----------
     function burst(x, y, n, color, speed) {
@@ -759,13 +871,23 @@
       if (destroyed) return;
       var dt = Math.max(0, Math.min((now - lastT) / 1000, 0.05));
       lastT = now;
+      // Polled with the real dt, before the pause gate: Start has to be able to
+      // unpause, Back to restart from the game-over screen, and the cursor's
+      // key-repeat needs a clock that is still running.
+      pollGamepad(dt);
+      // Paused stops the animation clock too, so particles and shake hold still
+      // with the wave instead of playing on over it. lastT still advances, so
+      // the first frame back is one frame long.
+      if (paused) dt = 0;
       tGlobal += dt;
 
-      wasm.exports.set_input(hoverC, hoverR, pendingAction);
-      pendingAction = 0;
-      trackShells();
-      wasm.exports.step(dt);
-      pollEvents(now);
+      if (!paused) {
+        wasm.exports.set_input(hoverC, hoverR, pendingAction);
+        pendingAction = 0;
+        trackShells();
+        wasm.exports.step(dt);
+        pollEvents(now);
+      }
 
       var Z = 1 / LOW_SCALE;
       g.setTransform(Z, 0, 0, Z, 0, 0);
@@ -812,6 +934,7 @@
       shake = 0; flash = 0; noteT = 0;
       pendingAction = 0;
       setTool(0);
+      setPaused(false);
       prevBuilds = wasm.exports.get_builds();
       prevSells = wasm.exports.get_sells();
       prevShots = wasm.exports.get_shots();
@@ -853,6 +976,7 @@
         destroyed = true;
         cancelAnimationFrame(rafId);
         global.removeEventListener('keydown', onKeyDown);
+        global.removeEventListener('blur', onBlur);
         sound.close();
         root.remove();
       },
@@ -867,6 +991,7 @@
           kills: wasm.exports.get_kills(),
           leaks: wasm.exports.get_leaks(),
           gameOver: !!wasm.exports.is_game_over(),
+          paused: paused,
         };
       },
     };

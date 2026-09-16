@@ -113,6 +113,15 @@
   cursor: pointer;
 }
 .td-mute:hover { background: rgba(216, 196, 138, 0.15); }
+/* PAUSE borrows SOUND's look and sits beside it. Touch has no P key, so on a
+   phone this button is the only way to pause. */
+.td-pause { margin-left: 8px; }
+/* Same overlay as CORE LOST, in the HUD's bone: pause is a waiting state, not a
+   loss, and it should not read as one. */
+.td-paused {
+  color: #d8c48a;
+  text-shadow: 0 0 18px #d8c48a, 3px 3px 0 #3a2f14;
+}
 
 /* ---------------- the toolbar ----------------
 

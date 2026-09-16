@@ -103,7 +103,7 @@ For plain integration you only need to copy **two files** into a site:
 var game = TowerDefense.mount(containerOrSelector, options?);
 
 game.restart();    // start a fresh run
-game.getState();   // { score, scrap, core, level, phase, kills, leaks, gameOver }
+game.getState();   // { score, scrap, core, level, phase, kills, leaks, gameOver, paused }
 game.destroy();    // stop the loop, remove DOM + all event listeners
 ```
 
@@ -124,8 +124,23 @@ Multiple instances on one page are supported — each `mount()` is independent.
 | Place or sell | click a square | tap a square |
 | Sell without switching tool | right-click | — |
 | Call the wave in early | Space, or the SPACE button | the SPACE button |
+| Pause | P or Esc; losing focus too | the PAUSE button; tap the board to resume |
 | Restart | R | tap the GAME OVER text |
 | Mute | M | the SOUND button |
+
+**Gamepad**, standard mapping, adapted to a game that builds rather than steers:
+the left stick or d-pad walks the cursor a square at a time (a first step, a
+pause, then a faster run — a held arrow key's rhythm, because one flick of a
+stick would otherwise cross the board), `A` builds with the selected tool, `B`
+sells, `X` cycles the tool, `Y` calls the wave in early, `Start` pauses, `Back`
+restarts, a shoulder button mutes. Restart is `Back` alone here, unlike the
+other titles, because `Y` is worth more as "send the next wave" on a board where
+waiting is a decision. It is polled once a frame rather than listened for,
+because `getGamepads()` only refreshes its snapshots when called.
+
+Pause is the widget's, not the engine's: the engine advances by whatever `dt` it
+is handed, so pausing is the loop not calling `step` while it goes on drawing
+the frozen board. See [chapter 15](../../docs/15-game-loop-architecture.md).
 
 The toolbar is real DOM buttons rather than a palette painted onto the canvas,
 and that is deliberate: they are the only part of this game that is a *tool*
