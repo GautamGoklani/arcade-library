@@ -120,6 +120,15 @@
   cursor: pointer;
 }
 .sd-mute:hover { background: rgba(102, 226, 255, 0.15); }
+/* PAUSE borrows SOUND's look and sits beside it. Touch has no P key, so on a
+   phone this button is the only way to pause. */
+.sd-pause { margin-left: 8px; }
+/* Same overlay as SECTOR LOST, in the HUD's cyan: pause is a waiting state, not
+   a loss, and it should not read as one. */
+.sd-paused {
+  color: #66e2ff;
+  text-shadow: 0 0 18px #66e2ff, 3px 3px 0 #06303f;
+}
 
 .sd-overlay {
   /* The stage sets line-height: 0 to kill the inline gap under the canvas, and

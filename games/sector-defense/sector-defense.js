@@ -217,6 +217,7 @@
         '<span class="sd-gauge">SEC <span class="sd-bar sd-sector" data-sd="sectorbar"><i data-sd="sector"></i></span></span>' +
         '<span>COMBO <b class="sd-c" data-sd="combo">x1.0</b></span>' +
         '<button type="button" class="sd-mute" data-sd="mute">SOUND ON</button>' +
+        '<button type="button" class="sd-mute sd-pause" data-sd="pause">PAUSE</button>' +
       '</div>' +
       '<div class="sd-stage">' +
         '<canvas class="sd-canvas" width="' + WORLD_W + '" height="' + WORLD_H + '"></canvas>' +
@@ -232,10 +233,11 @@
         '<div class="sd-overlay sd-note" data-sd="note">SECTOR CRITICAL</div>' +
         '<div class="sd-overlay sd-banner" data-sd="banner">WAVE 1</div>' +
         '<div class="sd-overlay sd-msg" data-sd="msg">SECTOR LOST<small data-sd="msgsmall">PRESS R TO RESTART</small></div>' +
+        '<div class="sd-overlay sd-msg sd-paused" data-sd="paused">PAUSED<small data-sd="pausedsmall">PRESS P TO RESUME</small></div>' +
       '</div>' +
       '<div class="sd-help" data-sd="help">' +
         '[&larr;][&rarr;] MOVE &nbsp; [SPACE] FIRE &nbsp; ' +
-        'NOTHING GETS PAST THE LINE &nbsp; [R] RESTART &nbsp; [M] MUTE</div>';
+        'NOTHING GETS PAST THE LINE &nbsp; [P] PAUSE &nbsp; [R] RESTART &nbsp; [M] MUTE</div>';
     container.appendChild(root);
 
     var q = function (name) { return root.querySelector('[data-sd="' + name + '"]'); };
@@ -266,14 +268,22 @@
       root.classList.add('sd-is-touch');
       helpEl.textContent = 'LEFT STICK MOVES • FIRE BUTTON RIGHT • NOTHING GETS PAST THE LINE • TAP TO RESTART';
       q('msgsmall').textContent = 'TAP TO RESTART';
+      q('pausedsmall').textContent = 'TAP TO RESUME';
     }
     if (global.matchMedia && global.matchMedia('(pointer: coarse)').matches) enableTouchUI();
 
     // ---------- per-instance state ----------
     var wasm = null, f32 = null;
-    var destroyed = false;
+    var destroyed = false, paused = false;
     var rafId = 0, lastT = 0, tGlobal = 0;
     var keys = { left: false, right: false, fire: false };
+    // Gamepad, read once a frame rather than listened for: the Gamepad API only
+    // refreshes its snapshots when getGamepads() is called, so a listener would
+    // report whatever frame it happened to fire on. Rebuilt every poll, so
+    // nothing latches the way a missed keyup can.
+    var PAD_DEADZONE = 0.28;   // a resting stick reads up to about 0.15 on a worn pad
+    var pad = { move: 0, fire: false };
+    var padPrev = { pause: false, restart: false, mute: false };
     var stick = { active: false, ox: 0, dir: 0 };
     var touch = { fire: false };
     var sound = createSound();
@@ -328,6 +338,11 @@
       if (k) { keys[k] = true; e.preventDefault(); return; }
       if (e.key === 'r' || e.key === 'R') restart();
       if (e.key === 'm' || e.key === 'M') toggleMute();
+      // A held key auto-repeats, and a toggle on every repeat would flicker.
+      if ((e.key === 'p' || e.key === 'P' || e.key === 'Escape') && !e.repeat) {
+        setPaused(!paused);
+        e.preventDefault();
+      }
     }
     function onKeyUp(e) {
       var k = KEY_MAP[e.key];
@@ -423,7 +438,70 @@
     global.addEventListener('pointercancel', onWindowPointerCancel);
     global.addEventListener('keydown', onKeyDown);
     global.addEventListener('keyup', onKeyUp);
-    global.addEventListener('blur', releaseAll);
+    // Losing focus also pauses: whoever alt-tabbed away was not planning to come
+    // back to a wave already descending.
+    function onBlur() { releaseAll(); setPaused(true); }
+    global.addEventListener('blur', onBlur);
+
+    // ---------- pause ----------
+    // Pause lives here and not in the engine, because it is a decision about the
+    // clock rather than about the game: the engine advances by whatever dt it is
+    // handed, so pausing is the loop no longer calling step(). The loop keeps
+    // drawing, so the frozen frame stays on screen. Chapter 15 makes the case.
+    var pausedEl = q('paused'), pauseBtn = q('pause');
+    function setPaused(on) {
+      if (!wasm) return;
+      if (on && wasm.exports.is_game_over()) return;   // nothing to pause once the sector is lost
+      paused = on;
+      pausedEl.style.display = on ? 'block' : 'none';
+      pauseBtn.textContent = on ? 'RESUME' : 'PAUSE';
+      // Anything held when play stopped must not still be held when it resumes:
+      // the same latch releaseAll() exists to prevent on blur.
+      if (on) releaseAll();
+    }
+    pauseBtn.addEventListener('click', function () { setPaused(!paused); pauseBtn.blur(); });
+    // Paused, a press anywhere on the sector resumes and does nothing else: a
+    // thumb landing to unpause should not also start sliding the defender.
+    stage.addEventListener('pointerdown', function (e) {
+      if (!paused) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setPaused(false);
+    }, true);
+
+    // ---------- gamepad ----------
+    // Standard mapping, and both a face button and a trigger for fire, so a pad
+    // with worn triggers still plays: left stick or d-pad moves along the line,
+    // A / X / either trigger fires, Start pauses, Back or Y restarts, a shoulder
+    // button mutes.
+    function pollGamepad() {
+      pad.move = 0; pad.fire = false;
+      var nav = global.navigator;
+      var pads = nav && nav.getGamepads ? nav.getGamepads() : null;
+      if (!pads) return;
+      var p = null, i;
+      for (i = 0; i < pads.length; i++) if (pads[i] && pads[i].connected) { p = pads[i]; break; }
+      if (!p) return;
+
+      var buttons = p.buttons || [], axes = p.axes || [];
+      // A trigger reports an analog value and may never set `pressed`.
+      var btn = function (n) { var b = buttons[n]; return !!(b && (b.pressed || b.value > 0.5)); };
+      var ax = axes[0] || 0;
+      if (Math.abs(ax) > PAD_DEADZONE) {
+        // Rescale past the deadzone: the engine takes an f32, so a half push
+        // should walk the defender rather than sprint it.
+        pad.move = (ax > 0 ? 1 : -1) * Math.min(1, (Math.abs(ax) - PAD_DEADZONE) / (1 - PAD_DEADZONE));
+      } else if (btn(14) || btn(15)) {
+        pad.move = btn(15) ? 1 : -1;
+      }
+      pad.fire = btn(0) || btn(2) || btn(6) || btn(7);
+
+      var pausePress = btn(9), restartPress = btn(8) || btn(3), mutePress = btn(4) || btn(5);
+      if (pausePress && !padPrev.pause) setPaused(!paused);
+      if (restartPress && !padPrev.restart) restart();
+      if (mutePress && !padPrev.mute) toggleMute();
+      padPrev.pause = pausePress; padPrev.restart = restartPress; padPrev.mute = mutePress;
+    }
     muteBtn.addEventListener('click', function () { toggleMute(); muteBtn.blur(); });
     msgEl.addEventListener('click', function () { restart(); });
 
@@ -606,18 +684,29 @@
     // ---------- loop ----------
     function loop(now) {
       if (destroyed) return;
+      // Before the pause gate: Start has to be able to unpause, and Back to
+      // restart from the game-over screen.
+      pollGamepad();
       var dt = Math.min((now - lastT) / 1000, 0.05);
       lastT = now;
+      // Paused stops the animation clock too, so the particles and the shake
+      // hold still with the wave instead of playing on over it. lastT still
+      // advances, so the first frame back is one frame long.
+      if (paused) dt = 0;
       tGlobal += dt;
 
-      // Keys are the digital case of the same analog input the stick supplies:
-      // -1, 0 or 1 where the stick can say 0.3. The engine takes an f32 either
-      // way and never learns which produced it.
-      var move = stick.dir;
-      if (keys.left || keys.right) move = (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
-      wasm.exports.set_input(move, (keys.fire || touch.fire) ? 1 : 0);
-      wasm.exports.step(dt);
-      pollEvents();
+      if (!paused) {
+        // Keys are the digital case of the same analog input the stick supplies:
+        // -1, 0 or 1 where the stick can say 0.3. A pad's stick says it the same
+        // way. The engine takes an f32 either way and never learns which
+        // produced it.
+        var move = stick.dir;
+        if (pad.move) move = pad.move;
+        if (keys.left || keys.right) move = (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
+        wasm.exports.set_input(move, (keys.fire || touch.fire || pad.fire) ? 1 : 0);
+        wasm.exports.step(dt);
+        pollEvents();
+      }
 
       var Z = 1 / LOW_SCALE;
       g.setTransform(Z, 0, 0, Z, 0, 0);
@@ -690,6 +779,7 @@
       prevHurts = wasm.exports.get_hurts();
       prevLeaks = wasm.exports.get_leaks();
       prevBreaches = wasm.exports.get_breaches();
+      setPaused(false);
       prevOver = 0;
       msgEl.style.display = 'none';
       bannerEl.style.opacity = '0';
@@ -724,7 +814,7 @@
         cancelAnimationFrame(rafId);
         global.removeEventListener('keydown', onKeyDown);
         global.removeEventListener('keyup', onKeyUp);
-        global.removeEventListener('blur', releaseAll);
+        global.removeEventListener('blur', onBlur);
         global.removeEventListener('pointerup', onWindowPointerUp);
         global.removeEventListener('pointercancel', onWindowPointerCancel);
         sound.close();
@@ -741,6 +831,7 @@
           multiplier: wasm.exports.get_mult(),
           bestCombo: wasm.exports.get_best_combo(),
           gameOver: !!wasm.exports.is_game_over(),
+          paused: paused,
         };
       },
     };
