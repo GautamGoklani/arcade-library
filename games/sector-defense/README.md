@@ -80,7 +80,7 @@ For plain integration you only need to copy **two files** into a site:
 var game = SectorDefense.mount(containerOrSelector, options?);
 
 game.restart();    // start a fresh run
-game.getState();   // { score, level, shield, sector, combo, multiplier, bestCombo, gameOver, paused }
+game.getState();   // { score, level, shield, sector, combo, multiplier, bestCombo, gameOver, paused, difficulty }
 game.destroy();    // stop the loop, remove DOM + all event listeners
 ```
 
@@ -99,6 +99,7 @@ Multiple instances on one page are supported — each `mount()` is independent.
 |---------|--------------------|------------------------|
 | Move    | ← / → or A / D     | left stick (horizontal)|
 | Fire    | Space (hold)       | round **FIRE** button  |
+| Difficulty | the EASY / NORMAL / HARD button; changing it starts a fresh run | the same button |
 | Pause   | P or Esc; losing focus too | the PAUSE button; tap the sector to resume |
 | Restart | R                  | tap the GAME OVER text |
 | Mute    | M                  | the SOUND button       |
@@ -286,6 +287,94 @@ After both, the same pilot dies at **wave 22** ignoring incoming fire and
 **wave 15** while dodging — dodging pulls it off target, so it kills less and
 lets more through, which is the trade the game is about. Wave 1 is deliberately
 quiet: five drifters, one kind, the slowest descent in the game.
+
+Several of the numbers in both tables above are the **Normal** column of the
+difficulty table rather than fixed constants. See below.
+
+## Difficulty, September 2026
+
+Three settings, picked with the HUD button or
+`mount(el, { difficulty: 'hard' })`. The table lives in the engine:
+`set_difficulty(d)` records the choice (0 easy, 1 normal, 2 hard) and `init()`
+applies it, so a setting never changes halfway through a run.
+
+| | Easy | Normal | Hard |
+|---|---|---|---|
+| The sector's capacity | 130 | 100 | 80 |
+| ... repaired per wave cleared | 22 | 15 | 8 |
+| Descent | 18, +2.6 a wave, cap 78 | 22, +3.4, cap 95 | 26, +4.2, cap 112 |
+| Attacker fire gap | 3.0–5.4 s, floor 1.0 | 2.4–4.6 s, floor 0.75 | 2.0–4.0 s, floor 0.6 |
+| A new attacker kind every | 2 waves | 1 wave | 1 wave, starting with 2 |
+| Shield recovery pause | 2.0 s | 2.6 s | 3.4 s |
+| Drip tightens per wave | 0.028 | 0.035 | 0.048 |
+| ... gap floor | 0.48 s | 0.34 s | 0.24 s |
+| Most attackers in a wave | 20 | 26 | 26 |
+
+The three knobs the backlog named were **the descent rate, the fire rate and
+which kinds arrive when**. Three more are in the table, and two of them were
+added because a bench said so.
+
+The sector's capacity is this game's starting lives — it is the only way to
+lose, and every other title's table moves that number. The shield's recovery
+pause is the other half of the fire rate: being shot at more often only matters
+if breaking contact is also harder, and moving one without the other makes Hard
+a game you win by standing still in a corner.
+
+**A third finding from benching, and the reason for the last three rows.** With
+only the knobs above in the table, the three columns came out **505 / 411 / 327
+seconds** against the headless pilot — Hard ran 80% as long as Normal, where the
+rest of the library's tables land nearer half. An instrumented run showed why:
+**the sector was still at full capacity at wave 13 on all three settings.** The
+run was a non-event until the shared spawn curve bottomed out and then collapsed
+inside a minute, so the columns only separated in the last sixty seconds of a
+six-minute run. That is not a difficulty curve; it is three ways to play the
+same game. What actually decides when this game gets hard is the drip — how
+fast the gap between arrivals tightens, and how short it may get — so that went
+in the table, and the numbers became 581 / 411 / 268.
+
+Note that **Hard keeps Normal's wave size** and only tightens the drip. More
+attackers per wave at the same spacing is a longer wave rather than a harder
+one, which is finding 2 above. Easy is the column that shortens the wave,
+because on Easy a long wave is the problem.
+
+**Three things are deliberately not in the table.** `$PLAYER_SPEED` and
+`$FIRE_CD` are the feel of the defender rather than the challenge, and a
+sluggish gun on Easy would be a different game to learn on. `$SHIELD_MAX` stays
+at 100 because the shield is a meter the player reads as a percentage, and a
+shield that is "120% full" is a worse HUD for no gain.
+
+**Normal is the previous balance exactly.** The same input replayed through the
+committed engine and this one gave byte-identical results on every frame — all
+2,176 bytes of the simulated region plus all sixteen readers — over 36,000
+frames, re-initialising on each game over so restarts and wave builds were
+covered as well as one long run.
+
+Benched with a pilot that tracks the lowest attacker with a jittered aim, fires
+constantly, and never manages the shield or breaks contact to let it recover.
+24 runs each, capped at fifteen minutes (no run reached the cap):
+
+| | Survived: worst / median / best | Mean | Waves (median / best) | Kills (median) | Breaches (median) |
+|---|---|---|---|---|---|
+| Easy | 519 / 555 / 798 s | 580.7 s | 29 / 45 | 525 | 8 |
+| Normal | 350 / 413 / 481 s | 410.7 s | 19 / 22 | 387 | 3 |
+| Hard | 195 / 271 / 328 s | 268.2 s | 14 / 17 | 265 | 2 |
+
+All three reach wave 3 in 24 of 24 runs, which is the bar CLAUDE.md sets for a
+gentle opening — this game has never had a harsh start, and the table does not
+give it one.
+
+**What the bench does not cover, and one honest caveat.** Even after the drip
+went into the table, **Normal's sector is still untouched at wave 17** — the
+long quiet opening is the balance this engine already shipped with, and Normal
+is byte-identical to it, so it is not something the table could fix without
+changing what Normal is. Easy is quieter still by design. Only Hard starts
+taking sector damage in the middle of a run rather than at the end of one. A
+player who wants the fight to begin earlier wants Hard, and that is now a real
+answer rather than a shrug.
+
+**Best scores are kept per setting.** The page shell records Normal under the
+same key as before, so a best set before difficulty existed is still Normal's,
+and Easy and Hard get `sector-defense:easy` and `sector-defense:hard`.
 
 ## Rebuilding the engine
 

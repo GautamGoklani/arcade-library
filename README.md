@@ -17,7 +17,7 @@ arcade-library/
 │   ├── grid-breaker/   ← brick breaker, 5.2 KB engine, keyboard + pointer + touch
 │   ├── worm-chase/     ← grid territory capture, 4.1 KB engine, no imports
 │   ├── asteroid-miner/ ← mining run, 4.4 KB engine, fuel and cargo, 320x240
-│   ├── sector-defense/ ← wave defence, 3.6 KB engine, shield + combo, 320x240
+│   ├── sector-defense/ ← wave defence, 4.0 KB engine, shield + combo, 320x240
 │   ├── circuit-runner/ ← endless lane runner, 3.0 KB engine, generated board
 │   ├── starfield-runner/ ← graze scoring, 3.0 KB engine, no imports, 320x240
 │   ├── tower-defense/  ← place, don't steer; 5.1 KB engine, generated route

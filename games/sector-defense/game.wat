@@ -92,7 +92,11 @@
 
   ;; ---- the line being defended ----
   (global $SECTOR_Y f32 (f32.const 690.0))
-  (global $SECTOR_MAX f32 (f32.const 100.0))
+  ;; Mutable because the difficulty table writes it — see $apply_difficulty.
+  ;; The initialiser is Normal's value, which is what makes a Normal run
+  ;; identical to the engine that had no settings at all. The widget scales its
+  ;; meter from get_sector_max(), so this moving does not strand the HUD.
+  (global $SECTOR_MAX (mut f32) (f32.const 100.0))
   (global $BREACH_DAMAGE f32 (f32.const 18.0))   ;; an attacker crossing the line
   (global $LEAK_DAMAGE f32 (f32.const 10.0))     ;; a hit the shield could not take
 
@@ -103,19 +107,21 @@
   (global $SHIELD_MAX f32 (f32.const 100.0))
   (global $SHIELD_HIT f32 (f32.const 34.0))
   (global $SHIELD_REGEN f32 (f32.const 11.0))    ;; per second
-  (global $SHIELD_DELAY f32 (f32.const 2.6))     ;; seconds of calm before it starts
+  ;; Mutable for the table. That the delay *exists* is the mechanic and is the
+  ;; same on every setting; only how long it is moves.
+  (global $SHIELD_DELAY (mut f32) (f32.const 2.6))   ;; seconds of calm before it starts
 
   ;; ---- attackers ----
   (global $ENEMY_HALF_W f32 (f32.const 17.0))
   (global $ENEMY_HALF_H f32 (f32.const 14.0))
   (global $HULK_HALF_W f32 (f32.const 24.0))
-  (global $DESCENT f32 (f32.const 22.0))
-  (global $DESCENT_STEP f32 (f32.const 3.4))
+  (global $DESCENT (mut f32) (f32.const 22.0))
+  (global $DESCENT_STEP (mut f32) (f32.const 3.4))
   ;; The cap sat at 62 in the first build, which is 11 seconds to cross the
   ;; field — slow enough that the headless pilot cleared 28 waves without a
   ;; single attacker ever reaching the line. A ceiling the player never feels
   ;; is not a difficulty curve.
-  (global $DESCENT_CAP f32 (f32.const 95.0))
+  (global $DESCENT_CAP (mut f32) (f32.const 95.0))
   (global $LATERAL f32 (f32.const 95.0))
   (global $LATERAL_STEP f32 (f32.const 7.0))
   (global $DIVE_MUL f32 (f32.const 3.4))
@@ -127,8 +133,8 @@
   ;; a fixed 1.15s drip is thirty seconds of spawning alone, which the bench
   ;; measured and which is not what "harder" should mean.
   (global $SPAWN_EVERY f32 (f32.const 1.15))
-  (global $SPAWN_STEP f32 (f32.const 0.035))
-  (global $SPAWN_MIN f32 (f32.const 0.34))
+  (global $SPAWN_STEP (mut f32) (f32.const 0.035))
+  (global $SPAWN_MIN (mut f32) (f32.const 0.34))
   (global $MARGIN f32 (f32.const 46.0))
 
   ;; ---- combo ----
@@ -138,6 +144,81 @@
   (global $COMBO_CAP f32 (f32.const 30.0))
   (global $SCORE_KILL f32 (f32.const 20.0))
   (global $SCORE_WAVE f32 (f32.const 150.0))
+
+  ;; ---- difficulty ---------------------------------------------------------
+  ;; Easy / Normal / Hard. The widget calls set_difficulty(d) and then init();
+  ;; init() copies one column of this table into the globals below, and the rest
+  ;; of the engine reads only those.
+  ;;
+  ;;                            easy       normal      hard
+  ;;   the sector's capacity     130        100         80
+  ;;   descent                    18         22         26
+  ;;   ... faster per level      2.6        3.4        4.2
+  ;;   ... capped at              78         95        112
+  ;;   attacker fire gap      3.0-5.4s   2.4-4.6s   2.0-4.0s
+  ;;   ... floor                 1.0s      0.75s       0.6s
+  ;;   a new kind every        2 levels   1 level    1 level
+  ;;   ... kinds at level 1        1          1          2
+  ;;   shield recovery pause     2.0s       2.6s       3.4s
+  ;;   sector repaired a wave     22         15          8
+  ;;   drip tightens per level   0.028      0.035      0.048
+  ;;   ... gap floor             0.48s      0.34s      0.24s
+  ;;   most attackers in a wave    20         26         26
+  ;;
+  ;; The three knobs TASKS.md named are the descent rate, the fire rate and
+  ;; which kinds arrive when. Two more came with them. The sector's capacity is
+  ;; this game's starting lives — it is the only way to lose, and every other
+  ;; title's table moves that number. And the shield's recovery pause is the
+  ;; other half of the fire rate: being shot at more often only means something
+  ;; if breaking contact is also harder, and moving one without the other makes
+  ;; Hard a game you win by standing still in a corner.
+  ;;
+  ;; The sector repair a cleared wave pays back is the sixth, and it was added
+  ;; after the first bench rather than designed in. With the repair fixed at 15
+  ;; the three columns came out 505 / 411 / 327 seconds against the headless
+  ;; pilot — Hard ran 80% as long as Normal, where the rest of the library's
+  ;; tables land nearer half. The repair was why: every other knob decides how
+  ;; fast the sector is worn down, and a flat refund each wave undoes them all
+  ;; at the same rate on every setting. It is the difference between a harder
+  ;; wave and a longer one, measured.
+  ;;
+  ;; The last two rows are the ones that actually decide when this game gets
+  ;; hard, and finding that out took a second bench. With only the knobs above
+  ;; in the table, an instrumented run showed the sector still at full capacity
+  ;; at level 13 on all three settings — the run was a non-event until the
+  ;; shared spawn curve bottomed out, and then it collapsed inside a minute. A
+  ;; table whose columns only separate in the last sixty seconds of a six-minute
+  ;; run is not a difficulty curve; it is three ways to play the same game.
+  ;; What moves is the drip: how fast the gap between arrivals tightens, and how
+  ;; short it is allowed to get.
+  ;;
+  ;; Hard keeps Normal's wave *size* and only tightens the drip. More attackers
+  ;; per wave at the same spacing is a longer wave rather than a harder one,
+  ;; which is the mistake the note above $SPAWN_EVERY already records; Easy is
+  ;; the column that shortens the wave, because on Easy a long wave is the
+  ;; problem.
+  ;;
+  ;; Three things are deliberately *not* in the table. $PLAYER_SPEED and
+  ;; $FIRE_CD are the feel of the defender rather than the challenge, and a
+  ;; sluggish gun on Easy would be a different game to learn on. $SHIELD_MAX
+  ;; stays at 100 because the shield is a meter the player reads as a
+  ;; percentage, and a shield that is "120%" full is a worse HUD for no gain.
+  ;;
+  ;; Every descent cap in the table is one the player actually meets. The note
+  ;; above $DESCENT_CAP records what happened at 62 — the pilot cleared 28 waves
+  ;; without a single attacker reaching the line — and Easy's 78 is the number
+  ;; that had to be checked hardest against it, not Hard's 112.
+  ;;
+  ;; $difficulty is not reset by init: it is a choice about the next run, so a
+  ;; restart has to carry it rather than wipe it — chapter 8's argument for $rng.
+  (global $difficulty (mut i32) (i32.const 1))   ;; 0 easy, 1 normal, 2 hard
+  (global $FIRE_LO (mut f32) (f32.const 2.4))
+  (global $FIRE_HI (mut f32) (f32.const 4.6))
+  (global $FIRE_FLOOR (mut f32) (f32.const 0.75))
+  (global $KIND_EVERY (mut i32) (i32.const 1))   ;; levels between new kinds
+  (global $KIND_BONUS (mut i32) (i32.const 0))   ;; extra kinds from level 1
+  (global $WAVE_REPAIR (mut f32) (f32.const 15.0))
+  (global $WAVE_CAP (mut i32) (i32.const 26))
 
   (global $rng (mut i32) (i32.const 88675123))
   (global $level (mut i32) (i32.const 1))
@@ -245,7 +326,7 @@
   ;; it is met in a crowd.
   (func $wave_size (result i32)
     (call $clampi (i32.add (i32.const 3) (i32.mul (global.get $level) (i32.const 2)))
-                  (i32.const 5) (i32.const 26)))
+                  (i32.const 5) (global.get $WAVE_CAP)))
 
   (func $spawn_gap (result f32)
     (call $clampf
@@ -254,17 +335,24 @@
                  (global.get $SPAWN_STEP)))
       (global.get $SPAWN_MIN) (global.get $SPAWN_EVERY)))
 
+  ;; On Normal this is clampi(level, 1, 4) exactly — $KIND_EVERY is 1 and
+  ;; $KIND_BONUS is 0, so the division is a no-op and the sum is the level.
   (func $kinds_in_play (result i32)
-    (call $clampi (global.get $level) (i32.const 1) (i32.const 4)))
+    (call $clampi
+      (i32.add (i32.add (i32.const 1)
+                        (i32.div_s (i32.sub (global.get $level) (i32.const 1))
+                                   (global.get $KIND_EVERY)))
+               (global.get $KIND_BONUS))
+      (i32.const 1) (i32.const 4)))
 
   ;; Seconds between an attacker's shots. Falls with the level, and a hulk
   ;; fires half as often as it is twice as hard to remove.
   (func $fire_gap (param $kind i32) (result f32)
     (local $g f32)
     (local.set $g (call $frand
-      (f32.sub (f32.const 2.4) (f32.mul (f32.convert_i32_s (global.get $level)) (f32.const 0.09)))
-      (f32.sub (f32.const 4.6) (f32.mul (f32.convert_i32_s (global.get $level)) (f32.const 0.14)))))
-    (local.set $g (call $clampf (local.get $g) (f32.const 0.75) (f32.const 5.0)))
+      (f32.sub (global.get $FIRE_LO) (f32.mul (f32.convert_i32_s (global.get $level)) (f32.const 0.09)))
+      (f32.sub (global.get $FIRE_HI) (f32.mul (f32.convert_i32_s (global.get $level)) (f32.const 0.14)))))
+    (local.set $g (call $clampf (local.get $g) (global.get $FIRE_FLOOR) (f32.const 5.0)))
     (if (i32.eq (local.get $kind) (i32.const 3))
       (then (local.set $g (f32.mul (local.get $g) (f32.const 1.8)))))
     (local.get $g))
@@ -615,7 +703,72 @@
     (global.set $spawnAcc (f32.const -0.25))
     (global.set $fireCd (f32.const 0.0)))
 
+  ;; Copy one column of the difficulty table into the globals the rest of the
+  ;; engine reads. Called only from init, so a run never changes balance halfway
+  ;; through. Normal restates the initialisers, because a restart after an Easy
+  ;; or Hard run has to put them back.
+  (func $apply_difficulty
+    (if (i32.eqz (global.get $difficulty))
+      (then   ;; easy
+        (global.set $SECTOR_MAX (f32.const 130.0))
+        (global.set $DESCENT (f32.const 18.0))
+        (global.set $DESCENT_STEP (f32.const 2.6))
+        (global.set $DESCENT_CAP (f32.const 78.0))
+        (global.set $FIRE_LO (f32.const 3.0))
+        (global.set $FIRE_HI (f32.const 5.4))
+        (global.set $FIRE_FLOOR (f32.const 1.0))
+        (global.set $KIND_EVERY (i32.const 2))
+        (global.set $KIND_BONUS (i32.const 0))
+        (global.set $SHIELD_DELAY (f32.const 2.0))
+        (global.set $WAVE_REPAIR (f32.const 22.0))
+        (global.set $SPAWN_STEP (f32.const 0.028))
+        (global.set $SPAWN_MIN (f32.const 0.48))
+        (global.set $WAVE_CAP (i32.const 20)))
+      (else
+        (if (i32.eq (global.get $difficulty) (i32.const 2))
+          (then   ;; hard
+            (global.set $SECTOR_MAX (f32.const 80.0))
+            (global.set $DESCENT (f32.const 26.0))
+            (global.set $DESCENT_STEP (f32.const 4.2))
+            (global.set $DESCENT_CAP (f32.const 112.0))
+            (global.set $FIRE_LO (f32.const 2.0))
+            (global.set $FIRE_HI (f32.const 4.0))
+            (global.set $FIRE_FLOOR (f32.const 0.6))
+            (global.set $KIND_EVERY (i32.const 1))
+            (global.set $KIND_BONUS (i32.const 1))
+            (global.set $SHIELD_DELAY (f32.const 3.4))
+            (global.set $WAVE_REPAIR (f32.const 8.0))
+            (global.set $SPAWN_STEP (f32.const 0.048))
+            (global.set $SPAWN_MIN (f32.const 0.24))
+            (global.set $WAVE_CAP (i32.const 26)))
+          (else   ;; normal
+            (global.set $SECTOR_MAX (f32.const 100.0))
+            (global.set $DESCENT (f32.const 22.0))
+            (global.set $DESCENT_STEP (f32.const 3.4))
+            (global.set $DESCENT_CAP (f32.const 95.0))
+            (global.set $FIRE_LO (f32.const 2.4))
+            (global.set $FIRE_HI (f32.const 4.6))
+            (global.set $FIRE_FLOOR (f32.const 0.75))
+            (global.set $KIND_EVERY (i32.const 1))
+            (global.set $KIND_BONUS (i32.const 0))
+            (global.set $SHIELD_DELAY (f32.const 2.6))
+            (global.set $WAVE_REPAIR (f32.const 15.0))
+            (global.set $SPAWN_STEP (f32.const 0.035))
+            (global.set $SPAWN_MIN (f32.const 0.34))
+            (global.set $WAVE_CAP (i32.const 26)))))))
+
+  ;; 0 easy, 1 normal, 2 hard; anything else is clamped rather than trusted, and
+  ;; a JavaScript call with no argument arrives as 0. Takes effect at the next
+  ;; init().
+  (func $set_difficulty (export "set_difficulty") (param $d i32)
+    (if (i32.lt_s (local.get $d) (i32.const 0)) (then (local.set $d (i32.const 0))))
+    (if (i32.gt_s (local.get $d) (i32.const 2)) (then (local.set $d (i32.const 2))))
+    (global.set $difficulty (local.get $d)))
+  (func $get_difficulty (export "get_difficulty") (result i32) (global.get $difficulty))
+
   (func $init (export "init")
+    ;; first, because the meters and the wave built below all read it
+    (call $apply_difficulty)
     (global.set $rng (i32.const 88675123))
     (global.set $level (i32.const 1))
     (global.set $gameOver (i32.const 0))
@@ -647,7 +800,7 @@
     (global.set $waves (i32.add (global.get $waves) (i32.const 1)))
     (call $add_score (global.get $SCORE_WAVE))
     (call $add_score (global.get $shield))
-    (global.set $sector (call $clampf (f32.add (global.get $sector) (f32.const 15.0))
+    (global.set $sector (call $clampf (f32.add (global.get $sector) (global.get $WAVE_REPAIR))
                                       (f32.const 0.0) (global.get $SECTOR_MAX)))
     (global.set $shield (global.get $SHIELD_MAX))
     (call $build_wave))

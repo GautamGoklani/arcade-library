@@ -48,7 +48,7 @@ nobody has to re-derive it later.
 | `grid-breaker` | **done** | **has them** | yes | a tile that repairs its neighbours |
 | `worm-chase` | **done** | yes | yes | a hunter that cuts your trail |
 | `asteroid-miner` | **done** | yes | maybe | spend cargo at the depot |
-| `sector-defense` | yes | yes | yes | a carrier that lands attackers |
+| `sector-defense` | **done** | yes | yes | a carrier that lands attackers |
 | `circuit-runner` | a gentler opening | **has them** | no | a named stretch of board |
 | `starfield-runner` | yes | **no** | yes | a squeeze that scores double |
 | `tower-defense` | yes | as abilities | yes | upgrade a tower in place |
@@ -56,11 +56,17 @@ nobody has to re-derive it later.
 
 **Difficulty settings** anywhere mean the same shape as Pixel Wave's: a tuning
 table the engine's `init()` applies, a re-bench of every setting with a pilot
-that plays badly, and one best score per setting. **Four are done** — Pixel
-Wave, Grid Breaker, Worm Chase and Asteroid Miner — each a hand-written copy of
-the same shape, and in each of the three that followed Pixel Wave, Normal
-replays the engine that shipped before the setting existed. Per game, for the
-five left: Sector Defense is descent rate, fire rate and which kinds arrive when;
+that plays badly, and one best score per setting. **Five are done** — Pixel
+Wave, Grid Breaker, Worm Chase, Asteroid Miner and Sector Defense — each a
+hand-written copy of the same shape, and in each of the four that followed Pixel
+Wave, Normal replays the engine that shipped before the setting existed.
+
+One lesson from Sector Defense is worth carrying into the four left: **the knobs
+named below may not be the ones that decide when a game gets hard.** Its three
+were the right knobs and still produced columns that only separated in the last
+minute of a six-minute run, because a shared curve elsewhere dominated all of
+them. Bench the table, then instrument a run and look at *when* the meters
+actually start moving. Per game, for the four left:
 Starfield Runner is graze band width and rock density (the band *is* the scoring
 rule, so widening it is the honest knob); Tower Defense is starting scrap and
 wave strength; Pulse is the tempo floor and how full each bar is, which is the

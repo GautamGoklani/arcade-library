@@ -122,7 +122,7 @@
 .sd-mute:hover { background: rgba(102, 226, 255, 0.15); }
 /* PAUSE borrows SOUND's look and sits beside it. Touch has no P key, so on a
    phone this button is the only way to pause. */
-.sd-pause { margin-left: 8px; }
+.sd-pause, .sd-diff { margin-left: 8px; }
 /* Same overlay as SECTOR LOST, in the HUD's cyan: pause is a waiting state, not
    a loss, and it should not read as one. */
 .sd-paused {
