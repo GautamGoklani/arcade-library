@@ -55,7 +55,11 @@ body {
 <script src="../../hiscores.js"></script>
 <script>
   var game = AsteroidMiner.mount('#game');
-  if (window.ArcadeScores) ArcadeScores.watch('asteroid-miner', game);
+  // One best per difficulty. Normal keeps the plain slug, so a best set before
+  // difficulty existed is still Normal's, and the hub card goes on showing it.
+  if (window.ArcadeScores) ArcadeScores.watch(function (st) {
+    return st.difficulty && st.difficulty !== 'normal' ? 'asteroid-miner:' + st.difficulty : 'asteroid-miner';
+  }, game);
 </script>
 
 </body>

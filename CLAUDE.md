@@ -58,7 +58,7 @@ scripts/serve.mjs       dev server
 | `pixel-wave` | 4.5 KB | wave shooter | the first title; the course's main worked example; Easy/Normal/Hard as a table in the engine; three enemy roles keyed off the pool slot |
 | `grid-breaker` | 5.2 KB | paddle and ball | arrived from a portfolio repo; predates some conventions; Easy/Normal/Hard as a table in the engine |
 | `worm-chase` | 4.1 KB | grid territory capture | **no imports**; hold-to-move; Easy/Normal/Hard as a table in the engine |
-| `asteroid-miner` | 4.2 KB | mining run | splitting entities, fuel/cargo; first with the retro renderer |
+| `asteroid-miner` | 4.4 KB | mining run | splitting entities, fuel/cargo; first with the retro renderer; Easy/Normal/Hard as a table in the engine |
 | `sector-defense` | 3.6 KB | wave defence | **no imports**; per-entity intent, two meters instead of lives |
 | `circuit-runner` | 3.0 KB | endless lane runner | **no imports**; nothing to shoot, generated board, tap-zone touch |
 | `starfield-runner` | 3.0 KB | graze-scoring runner | **no imports**; free flight, close passes are the only score and the only repair |

@@ -96,9 +96,12 @@
 
   ;; ---- resources ----
   (global $FUEL_MAX f32 (f32.const 100.0))
-  (global $FUEL_BURN f32 (f32.const 8.5))       ;; per second of thrust
-  (global $REFUEL_RATE f32 (f32.const 38.0))    ;; per second, docked
-  (global $FUEL_CELL f32 (f32.const 22.0))      ;; per cell picked up
+  ;; Mutable because the difficulty table writes them — see $apply_difficulty.
+  ;; The initialisers are Normal's values, which is what makes a Normal run
+  ;; identical to the engine that had no settings at all.
+  (global $FUEL_BURN (mut f32) (f32.const 8.5))       ;; per second of thrust
+  (global $REFUEL_RATE f32 (f32.const 38.0))          ;; per second, docked
+  (global $FUEL_CELL (mut f32) (f32.const 22.0))      ;; per cell picked up
   ;; The emergency reserve. A dry tank far from the depot used to be 75 seconds
   ;; of drifting with nothing to do but wait for a rock to hit you — the
   ;; headless bench measured exactly that. This trickles the tank back up to a
@@ -114,8 +117,8 @@
   (global $ROCK_R3 f32 (f32.const 42.0))
   (global $ROCK_R2 f32 (f32.const 25.0))
   (global $ROCK_R1 f32 (f32.const 14.0))
-  (global $ROCK_SPEED f32 (f32.const 26.0))
-  (global $ROCK_SPEED_STEP f32 (f32.const 4.0))
+  (global $ROCK_SPEED (mut f32) (f32.const 26.0))
+  (global $ROCK_SPEED_STEP (mut f32) (f32.const 4.0))
   (global $SPLIT_KICK f32 (f32.const 46.0))
   (global $PICKUP_LIFE f32 (f32.const 17.0))
   (global $PICKUP_R f32 (f32.const 9.0))
@@ -127,7 +130,43 @@
   (global $SCORE_PEBBLE f32 (f32.const 15.0))
   (global $SCORE_GEM f32 (f32.const 25.0))
   (global $SCORE_LEVEL f32 (f32.const 200.0))
-  (global $START_LIVES f32 (f32.const 4.0))
+  (global $START_LIVES (mut f32) (f32.const 4.0))
+
+  ;; ---- difficulty ---------------------------------------------------------
+  ;; Easy / Normal / Hard. The widget calls set_difficulty(d) and then init();
+  ;; init() copies one column of this table into the globals below, and the rest
+  ;; of the engine reads only those.
+  ;;
+  ;;                             easy       normal      hard
+  ;;   starting lives              5          4           3
+  ;;   fuel burn (per s thrust)   6.5        8.5        10.5
+  ;;   a fuel cell is worth        28         22          18
+  ;;   boulders in the field     1+lvl      2+lvl       3+lvl
+  ;;   ... floor / cap            2 / 8      3 / 10      4 / 12
+  ;;   gems the level asks for   2 + 2/lvl  3 + 3/lvl   4 + 4/lvl
+  ;;   rock speed               22 + 3/lvl  26 + 4/lvl  31 + 5/lvl
+  ;;
+  ;; The three knobs TASKS.md named are fuel burn, rock density and the quota.
+  ;; Rock speed came with density because the two together are what "a busier
+  ;; field" means here — more rocks moving at the same crawl reads as clutter
+  ;; rather than as pressure. A fuel cell's worth is in the table with the burn
+  ;; rate for the same reason: the burn rate alone changes how long a tank
+  ;; lasts, and the cell is what decides whether the field can pay for it.
+  ;;
+  ;; Three things are deliberately *not* in the table. $DRAG and $ROT_SPEED are
+  ;; the feel of the ship rather than the challenge, and a barge on Easy would
+  ;; be a different game to learn on. And $RESERVE_RATE / $RESERVE_CAP stay put
+  ;; on every setting: the reserve exists to stop a dry tank being 75 seconds of
+  ;; nothing to do, which is a dead-time bug, not a difficulty.
+  ;;
+  ;; $difficulty is not reset by init: it is a choice about the next run, so a
+  ;; restart has to carry it rather than wipe it — chapter 8's argument for $rng.
+  (global $difficulty (mut i32) (i32.const 1))   ;; 0 easy, 1 normal, 2 hard
+  (global $ROCK_BASE (mut i32) (i32.const 2))
+  (global $ROCK_MIN (mut i32) (i32.const 3))
+  (global $ROCK_CAP (mut i32) (i32.const 10))
+  (global $QUOTA_BASE (mut i32) (i32.const 3))
+  (global $QUOTA_STEP (mut i32) (i32.const 3))
 
   (global $rng (mut i32) (i32.const 1103515245))
   (global $level (mut i32) (i32.const 1))
@@ -273,6 +312,14 @@
   ;; A boulder somewhere on the field, never on top of the depot — a rock that
   ;; materialised inside the one safe place would kill a docked ship that had
   ;; done nothing wrong.
+  ;; How many boulders this level wants. $build_level seeds the field with it
+  ;; and $step tops the field back up to it, so it lives in one function — two
+  ;; copies of the same arithmetic is exactly the pair that drifts apart when
+  ;; the difficulty table moves one of them.
+  (func $field_rocks (result i32)
+    (call $clampi (i32.add (global.get $ROCK_BASE) (global.get $level))
+                  (global.get $ROCK_MIN) (global.get $ROCK_CAP)))
+
   (func $spawn_drifter
     (local $x f32) (local $y f32) (local $ang f32) (local $sp f32) (local $tries i32)
     (local.set $tries (i32.const 0))
@@ -734,9 +781,9 @@
       (call $frand (f32.const 130.0) (f32.sub (global.get $WORLD_H) (f32.const 130.0))))
 
     ;; Three boulders on level 1, one more each level, capped at ten — beyond
-    ;; that the splits alone fill the pool.
-    (local.set $n (call $clampi (i32.add (i32.const 2) (global.get $level))
-                                (i32.const 3) (i32.const 10)))
+    ;; that the splits alone fill the pool. Easy and Hard shift all three
+    ;; numbers; see the difficulty table.
+    (local.set $n (call $field_rocks))
     (local.set $i (i32.const 0))
     (block $done
       (loop $lp
@@ -747,7 +794,9 @@
 
     ;; Six gems to deliver on level 1, three more each level. It is a delivery
     ;; count, not a mining count: what the level asks for is round trips.
-    (global.set $quota (i32.add (i32.const 3) (i32.mul (global.get $level) (i32.const 3))))
+    (global.set $quota
+      (i32.add (global.get $QUOTA_BASE)
+               (i32.mul (global.get $level) (global.get $QUOTA_STEP))))
     (global.set $delivered (i32.const 0))
     (global.set $cargo (f32.const 0.0))
     (global.set $fuel (global.get $FUEL_MAX))
@@ -755,7 +804,60 @@
     (global.set $respawnAcc (f32.const 0.0))
     (call $place_ship_at_depot))
 
+  ;; Copy one column of the difficulty table into the globals the rest of the
+  ;; engine reads. Called only from init, so a run never changes balance halfway
+  ;; through. Normal restates the initialisers, because a restart after an Easy
+  ;; or Hard run has to put them back.
+  (func $apply_difficulty
+    (if (i32.eqz (global.get $difficulty))
+      (then   ;; easy
+        (global.set $START_LIVES (f32.const 5.0))
+        (global.set $FUEL_BURN (f32.const 6.5))
+        (global.set $FUEL_CELL (f32.const 28.0))
+        (global.set $ROCK_BASE (i32.const 1))
+        (global.set $ROCK_MIN (i32.const 2))
+        (global.set $ROCK_CAP (i32.const 8))
+        (global.set $QUOTA_BASE (i32.const 2))
+        (global.set $QUOTA_STEP (i32.const 2))
+        (global.set $ROCK_SPEED (f32.const 22.0))
+        (global.set $ROCK_SPEED_STEP (f32.const 3.0)))
+      (else
+        (if (i32.eq (global.get $difficulty) (i32.const 2))
+          (then   ;; hard
+            (global.set $START_LIVES (f32.const 3.0))
+            (global.set $FUEL_BURN (f32.const 10.5))
+            (global.set $FUEL_CELL (f32.const 18.0))
+            (global.set $ROCK_BASE (i32.const 3))
+            (global.set $ROCK_MIN (i32.const 4))
+            (global.set $ROCK_CAP (i32.const 12))
+            (global.set $QUOTA_BASE (i32.const 4))
+            (global.set $QUOTA_STEP (i32.const 4))
+            (global.set $ROCK_SPEED (f32.const 31.0))
+            (global.set $ROCK_SPEED_STEP (f32.const 5.0)))
+          (else   ;; normal
+            (global.set $START_LIVES (f32.const 4.0))
+            (global.set $FUEL_BURN (f32.const 8.5))
+            (global.set $FUEL_CELL (f32.const 22.0))
+            (global.set $ROCK_BASE (i32.const 2))
+            (global.set $ROCK_MIN (i32.const 3))
+            (global.set $ROCK_CAP (i32.const 10))
+            (global.set $QUOTA_BASE (i32.const 3))
+            (global.set $QUOTA_STEP (i32.const 3))
+            (global.set $ROCK_SPEED (f32.const 26.0))
+            (global.set $ROCK_SPEED_STEP (f32.const 4.0)))))))
+
+  ;; 0 easy, 1 normal, 2 hard; anything else is clamped rather than trusted, and
+  ;; a JavaScript call with no argument arrives as 0. Takes effect at the next
+  ;; init().
+  (func $set_difficulty (export "set_difficulty") (param $d i32)
+    (if (i32.lt_s (local.get $d) (i32.const 0)) (then (local.set $d (i32.const 0))))
+    (if (i32.gt_s (local.get $d) (i32.const 2)) (then (local.set $d (i32.const 2))))
+    (global.set $difficulty (local.get $d)))
+  (func $get_difficulty (export "get_difficulty") (result i32) (global.get $difficulty))
+
   (func $init (export "init")
+    ;; first, because the lives and the level built below all read it
+    (call $apply_difficulty)
     (global.set $rng (i32.const 1103515245))
     (global.set $level (i32.const 1))
     (global.set $gameOver (i32.const 0))
@@ -812,9 +914,7 @@
     (if (f32.ge (global.get $respawnAcc) (global.get $RESPAWN_EVERY))
       (then
         (global.set $respawnAcc (f32.const 0.0))
-        (if (i32.lt_s (call $rocks_alive)
-                      (call $clampi (i32.add (i32.const 2) (global.get $level))
-                                    (i32.const 3) (i32.const 10)))
+        (if (i32.lt_s (call $rocks_alive) (call $field_rocks))
           (then (call $spawn_drifter)))))
 
     (if (i32.ge_s (global.get $delivered) (global.get $quota))

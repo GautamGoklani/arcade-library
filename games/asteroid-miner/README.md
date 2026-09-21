@@ -65,7 +65,7 @@ For plain integration you only need to copy **two files** into a site:
 var game = AsteroidMiner.mount(containerOrSelector, options?);
 
 game.restart();    // start a fresh run
-game.getState();   // { score, lives, level, fuel, cargo, delivered, quota, gameOver, paused }
+game.getState();   // { score, lives, level, fuel, cargo, delivered, quota, gameOver, paused, difficulty }
 game.destroy();    // stop the loop, remove DOM + all event listeners
 ```
 
@@ -85,6 +85,7 @@ Multiple instances on one page are supported — each `mount()` is independent.
 | Turn    | ← / → or A / D     | left stick — it aims   |
 | Thrust  | ↑ or W             | round **THR** button   |
 | Mine    | Space              | round **FIRE** button  |
+| Difficulty | the EASY / NORMAL / HARD button; changing it starts a fresh run | the same button |
 | Pause   | P or Esc; losing focus too | the PAUSE button; tap the arena to resume |
 | Restart | R                  | tap the GAME OVER text |
 | Mute    | M                  | the SOUND button       |
@@ -294,6 +295,10 @@ The constants worth touching are all at the top of `game.wat`:
 | `$DEPOT_R` | docking radius | 52 |
 | `$START_LIVES` / `$INVULN_TIME` | ships, and blinking invulnerability after a respawn | 4 / 2.2 |
 
+Seven of those — the lives, the burn rate, the cell, the rock speed and its
+ramp, and the two numbers behind the field size — are the **Normal** column of
+the difficulty table rather than fixed constants. See below.
+
 The level curve is keyed on the level number and clamped:
 
 | per level | level 1 | growth | ceiling |
@@ -306,6 +311,73 @@ A headless pilot driving the compiled binary — greedy, with no route planning
 and no rock avoidance on the way home — reaches **level 4 in about 110 seconds**
 across 27 deliveries and 4 deaths. Level 1 is deliberately quiet: three slow
 boulders, one full tank, and six gems to fetch.
+
+## Difficulty, September 2026
+
+Three settings, picked with the HUD button or
+`mount(el, { difficulty: 'hard' })`. The table lives in the engine:
+`set_difficulty(d)` records the choice (0 easy, 1 normal, 2 hard) and `init()`
+applies it, so a setting never changes halfway through a run.
+
+| | Easy | Normal | Hard |
+|---|---|---|---|
+| Starting ships | 5 | 4 | 3 |
+| Fuel burn, per second of thrust | 6.5 | 8.5 | 10.5 |
+| ... so a full tank is | 15.4 s | 11.8 s | 9.5 s |
+| A fuel cell is worth | 28 | 22 | 18 |
+| Boulders on the field | 2, +1 a level, cap 8 | 3, +1, cap 10 | 4, +1, cap 12 |
+| Gems a level asks for | 4, +2 a level | 6, +3 | 8, +4 |
+| Rock speed | 22, +3 a level | 26, +4 | 31, +5 |
+
+The three knobs the backlog named were **fuel burn, rock density and the
+quota**, and those are the spine of it. Two more came with them because they
+are the same knob wearing another coat. **Rock speed** travels with density: more
+rocks at the same crawl reads as clutter rather than as pressure, and a field
+that is merely busier is the "a harder wave is not a longer wave" mistake in
+another shape. **A fuel cell's worth** travels with the burn rate: the burn rate
+alone decides how long a tank lasts, but the cell is what decides whether the
+field can pay for it, and moving one without the other makes Hard a game about
+docking rather than about mining.
+
+**Three things are deliberately not in the table.** `$ROT_SPEED` and `$DRAG` are
+the feel of the ship rather than the challenge — a barge on Easy would be a
+different game to learn on rather than an easier one. And `$RESERVE_RATE` /
+`$RESERVE_CAP` stay put on every setting: the reserve is what stops a dry tank
+being 75 seconds of drifting with nothing to do, and that is a dead-time bug,
+not a difficulty. Making Hard "harder" by letting it come back would be
+reintroducing the bug and calling it a setting.
+
+**Normal is the previous balance exactly.** The same input replayed through the
+committed engine and this one gave byte-identical results on every frame — all
+2,784 bytes of the simulated region, plus all eighteen readers — over 36,000
+frames, with a fresh `init()` on each game over so the comparison covered
+restarts and level builds as well as one long run.
+
+Benched with a pilot that plays badly: it points at the nearest rock, or at the
+depot once the hold is full, thrusts in random bursts whatever the fuel gauge
+says, fires constantly, and never dodges anything. 24 runs each, capped at ten
+minutes (no run reached the cap):
+
+| | Survived: worst / median / best | Mean | Level (median / best) | Gems (median) | Rocks shot (median) |
+|---|---|---|---|---|---|
+| Easy | 80 / 175 / 335 s | 193.6 s | 3 / 4 | 10 | 82 |
+| Normal | 66 / 148 / 362 s | 164.3 s | 2 / 4 | 6 | 63 |
+| Hard | 12 / 81 / 144 s | 71.7 s | 1 / 2 | 3 | 48 |
+
+That bad pilot reaches **level 3 in 15 of 24 Easy runs**, which is the bar
+CLAUDE.md sets for a gentle opening. It clears it in only 5 of 24 on Normal —
+worth knowing, but that is the balance this engine already shipped with rather
+than anything the table changed, and Normal is byte-identical to it. On Hard it
+never reaches level 3, which is the point of Hard.
+
+**What the bench does not cover:** nothing above level 4, on any setting. The
+caps (8 / 10 / 12 boulders) are reached at levels 7, 8 and 9 respectively, so
+what the field looks like once density stops growing and only speed and the
+quota do is untested by this pilot. A player who gets there is testing it first.
+
+**Best scores are kept per setting.** The page shell records Normal under the
+same key as before, so a best set before difficulty existed is still Normal's,
+and Easy and Hard get `asteroid-miner:easy` and `asteroid-miner:hard`.
 
 ## Rebuilding the engine
 
