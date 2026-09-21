@@ -28,7 +28,7 @@ for the reasoning behind keeping designs original.
 | **[Asteroid Miner](asteroid-miner/)** | Mine a drifting rock field for gems. Rocks split when shot; fuel and cargo make every run a round trip. | 4.4 KB |
 | **[Sector Defense](sector-defense/)** | Wave defence on one axis. Attackers with individual intent, a shield that regenerates only out of contact, and a decaying combo. | 4.0 KB |
 | **[Circuit Runner](circuit-runner/)** | Endless lane runner on a circuit board. Nothing to shoot, one draining meter, and a board generated so it is always passable. | 3.0 KB |
-| **[Starfield Runner](starfield-runner/)** | Free flight through a debris field. Nothing to shoot and nothing to collect: close passes are the only score and the only repair. | 3.0 KB |
+| **[Starfield Runner](starfield-runner/)** | Free flight through a debris field. Nothing to shoot and nothing to collect: close passes are the only score and the only repair. | 3.3 KB |
 | **[Tower Defense Lite](tower-defense/)** | A generated route, a core at the end, and twenty-eight tower slots. Guns overheat; a vent shoots nothing and cools its eight neighbours. | 5.1 KB |
 | **[Pulse](pulse/)** | A rhythm tube shooter whose engine is the sequencer: it owns the tempo, the bar and the pattern, and a shot on the beat hits three times as hard. | 3.4 KB |
 

@@ -99,7 +99,7 @@ var game = StarfieldRunner.mount(containerOrSelector, options?);
 
 game.restart();    // start a fresh run
 game.getState();   // { score, distance, speed, hull, charge, multiplier,
-                   //   grazes, squeezes, gameOver, paused }
+                   //   grazes, squeezes, gameOver, paused, difficulty }
 game.destroy();    // stop the loop, remove DOM + all event listeners
 ```
 
@@ -117,6 +117,7 @@ Multiple instances on one page are supported — each `mount()` is independent.
 | Action  | Desktop        | Mobile                       |
 |---------|----------------|------------------------------|
 | Fly     | ← / → or A / D | slide anywhere on the lower half |
+| Difficulty | the EASY / NORMAL / HARD button; changing it starts a fresh run | the same button |
 | Pause   | P or Esc; losing focus too | the PAUSE button; tap the field to resume |
 | Restart | R              | tap the GAME OVER text       |
 | Mute    | M              | the SOUND button             |
@@ -386,7 +387,114 @@ The difficulty curve, per 1000px travelled:
 | speed | +11, capped at 620 (reached at ~34km) |
 | field spacing | −2.6, floored at 268 |
 | corridor width | −1.6, floored at 148 |
-| rocks per field | +1 per 15km, from 3 to 6 |
+| rocks per field | +1 per 15km, from 3 to 6 (so six at 45km) |
+
+Every number in both tables above is the **Normal** column of the difficulty
+table rather than a fixed constant, except `$THRUST`, `$DRAG`,
+`$SQUEEZE_WINDOW` and the scoring and charge rows. See below.
+
+## Difficulty, September 2026
+
+Three settings, picked with the HUD button or
+`mount(el, { difficulty: 'hard' })`. The table lives in the engine:
+`set_difficulty(d)` records the choice (0 easy, 1 normal, 2 hard) and `init()`
+applies it, so a setting never changes halfway through a run.
+
+| | Easy | Normal | Hard |
+|---|---|---|---|
+| Hull plates | 4 | 3 | 2 |
+| **Graze band** | **38 px** | **30 px** | **24 px** |
+| Corridor | 290, −1.3 a km, floor 178 | 250, −1.6, floor 148 | 220, −2.0, floor 128 |
+| Speed | +8 a km, cap 540 | +11, cap 620 | +14, cap 700 |
+| Rocks in a field | cap 5, +1 per 20 km | cap 6, +1 per 15 km | cap 6, +1 per 11 km |
+| Field spacing floor | 300, −2.0 a km | 268, −2.6 | 240, −3.2 |
+
+The two knobs the backlog named were the **graze band** and **rock density**,
+and the band is the one that carries this title. TASKS.md's reasoning is why:
+the band *is* the scoring rule, so widening it on Easy is not a discount, it is
+a bigger target. And because a graze is also the only way to repair a plate,
+the band is simultaneously the score, the healing and the difficulty. There is
+no separate "more forgiving" knob to reach for here — and inventing one, a
+pickup or a slower drift, is exactly what TASKS.md already ruled out for this
+title on the grounds that it would cut the spine out of it.
+
+The corridor and the speed ramp are in the table because they are this game's
+actual difficulty curve. There is no level counter; everything is keyed on
+distance, and the corridor narrowing under a quickening board is the whole of
+it. Sector Defense's table shipped without its governing curve and the columns
+only separated in the last minute of a six-minute run — not a mistake worth
+making twice, so the curve went in from the start here and the bench below
+confirms the columns separate from the first kilometre.
+
+**`$PATH_STEP` is not in the table and does not need to be.** It is
+`REACH_RATE × field_gap ÷ speed` — how far the corridor may move between
+fields, derived from how far the ship can actually fly in the time it has. Hard
+both quickens the board and brings fields closer, and each of those *shrinks*
+the step on its own, so the guarantee that the corridor stays reachable holds on
+every column without the table touching it. That is what deriving the number
+rather than picking it bought, and it is the same argument as the 210px note in
+the corridor section above.
+
+**Three things are deliberately not in the table.** `$THRUST` and `$DRAG` are
+the feel of the ship — the comment above `$DRAG` records what 2.0 and 8.0 each
+did to it, and neither is an easier game, they are different ones.
+`$SQUEEZE_WINDOW` stays at 0.34 s because it is a *definition*: it is how the
+engine decides two grazes were one gap, and a setting where the same flying
+counted as a different manoeuvre would make the scores incomparable.
+
+**Normal is the previous balance exactly.** The same input replayed through the
+committed engine and this one gave byte-identical results on every frame — all
+1,056 bytes of the simulated region plus all fifteen readers — over 36,000
+frames, re-initialising on each game over.
+
+### Two pilots, because one was not enough
+
+A pilot that flies the corridor centre and nothing else — no aiming for grazes,
+no threading gaps — measures the dodging half. 24 runs each:
+
+| | Survived: worst / median / best | Mean | Distance (median) | Hits (median) |
+|---|---|---|---|---|
+| Easy | 42 / 51 / 75 s | 50.0 s | 15.8 km | 4 |
+| Normal | 30 / 30 / 42 s | 32.6 s | 9.0 km | 3 |
+| Hard | 19 / 19 / 19 s | 19.1 s | 5.5 km | 2 |
+
+That pilot grazes almost by accident — a median of 2, 1 and 0 times — so **it
+never exercises the band at all**, which is the knob that matters most. A second
+pilot was written for it: it stands off a **fixed 26 px** from the nearest
+approaching rock, the same flying on every setting, so the band width is the
+only thing that varies. 24 runs each:
+
+| | Grazes (median) | Squeezes (median) | Distance (median) | Score (median) |
+|---|---|---|---|---|
+| Easy (38 px band) | 9 | 2 | 4.8 km | 785 |
+| Normal (30 px) | 6 | 1 | 4.8 km | 419 |
+| Hard (24 px) | 4 | 1 | 3.6 km | 334 |
+
+Easy and Normal cover the *same distance* flying *identically*, and Easy banks
+nearly double the score. That is the band doing precisely what it is supposed
+to, measured rather than asserted.
+
+**What neither pilot covers: the repair loop.** Both reach zero patches on every
+setting — grazing banks charge, but neither pilot sustains enough of it to fill
+the meter and buy a plate back before dying. So the half of the economy that
+makes flying close *worth* the risk is untested by the bench on all three
+settings, and Easy's wider band presumably helps it most. A player who gets
+there is testing it first.
+
+**A bug the setting found.** The HUD built its hull plates once, with a
+hardcoded three, before the engine had even loaded. On Easy that meant a fourth
+plate existed in the simulation and was never drawn — `getState().hull` said 4
+and the player could see 3, so a plate was silently lost and silently repaired.
+The row is now rebuilt from `get_hull_max()` on every restart. Worth recording
+because it is the failure mode invariant 3 exists to prevent, in miniature: the
+widget had quietly encoded a rule ("there are three plates") that belongs to the
+engine.
+
+**Best scores are kept per setting**, and here that is not only fairness: a
+wider band pays more for the same flying, so an Easy score and a Normal one are
+different currencies. The page shell records Normal under the same key as
+before, so a best set before difficulty existed is still Normal's, and Easy and
+Hard get `starfield-runner:easy` and `starfield-runner:hard`.
 
 ## Rebuilding the engine
 

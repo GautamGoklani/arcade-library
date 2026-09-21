@@ -55,7 +55,13 @@ body {
 <script src="../../hiscores.js"></script>
 <script>
   var game = StarfieldRunner.mount('#game');
-  if (window.ArcadeScores) ArcadeScores.watch('starfield-runner', game);
+  // One best per difficulty. Normal keeps the plain slug, so a best set before
+  // difficulty existed is still Normal's, and the hub card goes on showing it.
+  // Here the split is not just fairness: a wider graze band pays more for the
+  // same flying, so an Easy score and a Normal one are different currencies.
+  if (window.ArcadeScores) ArcadeScores.watch(function (st) {
+    return st.difficulty && st.difficulty !== 'normal' ? 'starfield-runner:' + st.difficulty : 'starfield-runner';
+  }, game);
 </script>
 
 </body>

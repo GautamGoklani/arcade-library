@@ -119,17 +119,20 @@
   ;; Speed is a function of distance, not of a level counter — the same choice
   ;; Circuit Runner makes, for the same reason: it is the only difficulty curve
   ;; an endless runner needs, and it cannot be gamed by playing slowly.
+  ;; Mutable because the difficulty table writes them — see $apply_difficulty.
+  ;; The initialisers are Normal's values, which is what makes a Normal run
+  ;; identical to the engine that had no settings at all.
   (global $SPEED_BASE f32 (f32.const 250.0))
-  (global $SPEED_PER_KM f32 (f32.const 11.0))
-  (global $SPEED_CAP f32 (f32.const 620.0))
+  (global $SPEED_PER_KM (mut f32) (f32.const 11.0))
+  (global $SPEED_CAP (mut f32) (f32.const 620.0))
 
   ;; ---- the fields ----
   ;; Fields arrive on a distance clock, so a faster board is a *denser* one. On
   ;; a wall clock it would be the reverse, which is exactly backwards.
   (global $FIELD_GAP f32 (f32.const 400.0))
-  (global $FIELD_GAP_MIN f32 (f32.const 268.0))
-  (global $FIELD_GAP_STEP f32 (f32.const 2.6))   ;; closer per 1000px
-  (global $MAX_IN_FIELD i32 (i32.const 6))
+  (global $FIELD_GAP_MIN (mut f32) (f32.const 268.0))
+  (global $FIELD_GAP_STEP (mut f32) (f32.const 2.6))   ;; closer per 1000px
+  (global $MAX_IN_FIELD (mut i32) (i32.const 6))
 
   ;; The guaranteed corridor. No rock may intrude on it, and its centre moves
   ;; between fields by at most what the ship can actually fly in the time it
@@ -151,22 +154,22 @@
   (global $REACH_RATE f32 (f32.const 300.0))
   (global $PATH_STEP_MAX f32 (f32.const 300.0))
   (global $PATH_STEP_MIN f32 (f32.const 80.0))
-  (global $CORRIDOR f32 (f32.const 250.0))
-  (global $CORRIDOR_MIN f32 (f32.const 148.0))
-  (global $CORRIDOR_STEP f32 (f32.const 1.6))     ;; narrower per 1000px
+  (global $CORRIDOR (mut f32) (f32.const 250.0))
+  (global $CORRIDOR_MIN (mut f32) (f32.const 148.0))
+  (global $CORRIDOR_STEP (mut f32) (f32.const 1.6))   ;; narrower per 1000px
 
   ;; ---- graze ----
   ;; How close counts. 30px against a 17px ship reads, on screen, as "you could
   ;; see daylight and it was thin" — wider and clean flying scores by accident,
   ;; narrower and the band is inside the sprite's own outline, so the player
   ;; cannot tell a graze from a miss and stops believing the score.
-  (global $GRAZE_BAND f32 (f32.const 30.0))
+  (global $GRAZE_BAND (mut f32) (f32.const 30.0))
   ;; Two grazes this close together mean one gap, not two rocks.
   (global $SQUEEZE_WINDOW f32 (f32.const 0.34))
   (global $NEAR_NONE f32 (f32.const 9999.0))
 
   ;; ---- hull and charge ----
-  (global $HULL_MAX f32 (f32.const 3.0))
+  (global $HULL_MAX (mut f32) (f32.const 3.0))
   (global $CHARGE_MAX f32 (f32.const 100.0))
   (global $CHARGE_GRAZE f32 (f32.const 9.0))      ;; at maximum tightness
   (global $CHARGE_SQUEEZE f32 (f32.const 22.0))
@@ -182,6 +185,60 @@
   (global $SCORE_GRAZE f32 (f32.const 30.0))      ;; at maximum tightness
   (global $SCORE_SQUEEZE f32 (f32.const 140.0))
   (global $SCORE_OVERCHARGE f32 (f32.const 250.0))
+
+  ;; ---- difficulty ---------------------------------------------------------
+  ;; Easy / Normal / Hard. The widget calls set_difficulty(d) and then init();
+  ;; init() copies one column of this table into the globals below, and the rest
+  ;; of the engine reads only those.
+  ;;
+  ;;                            easy       normal      hard
+  ;;   hull plates                4          3           2
+  ;;   graze band                38px       30px        24px
+  ;;   corridor                 290px      250px       220px
+  ;;   ... narrower per km      1.3px      1.6px       2.0px
+  ;;   ... floor                178px      148px       128px
+  ;;   speed per km               8          11          14
+  ;;   ... capped at            540px/s    620px/s     700px/s
+  ;;   rocks in a field, cap      5          6           6
+  ;;   ... one more every        20km       15km        11km
+  ;;   fields, gap floor        300px      268px       240px
+  ;;   ... closer per km        2.0px      2.6px       3.2px
+  ;;
+  ;; The two knobs TASKS.md named are the **graze band** and **rock density**,
+  ;; and the band is the one that matters most here, for the reason TASKS.md
+  ;; gives: the band *is* the scoring rule. Widening it on Easy is not a
+  ;; discount, it is a bigger target — and since a graze is also the only way to
+  ;; repair a plate, the band is simultaneously this game's score, its healing
+  ;; and its difficulty. There is no separate "more forgiving" knob to reach for,
+  ;; and inventing one (a pickup, a slower drift) is the thing TASKS.md already
+  ;; ruled out for this title.
+  ;;
+  ;; The corridor and the speed ramp are in the table because they are this
+  ;; game's actual difficulty curve — the engine has no level counter, so
+  ;; everything is keyed on distance, and the corridor narrowing under a
+  ;; quickening board is the whole of it. Sector Defense's table shipped without
+  ;; its governing curve and the three columns only separated in the last minute
+  ;; of a six-minute run; that is not a mistake worth making twice.
+  ;;
+  ;; A note on $PATH_STEP, which is *not* in the table and does not need to be.
+  ;; It is REACH_RATE * field_gap / speed — how far the corridor may move
+  ;; between fields, derived from how far the ship can actually fly in the time
+  ;; it has. Hard both quickens the board and brings the fields closer, and both
+  ;; of those *shrink* the step on their own. The guarantee that the corridor
+  ;; stays reachable therefore holds on every column without the table touching
+  ;; it, which is what deriving it rather than picking it bought.
+  ;;
+  ;; Three things are deliberately *not* in the table. $THRUST and $DRAG are the
+  ;; feel of the ship — the comment above $DRAG records what 2.0 and 8.0 each
+  ;; did to it, and neither is an easier game, they are different ones.
+  ;; $SQUEEZE_WINDOW stays at 0.34s because it is a *definition* — it is how the
+  ;; engine decides that two grazes were one gap — and a setting where the same
+  ;; flying counts as a different manoeuvre would make the scores incomparable.
+  ;;
+  ;; $difficulty is not reset by init: it is a choice about the next run, so a
+  ;; restart has to carry it rather than wipe it — chapter 8's argument for $rng.
+  (global $difficulty (mut i32) (i32.const 1))   ;; 0 easy, 1 normal, 2 hard
+  (global $FIELD_EVERY (mut f32) (f32.const 15.0))   ;; km per extra rock
 
   (global $rng (mut i32) (i32.const 987654323))
   (global $gameOver (mut i32) (i32.const 0))
@@ -353,12 +410,15 @@
         (br $lp)))
     (i32.const 0))
 
-  ;; How many rocks a field may hold. Three at the start, six by 4km — the ramp
-  ;; is slow on purpose, because the corridor is narrowing underneath it and
-  ;; the two curves multiply.
+  ;; How many rocks a field may hold. Three at the start, and one more every
+  ;; $FIELD_EVERY km — so on Normal the cap of six is reached at 45km, which at
+  ;; this speed curve is a run of about two and a half minutes. The ramp is that
+  ;; slow on purpose, because the corridor is narrowing underneath it and the two
+  ;; curves multiply. (An earlier version of this comment said "six by 4km",
+  ;; which was never what the arithmetic did.)
   (func $field_size (result i32)
     (call $clampi
-      (i32.add (i32.const 3) (i32.trunc_f32_s (f32.div (call $km) (f32.const 15.0))))
+      (i32.add (i32.const 3) (i32.trunc_f32_s (f32.div (call $km) (global.get $FIELD_EVERY))))
       (i32.const 3) (global.get $MAX_IN_FIELD)))
 
   ;; One field of debris.
@@ -598,7 +658,63 @@
         (local.set $i (i32.add (local.get $i) (i32.const 1)))
         (br $lp))))
 
+  ;; Copy one column of the difficulty table into the globals the rest of the
+  ;; engine reads. Called only from init, so a run never changes balance halfway
+  ;; through. Normal restates the initialisers, because a restart after an Easy
+  ;; or Hard run has to put them back.
+  (func $apply_difficulty
+    (if (i32.eqz (global.get $difficulty))
+      (then   ;; easy
+        (global.set $HULL_MAX (f32.const 4.0))
+        (global.set $GRAZE_BAND (f32.const 38.0))
+        (global.set $CORRIDOR (f32.const 290.0))
+        (global.set $CORRIDOR_STEP (f32.const 1.3))
+        (global.set $CORRIDOR_MIN (f32.const 178.0))
+        (global.set $SPEED_PER_KM (f32.const 8.0))
+        (global.set $SPEED_CAP (f32.const 540.0))
+        (global.set $MAX_IN_FIELD (i32.const 5))
+        (global.set $FIELD_EVERY (f32.const 20.0))
+        (global.set $FIELD_GAP_MIN (f32.const 300.0))
+        (global.set $FIELD_GAP_STEP (f32.const 2.0)))
+      (else
+        (if (i32.eq (global.get $difficulty) (i32.const 2))
+          (then   ;; hard
+            (global.set $HULL_MAX (f32.const 2.0))
+            (global.set $GRAZE_BAND (f32.const 24.0))
+            (global.set $CORRIDOR (f32.const 220.0))
+            (global.set $CORRIDOR_STEP (f32.const 2.0))
+            (global.set $CORRIDOR_MIN (f32.const 128.0))
+            (global.set $SPEED_PER_KM (f32.const 14.0))
+            (global.set $SPEED_CAP (f32.const 700.0))
+            (global.set $MAX_IN_FIELD (i32.const 6))
+            (global.set $FIELD_EVERY (f32.const 11.0))
+            (global.set $FIELD_GAP_MIN (f32.const 240.0))
+            (global.set $FIELD_GAP_STEP (f32.const 3.2)))
+          (else   ;; normal
+            (global.set $HULL_MAX (f32.const 3.0))
+            (global.set $GRAZE_BAND (f32.const 30.0))
+            (global.set $CORRIDOR (f32.const 250.0))
+            (global.set $CORRIDOR_STEP (f32.const 1.6))
+            (global.set $CORRIDOR_MIN (f32.const 148.0))
+            (global.set $SPEED_PER_KM (f32.const 11.0))
+            (global.set $SPEED_CAP (f32.const 620.0))
+            (global.set $MAX_IN_FIELD (i32.const 6))
+            (global.set $FIELD_EVERY (f32.const 15.0))
+            (global.set $FIELD_GAP_MIN (f32.const 268.0))
+            (global.set $FIELD_GAP_STEP (f32.const 2.6)))))))
+
+  ;; 0 easy, 1 normal, 2 hard; anything else is clamped rather than trusted, and
+  ;; a JavaScript call with no argument arrives as 0. Takes effect at the next
+  ;; init().
+  (func $set_difficulty (export "set_difficulty") (param $d i32)
+    (if (i32.lt_s (local.get $d) (i32.const 0)) (then (local.set $d (i32.const 0))))
+    (if (i32.gt_s (local.get $d) (i32.const 2)) (then (local.set $d (i32.const 2))))
+    (global.set $difficulty (local.get $d)))
+  (func $get_difficulty (export "get_difficulty") (result i32) (global.get $difficulty))
+
   (func $init (export "init")
+    ;; first, because the hull and the first field below both read it
+    (call $apply_difficulty)
     (global.set $rng (i32.const 987654323))
     (global.set $gameOver (i32.const 0))
     (global.set $score (f32.const 0.0))

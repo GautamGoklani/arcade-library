@@ -50,25 +50,28 @@ nobody has to re-derive it later.
 | `asteroid-miner` | **done** | yes | maybe | spend cargo at the depot |
 | `sector-defense` | **done** | yes | yes | a carrier that lands attackers |
 | `circuit-runner` | a gentler opening | **has them** | no | a named stretch of board |
-| `starfield-runner` | yes | **no** | yes | a squeeze that scores double |
+| `starfield-runner` | **done** | **no** | yes | a squeeze that scores double |
 | `tower-defense` | yes | as abilities | yes | upgrade a tower in place |
 | `pulse` | yes | **no** | yes | a second instrument line |
 
 **Difficulty settings** anywhere mean the same shape as Pixel Wave's: a tuning
 table the engine's `init()` applies, a re-bench of every setting with a pilot
-that plays badly, and one best score per setting. **Five are done** — Pixel
-Wave, Grid Breaker, Worm Chase, Asteroid Miner and Sector Defense — each a
-hand-written copy of the same shape, and in each of the four that followed Pixel
-Wave, Normal replays the engine that shipped before the setting existed.
+that plays badly, and one best score per setting. **Six are done** — Pixel
+Wave, Grid Breaker, Worm Chase, Asteroid Miner, Sector Defense and Starfield
+Runner — each a hand-written copy of the same shape, and in each of the five
+that followed Pixel Wave, Normal replays the engine that shipped before the
+setting existed.
 
-One lesson from Sector Defense is worth carrying into the four left: **the knobs
-named below may not be the ones that decide when a game gets hard.** Its three
-were the right knobs and still produced columns that only separated in the last
-minute of a six-minute run, because a shared curve elsewhere dominated all of
-them. Bench the table, then instrument a run and look at *when* the meters
-actually start moving. Per game, for the four left:
-Starfield Runner is graze band width and rock density (the band *is* the scoring
-rule, so widening it is the honest knob); Tower Defense is starting scrap and
+Two lessons so far are worth carrying into the three left. From Sector Defense:
+**the knobs named below may not be the ones that decide when a game gets hard.**
+Its three were the right knobs and still produced columns that only separated in
+the last minute of a six-minute run, because a shared curve elsewhere dominated
+all of them. Bench the table, then instrument a run and look at *when* the
+meters actually start moving. From Starfield Runner: **one pilot may not reach
+the knob you care about.** A pilot that only dodges never grazed, so it could not
+see the graze band at all; measuring that took a second pilot flying a *fixed*
+standoff on every setting, so the band width was the only variable. Per game,
+for the three left: Tower Defense is starting scrap and
 wave strength; Pulse is the tempo floor and how full each bar is, which is the
 sequencer's own table to extend. **Circuit Runner is the exception**: speed is
 its only curve, so "easier" is starting slower and ramping later, not a setting
