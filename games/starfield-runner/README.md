@@ -109,6 +109,7 @@ game.destroy();    // stop the loop, remove DOM + all event listeners
 |--------------|---------|
 | `wasmUrl`    | load the engine from a `.wasm` URL instead of the embedded copy (requires an `application/wasm` MIME type) |
 | `wasmBase64` | supply your own base64 engine build |
+| `difficulty` | `'easy'`, `'normal'` (the default) or `'hard'` for the first run; the HUD button changes it after that |
 
 Multiple instances on one page are supported — each `mount()` is independent.
 
