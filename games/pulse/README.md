@@ -364,7 +364,8 @@ speeds up". It does not, and the difficulty bench below is what showed it. A
 fixed window is a larger share of a shorter beat, so at a faster tempo more of a
 masher's shots land in it by accident — 35% at Easy's tempos, 39% at Normal's,
 52% at Hard's. What gets harder as the song speeds up is everything around the
-window: more arrivals a second, less time to cross the ring.*
+window: more arrivals a second, less time to cross the ring. That 52% is why
+Hard's window is now narrower; see "Difficulty".*
 
 ### 3 · A level every four bars is a level every six seconds
 
@@ -421,6 +422,7 @@ be heard doing it.
 | ... one more every | 2 levels | 2 levels | **1 level** |
 | ... capped at | 9 | 11 | 12 |
 | Shield lost to a leak | 14 | 20 | 26 |
+| Beat window | 58 ms | 58 ms | **48 ms** |
 
 The two knobs the backlog named were **the tempo floor and how full each bar
 is**, and both belong to the sequencer — which is the point of them. In this
@@ -447,14 +449,16 @@ table carries the *rate*: Hard's level 1 is Normal's, and by level 6 it holds
 two more spawns a bar. That is the rule CLAUDE.md states — level 1 gentle, the
 difficulty coming from the level number — arrived at by breaking it first.
 
-**`$BEAT_WINDOW` is deliberately not in the table**, though it is the knob a
-rhythm game usually reaches for first. Finding 2 is why: a window wide enough to
-pay a button-masher turns the mechanic into a decoration, and widening it on
-Easy would make Easy exactly that. TASKS.md ruled out power-ups for this title
-for the same reason — a faster gun is a way to stop listening — and a wider
-window is the same thing with a kinder name. The climb rate stays put too: the
-note above `$enemy_speed` says two ramps on the same axis is how a game
-becomes unplayable at level 6 without anyone deciding it should.
+**The beat window moves in one direction only.** Easy does not widen it, though
+it is the knob a rhythm game usually reaches for first. Finding 2 is why: a
+window wide enough to pay a button-masher turns the mechanic into a decoration,
+and widening it on Easy would make Easy exactly that. TASKS.md ruled out
+power-ups for this title for the same reason — a faster gun is a way to stop
+listening — and a wider window is the same thing with a kinder name. Hard
+*narrows* it, for the mirror-image reason: see "The window on Hard" below. The
+climb rate stays put: the note above `$enemy_speed` says two ramps on the same
+axis is how a game becomes unplayable at level 6 without anyone deciding it
+should.
 
 **Normal is the previous balance exactly.** The same input replayed through the
 committed engine and this one gave byte-identical memory — the bar plan and
@@ -468,13 +472,13 @@ only in when they fire. Same seed, so every row is the same song:
 |---|---|---|---|---|---|
 | **metronome**, Easy | 121 s | 8 | 1,017 | 100% | 139 |
 | metronome, Normal | 81 s | 7 | 1,342 | 100% | 163 |
-| metronome, Hard | 56 s | 5 | 1,441 | 100% | 179 |
+| metronome, Hard | 57 s | 5 | 1,491 | 100% | 179 |
 | **mash**, Easy | 137 s | 7 | 146 | 35% | 101 |
 | mash, Normal | 103 s | 6 | 182 | 39% | 116 |
-| mash, Hard | 70 s | 5 | 243 | 52% | 128 |
+| mash, Hard | 74 s | 5 | 215 | 39% | 126 |
 | **loose**, Easy | 109 s | 5 | 111 | 17% | 99 |
 | loose, Normal | 76 s | 4 | 160 | 33% | 112 |
-| loose, Hard | 48 s | 3 | 201 | 41% | 141 |
+| loose, Hard | 41 s | 3 | 153 | 26% | 127 |
 
 (These pilots are this bench's, written to finding 1's description, so Normal's
 rows land near finding 1's numbers rather than on them — 81 s against 75 for the
@@ -483,17 +487,40 @@ metronome, 103 against 101 for the masher.)
 The loose pilot reaches **level 3 on every setting**. Each pilot runs roughly
 two-thirds as long on Hard as on Normal, and a third to a half longer on Easy.
 
-**What the bench found that the table does not fix.** Look down the "on beat"
-column for the masher: 35%, 39%, 52%. The window is a fixed number of seconds,
-so at Hard's faster tempos it covers more of each beat and a button-masher lands
-more of its shots in it by accident — which is why finding 2's old claim that
-the window "gets strictly harder as the track speeds up" is now corrected
-above. Precision is still worth far more than mashing on every setting — the
-metronome scores 7.0×, 7.4× and 5.9× the masher per second — but on Hard the
-gap is narrowest. Narrowing the window on Hard would close it, and that is a
-real option. It is not taken here because the window is the one number this
-title's feel is tuned around, and changing it deserves a decision of its own
-rather than a row in a difficulty table.
+### The window on Hard
+
+The first version of this table left the window at 58 ms on every column, and
+the masher's "on beat" column gave it away: 35%, 39%, 52%. A window fixed in
+seconds is a larger share of a shorter beat, so at Hard's faster tempos a
+button-masher landed half its shots on the beat by accident, and precision was
+worth least on the setting that should ask the most of it — 5.9× the masher's
+score per second, against 7.4× on Normal.
+
+Narrowing it needed a pilot the three above could not supply. The metronome
+reads the window from the engine and always fires inside it, so it cannot feel
+a window shrink; a *person* does not get more precise because the window got
+smaller. So the sweep added a **human pilot**: it aims at every eighth note and
+misses by a normal spread, σ = 35 ms, whatever the window is. Medians over eight
+songs:
+
+| | Masher on beat | Human on beat | Human's score/s over the masher's | Loose pilot reaches |
+|---|---|---|---|---|
+| Normal, 58 ms | 39% | 85% | 4.1× | level 4 |
+| Hard, 58 ms | 52% | 84% | 3.6× | level 3 |
+| Hard, 52 ms | 43% | 81% | 3.7× | level 3 |
+| **Hard, 48 ms** | **36%** | **78%** | **4.2×** | **level 3** |
+| Hard, 44 ms | 33% | 73% | 3.4× | level 3 |
+
+52 ms does not go far enough. At 44 the masher barely moves but the human loses
+more than the masher does — the window has started taxing honest timing rather
+than mashing. **48 ms is the one value that puts both numbers back where Normal
+has them**, and it is still Hard: the human lands 78% on the beat there against
+85% on Normal, which is the precision the setting asks for. On the song in the
+table above, the masher now lands exactly Normal's 39%.
+
+Easy and Normal were left alone and replay the previous engine byte for byte;
+Hard diverges on the first frame, at the window, which is the check that the
+change is the only one.
 
 **Best scores are kept per setting.** The page shell records Normal under the
 same key as before, so a best set before difficulty existed is still Normal's,

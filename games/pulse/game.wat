@@ -130,7 +130,8 @@
   ;; faster the track the more of a masher's shots land in it by accident — 35%
   ;; at Easy's tempos, 39% at Normal's, 52% at Hard's. What gets harder as the
   ;; track speeds up is everything else (more arrivals a second, less time to
-  ;; cross the ring), not the window. See "Difficulty" in the README.
+  ;; cross the ring), not the window. That 52% is why Hard now narrows it — see
+  ;; the difficulty table, and "Difficulty" in the README.
   ;;
   ;; 0.058 rather than the first draft's 0.075 because of what the bench found
   ;; about mashing. Two windows per eighth note at 96bpm is 2*0.075/0.3125,
@@ -138,7 +139,7 @@
   ;; fast as it was allowed to landed 70% of its shots on the beat by accident.
   ;; A rhythm mechanic that pays out to a button-masher is a decoration. At
   ;; 0.058 the accidental rate is 37% and the metronome still clears it easily.
-  (global $BEAT_WINDOW f32 (f32.const 0.058))
+  (global $BEAT_WINDOW (mut f32) (f32.const 0.058))   ;; mutable: Hard narrows it
 
   ;; ---- the player ----
   (global $MOVE_CD f32 (f32.const 0.085))      ;; hold to sweep the ring
@@ -183,6 +184,7 @@
   ;;   ... one more every        2 levels    2 levels    1 level
   ;;   ... capped at                9          11          12
   ;;   shield lost to a leak       14          20          26
+  ;;   beat window               58ms        58ms        48ms
   ;;
   ;; The two knobs TASKS.md named are **the tempo floor and how full each bar
   ;; is**, and both belong to the sequencer, which is the point: in this title
@@ -217,16 +219,40 @@
   ;; that number. The shield *maximum* stays at 100, because the HUD draws it as
   ;; a fraction and a larger number would be the same bar.
   ;;
-  ;; **$BEAT_WINDOW is deliberately not in the table**, and it is the knob a
-  ;; rhythm game usually reaches for first. The note above it records why not:
-  ;; at 75ms a pilot that simply fired as fast as it could landed 70% of its
-  ;; shots on the beat by accident, and a rhythm mechanic that pays a
-  ;; button-masher is a decoration. Widening it on Easy would make Easy exactly
-  ;; that. TASKS.md ruled out power-ups for this title for the same reason — a
-  ;; faster gun is a way to stop listening — and a wider window is the same
-  ;; thing wearing a kinder name. The enemy climb rate stays put as well: the
-  ;; note above $enemy_speed says two ramps on the same axis is how a game
-  ;; becomes unplayable at level 6 without anyone deciding it should.
+  ;; **$BEAT_WINDOW moves in one direction only.** It is the knob a rhythm
+  ;; game usually reaches for first, and Easy does not touch it. The note
+  ;; above it records why: at 75ms a pilot that simply fired as fast as it
+  ;; could landed 70% of its shots on the beat by accident, and a rhythm
+  ;; mechanic that pays a button-masher is a decoration. Widening it on Easy
+  ;; would make Easy exactly that — TASKS.md ruled out power-ups for this title
+  ;; for the same reason, and a wider window is the same thing with a kinder
+  ;; name.
+  ;;
+  ;; Hard narrows it, for the mirror-image reason. The window is fixed in
+  ;; seconds, so at Hard's faster tempos it is a larger share of each beat, and
+  ;; the first version of this table — 58ms on every column — let a masher land
+  ;; 52% of its shots on the beat on Hard against 39% on Normal. Precision was
+  ;; worth least on the setting that should ask the most of it. Narrowing it
+  ;; restores the ratio Normal has, and the sweep is what picked 48:
+  ;;
+  ;;                      masher on beat   a sigma-35ms player's score
+  ;;                                        per second over a masher's
+  ;;   Normal, 58ms            39%               4.1x
+  ;;   Hard,   58ms            52%               3.6x
+  ;;   Hard,   52ms            43%               3.7x
+  ;;   Hard,   48ms            36%               4.2x
+  ;;   Hard,   44ms            33%               3.4x
+  ;;
+  ;; 52 did not go far enough. At 44 the masher barely moves but the human
+  ;; pilot — aiming at every eighth and missing by a normal spread of 35ms —
+  ;; loses more than the masher does, so the window starts taxing honest
+  ;; timing rather than mashing. 48 is the one value that puts both numbers back
+  ;; where Normal has them. It is still Hard: that player lands 78% on the beat
+  ;; there against 85% on Normal, which is the precision the setting asks for.
+  ;;
+  ;; The enemy climb rate stays put: the note above $enemy_speed says two ramps
+  ;; on the same axis is how a game becomes unplayable at level 6 without
+  ;; anyone deciding it should.
   ;;
   ;; $difficulty is not reset by init: it is a choice about the next run, so a
   ;; restart has to carry it rather than wipe it — chapter 8's argument for $rng.
@@ -770,7 +796,8 @@
         (global.set $BAR_BASE (i32.const 2))
         (global.set $BAR_EVERY (i32.const 2))
         (global.set $BAR_CAP (i32.const 9))
-        (global.set $LEAK_COST (f32.const 14.0)))
+        (global.set $LEAK_COST (f32.const 14.0))
+        (global.set $BEAT_WINDOW (f32.const 0.058)))
       (else
         (if (i32.eq (global.get $difficulty) (i32.const 2))
           (then   ;; hard
@@ -780,7 +807,8 @@
             (global.set $BAR_BASE (i32.const 2))
             (global.set $BAR_EVERY (i32.const 1))
             (global.set $BAR_CAP (i32.const 12))
-            (global.set $LEAK_COST (f32.const 26.0)))
+            (global.set $LEAK_COST (f32.const 26.0))
+            (global.set $BEAT_WINDOW (f32.const 0.048)))
           (else   ;; normal
             (global.set $BPM_BASE (f32.const 96.0))
             (global.set $BPM_GROOVE (f32.const 54.0))
@@ -788,7 +816,8 @@
             (global.set $BAR_BASE (i32.const 3))
             (global.set $BAR_EVERY (i32.const 2))
             (global.set $BAR_CAP (i32.const 11))
-            (global.set $LEAK_COST (f32.const 20.0)))))))
+            (global.set $LEAK_COST (f32.const 20.0))
+            (global.set $BEAT_WINDOW (f32.const 0.058)))))))
 
   ;; 0 easy, 1 normal, 2 hard; anything else is clamped rather than trusted, and
   ;; a JavaScript call with no argument arrives as 0. Takes effect at the next
