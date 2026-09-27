@@ -103,7 +103,7 @@ For plain integration you only need to copy **two files** into a site:
 var game = TowerDefense.mount(containerOrSelector, options?);
 
 game.restart();    // start a fresh run
-game.getState();   // { score, scrap, core, level, phase, kills, leaks, gameOver, paused }
+game.getState();   // { score, scrap, core, level, phase, kills, leaks, gameOver, paused, difficulty }
 game.destroy();    // stop the loop, remove DOM + all event listeners
 ```
 
@@ -124,6 +124,7 @@ Multiple instances on one page are supported — each `mount()` is independent.
 | Place or sell | click a square | tap a square |
 | Sell without switching tool | right-click | — |
 | Call the wave in early | Space, or the SPACE button | the SPACE button |
+| Difficulty | the EASY / NORMAL / HARD button; changing it starts a fresh run | the same button |
 | Pause | P or Esc; losing focus too | the PAUSE button; tap the board to resume |
 | Restart | R | tap the GAME OVER text |
 | Mute | M | the SOUND button |
@@ -419,6 +420,92 @@ The difficulty curve, per wave:
 | spawn spacing | −0.014s, from 0.55s, floored at 0.18s |
 | build time | −0.5s, from 14s, floored at 8s |
 | kinds in play | crawler from 1, sprinter from 2, hauler from 4, damper from 6 |
+
+The health row, the core, the starting scrap and the wave bonus are the
+**Normal** column of the difficulty table rather than fixed constants. See
+below.
+
+## Difficulty, September 2026
+
+Three settings, picked with the HUD button or
+`mount(el, { difficulty: 'hard' })`. The table lives in the engine:
+`set_difficulty(d)` records the choice (0 easy, 1 normal, 2 hard) and `init()`
+applies it, so a setting never changes halfway through a run.
+
+| | Easy | Normal | Hard |
+|---|---|---|---|
+| Core integrity | 30 | 20 | 14 |
+| Starting scrap | 130 | 95 | 75 |
+| Enemy health, per wave | +18% | +26% | +34% |
+| Wave bonus | 24, +3 a wave | 24, +2 | 20, +1.5 |
+
+The two knobs the backlog named were **starting scrap** and **wave strength**.
+Wave strength is the *health* multiplier rather than the head count, and that
+was a choice. More enemies at the same spacing is a longer wave, and here a
+longer wave is also a thinner one — finding 4 above is what happened last time
+a wave got strung out: heat stopped mattering. Health keeps the wave the same
+shape and asks every gun to fire for longer, which is the question this game is
+built to ask.
+
+The other two rows are there because the first knob, on its own, would not
+last. Core integrity is this game's lives, and every other title's table moves
+that number. The **wave bonus** is in the table because the economy is the
+curve this game actually runs on — finding 4 again, where inflated money made
+every strategy converge. Starting scrap is a one-off gift that ten waves of
+income swamp; the bonus is the *rate*, and a setting that moved the gift and
+not the rate would stop mattering by wave five.
+
+**Four things are deliberately not in the table.** The heat numbers are the
+mechanic, not the difficulty: finding 2 — that a vent pays only when it cools
+something worth running — is a property of those ratios, and a setting that
+moved them would be a different game with the same art. Tower costs stay put
+for the same reason; pylon:vent at 20:15 is what makes a vent a real trade.
+The spawn spacing stays put because it is what makes a wave a wave. And the
+build clock stays put, because calling a wave early pays the remaining seconds
+as scrap: a longer clock on Easy would be a bigger bonus for skipping it — the
+economy knob again, by the back door.
+
+**Normal is the previous balance exactly.** The same input replayed through the
+committed engine and this one — random squares, random tools, sells and early
+calls — gave byte-identical memory across the whole 5,216-byte layout and all
+twenty-one readers on every frame, over 54,000 frames, re-initialising on each
+game over. Normal's bench rows below also reproduce findings 1 and 2 to the
+wave, which is the same check from the other direction.
+
+Benched with the two pilots from findings 1 and 2: the **bad pilot** (a pylon on
+the first buildable square in reading order, nothing else, never calls a wave)
+and the **mixed pilot** (pylon, pylon, mortar, vent, repeating, same placement
+rule). Every engine seeds its route and waves identically, so each row is the
+same board against the same waves:
+
+| | Bad pilot: waves cleared | Mixed pilot: waves cleared | Mixed: score |
+|---|---|---|---|
+| Easy | 14 (443 s) | 21 (670 s) | 9,222 |
+| Normal | 10 (326 s) | 17 (574 s) | 6,990 |
+| Hard | 5 (155 s) | 13 (458 s) | 4,878 |
+
+The bad pilot on **Hard still clears five waves**, so the level-3 bar holds on
+every column. And the mixed pilot's lead over the bad one — seven, seven and
+eight waves — is roughly the same on all three, which is the check that the
+table made the *game* harder rather than making finding 2 go away: a heat plan
+is worth about the same number of waves at every setting.
+
+**What an instrumented run shows, and why it is not the Sector Defense
+problem.** Tracing the core wave by wave, it sits full until late on every
+column — then gives way over three or four waves. Sector Defense's table had the
+same shape and was wrong, because its columns only separated in that last
+minute. Here they separate in *when* the collapse comes: wave 13, 9 and 5 for
+the bad pilot. A tower defence that loses nothing until it loses everything is
+the genre working as intended — a leak is a defence that has already failed —
+and the table moves the failure point rather than the shape of it.
+
+**What the bench does not cover:** selling, re-placing, and any placement smarter
+than reading order. Both pilots build in the first free square next to the
+track, so how much a *good* placement is worth on each setting is untested.
+
+**Best scores are kept per setting.** The page shell records Normal under the
+same key as before, so a best set before difficulty existed is still Normal's,
+and Easy and Hard get `tower-defense:easy` and `tower-defense:hard`.
 
 ## Rebuilding the engine
 

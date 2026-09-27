@@ -62,7 +62,7 @@ scripts/serve.mjs       dev server
 | `sector-defense` | 4.0 KB | wave defence | **no imports**; per-entity intent, two meters instead of lives; Easy/Normal/Hard as a table in the engine |
 | `circuit-runner` | 3.0 KB | endless lane runner | **no imports**; nothing to shoot, generated board, tap-zone touch |
 | `starfield-runner` | 3.3 KB | graze-scoring runner | **no imports**; free flight, close passes are the only score and the only repair; Easy/Normal/Hard as a table in the engine |
-| `tower-defense` | 5.1 KB | wave defence, placed | **no imports**; the player places rather than steers; guns overheat, vents cool their neighbours |
+| `tower-defense` | 5.2 KB | wave defence, placed | **no imports**; the player places rather than steers; guns overheat, vents cool their neighbours; Easy/Normal/Hard as a table in the engine |
 | `pulse` | 3.4 KB | rhythm tube shooter | **no imports**; the engine is the sequencer — it owns the tempo and the bar, and the widget plays notes off its step counter |
 
 Vector Arena was removed in `e90bc03`. Chapters 6, 7 and 17 still teach

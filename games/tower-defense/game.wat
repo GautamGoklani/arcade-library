@@ -184,21 +184,72 @@
   (global $DAMPER_HEAT f32 (f32.const 21.0))  ;; added per second, per damper
 
   ;; ---- the run ----
-  (global $CORE_MAX f32 (f32.const 20.0))
-  (global $START_SCRAP f32 (f32.const 95.0))
+  ;; Mutable because the difficulty table writes them — see $apply_difficulty.
+  ;; The initialisers are Normal's values, which is what makes a Normal run
+  ;; identical to the engine that had no settings at all. The widget reads
+  ;; get_core_max(), so the core bar scales with whichever column is in play.
+  (global $CORE_MAX (mut f32) (f32.const 20.0))
+  (global $START_SCRAP (mut f32) (f32.const 95.0))
   ;; Level 1 is meant to be walkable. 95 scrap is four pylons, or three and a
-  ;; vent, against six crawlers — enough that a first-time player who puts them
-  ;; anywhere at all clears it, which is the bar this repository sets.
+  ;; vent, against five crawlers — enough that a first-time player who puts them
+  ;; anywhere at all clears it, which is the bar this repository sets. (This
+  ;; said six until September 2026; $wave_size has always sent five.) Hard's 75
+  ;; is three pylons against the same five, and the bench's bad pilot still
+  ;; clears five waves on it.
   (global $BUILD_TIME f32 (f32.const 14.0))
   (global $BUILD_TIME_MIN f32 (f32.const 8.0))
   (global $EARLY_RATE f32 (f32.const 3.0))    ;; scrap per second of build time skipped
-  (global $WAVE_BOUNTY f32 (f32.const 24.0))
-  (global $WAVE_BOUNTY_PER_LEVEL f32 (f32.const 2.0))
+  (global $WAVE_BOUNTY (mut f32) (f32.const 24.0))
+  (global $WAVE_BOUNTY_PER_LEVEL (mut f32) (f32.const 2.0))
 
   ;; ---- scoring ----
   (global $SCORE_KILL f32 (f32.const 12.0))
   (global $SCORE_WAVE f32 (f32.const 150.0))
   (global $SCORE_INTACT f32 (f32.const 25.0))  ;; per point of core left, at the end
+
+  ;; ---- difficulty ---------------------------------------------------------
+  ;; Easy / Normal / Hard. The widget calls set_difficulty(d) and then init();
+  ;; init() copies one column of this table into the globals below, and the rest
+  ;; of the engine reads only those.
+  ;;
+  ;;                              easy       normal      hard
+  ;;   core integrity              30          20          14
+  ;;   starting scrap             130          95          75
+  ;;   enemy health, per level   +18%        +26%        +34%
+  ;;   wave bonus                24+3/lvl    24+2/lvl    20+1.5/lvl
+  ;;
+  ;; The two knobs TASKS.md named are **starting scrap** and **wave strength**.
+  ;; Wave strength is the health multiplier, not the head count, on purpose:
+  ;; more enemies at the same spacing is a longer wave, and a longer wave here
+  ;; is also a *thinner* one — the note above $spawn_gap records what happened
+  ;; when a wave was strung out, which is that heat stopped mattering. Health
+  ;; keeps the wave the same shape and asks each gun to fire for longer, which
+  ;; is the question this game is built to ask.
+  ;;
+  ;; Core integrity is in the table because it is this game's lives, and every
+  ;; other title's table moves that number. The wave bonus is in it because the
+  ;; economy is the curve this game actually runs on: the notes above
+  ;; $enemy_bounty record that when money inflated, every strategy converged on
+  ;; one of everything, and the choices stopped meaning anything. Starting scrap
+  ;; alone is a one-off gift that ten waves of income swamp; the bonus is the
+  ;; rate, and a difficulty that moved the gift and not the rate would stop
+  ;; mattering by wave 5.
+  ;;
+  ;; Four things are deliberately *not* in the table. The heat numbers
+  ;; ($HEAT_COOL, $HEAT_RESET, the vent's reach and rate) are the mechanic, not
+  ;; the difficulty: the README's finding that a vent only pays when it cools
+  ;; something worth running is a property of those ratios, and a setting that
+  ;; moved them would be a different game with the same art. Tower costs stay put
+  ;; for the same reason — pylon:vent at 20:15 is what makes a vent a real trade.
+  ;; $spawn_gap stays put because it is what makes a wave a wave. And the build
+  ;; clock stays put because calling a wave early pays the remaining seconds as
+  ;; scrap: a longer clock on Easy would be a bigger bonus for skipping it, which
+  ;; is the economy knob again by the back door.
+  ;;
+  ;; $difficulty is not reset by init: it is a choice about the next run, so a
+  ;; restart has to carry it rather than wipe it — chapter 8's argument for $rng.
+  (global $difficulty (mut i32) (i32.const 1))   ;; 0 easy, 1 normal, 2 hard
+  (global $HP_PER_LEVEL (mut f32) (f32.const 0.26))
 
   (global $rng (mut i32) (i32.const 1145141919))
   (global $gameOver (mut i32) (i32.const 0))
@@ -548,7 +599,7 @@
   (func $hp_scale (result f32)
     (f32.add (f32.const 1.0)
              (f32.mul (f32.convert_i32_s (i32.sub (global.get $level) (i32.const 1)))
-                      (f32.const 0.26))))
+                      (global.get $HP_PER_LEVEL))))
 
   (func $wave_size (result i32)
     (call $clampi
@@ -986,7 +1037,45 @@
         (local.set $i (i32.add (local.get $i) (i32.const 1)))
         (br $lp))))
 
+  ;; Copy one column of the difficulty table into the globals the rest of the
+  ;; engine reads. Called only from init, so a run never changes balance halfway
+  ;; through. Normal restates the initialisers, because a restart after an Easy
+  ;; or Hard run has to put them back.
+  (func $apply_difficulty
+    (if (i32.eqz (global.get $difficulty))
+      (then   ;; easy
+        (global.set $CORE_MAX (f32.const 30.0))
+        (global.set $START_SCRAP (f32.const 130.0))
+        (global.set $HP_PER_LEVEL (f32.const 0.18))
+        (global.set $WAVE_BOUNTY (f32.const 24.0))
+        (global.set $WAVE_BOUNTY_PER_LEVEL (f32.const 3.0)))
+      (else
+        (if (i32.eq (global.get $difficulty) (i32.const 2))
+          (then   ;; hard
+            (global.set $CORE_MAX (f32.const 14.0))
+            (global.set $START_SCRAP (f32.const 75.0))
+            (global.set $HP_PER_LEVEL (f32.const 0.34))
+            (global.set $WAVE_BOUNTY (f32.const 20.0))
+            (global.set $WAVE_BOUNTY_PER_LEVEL (f32.const 1.5)))
+          (else   ;; normal
+            (global.set $CORE_MAX (f32.const 20.0))
+            (global.set $START_SCRAP (f32.const 95.0))
+            (global.set $HP_PER_LEVEL (f32.const 0.26))
+            (global.set $WAVE_BOUNTY (f32.const 24.0))
+            (global.set $WAVE_BOUNTY_PER_LEVEL (f32.const 2.0)))))))
+
+  ;; 0 easy, 1 normal, 2 hard; anything else is clamped rather than trusted, and
+  ;; a JavaScript call with no argument arrives as 0. Takes effect at the next
+  ;; init().
+  (func $set_difficulty (export "set_difficulty") (param $d i32)
+    (if (i32.lt_s (local.get $d) (i32.const 0)) (then (local.set $d (i32.const 0))))
+    (if (i32.gt_s (local.get $d) (i32.const 2)) (then (local.set $d (i32.const 2))))
+    (global.set $difficulty (local.get $d)))
+  (func $get_difficulty (export "get_difficulty") (result i32) (global.get $difficulty))
+
   (func $init (export "init")
+    ;; first, because the scrap and the core set below both read it
+    (call $apply_difficulty)
     (global.set $rng (i32.const 1145141919))
     (global.set $gameOver (i32.const 0))
     (global.set $score (f32.const 0.0))

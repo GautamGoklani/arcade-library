@@ -50,7 +50,11 @@ body {
 <script src="../../hiscores.js"></script>
 <script>
   var game = TowerDefense.mount('#game');
-  if (window.ArcadeScores) ArcadeScores.watch('tower-defense', game);
+  // One best per difficulty. Normal keeps the plain slug, so a best set before
+  // difficulty existed is still Normal's, and the hub card goes on showing it.
+  if (window.ArcadeScores) ArcadeScores.watch(function (st) {
+    return st.difficulty && st.difficulty !== 'normal' ? 'tower-defense:' + st.difficulty : 'tower-defense';
+  }, game);
 </script>
 
 </body>
