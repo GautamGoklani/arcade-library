@@ -116,7 +116,7 @@ it.
 ```
 
 Eleven machine words. Meanwhile score and lives — two equally scalar values —
-live in *memory*, at offsets 5664 and 5668. Why the split?
+live in *memory*, at offsets 5856 and 5860. Why the split?
 
 **Because JavaScript reads score and lives, and does not read the others.** A
 global is reachable from JS only through an accessor or an exported

@@ -187,6 +187,15 @@
 .ss-hud .ss-r { color: #ff3355; text-shadow: 0 0 6px #ff3355; }
 .ss-hud .ss-y { color: #ffdd33; text-shadow: 0 0 6px #ffdd33; }
 .ss-hud .ss-c { color: #33ddff; text-shadow: 0 0 6px #33ddff; }
+/* Power-up pips: one square per effect in force, in its pickup's colour.
+   They sit inside LIVES, not as a HUD item of their own, because an empty flex
+   item still costs the row a gap. Squares rather than words because this row
+   is already full on a phone, and the colour is the name — it is the same colour as the capsule you flew into. */
+.ss-fx { display: inline-flex; align-items: center; gap: 6px; margin-left: 10px; vertical-align: middle; }
+.ss-fx i { display: none; width: 12px; height: 12px; }
+.ss-fx .ss-fx-r { background: #ffd23c; }
+.ss-fx .ss-fx-s { background: #39d5ff; }
+.ss-fx .ss-fx-d { background: #6b8cff; }
 
 /* Arrived with the synthesiser, and styled like the HUD it sits in rather than
    like the other titles' buttons, because this HUD predates theirs. */

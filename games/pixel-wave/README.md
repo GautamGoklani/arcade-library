@@ -121,6 +121,13 @@ it that way.
 - Colliding with an enemy destroys both: **one life, no score**. Shoot, don't ram.
 - Asteroids fall from the top. They damage **you** and not the swarm, and can be
   shot for score.
+- **Power-ups.** About one enemy in seven drops a capsule when you shoot it
+  down. It drifts toward your half of the arena and fades after nine seconds;
+  fly into it to take it. **R** (yellow) is rapid fire, the three-prong fan
+  (cyan) is a spread shot, the shield (blue) takes your next hit, and the heart
+  (red) gives back a life — never more than you started with. Effects in force
+  show as coloured squares beside LIVES and blink before they run out. See
+  [Power-ups](#power-ups-september-2026).
 - **Levels 1–30:** each cleared wave adds one enemy — on Normal, 2 at level 1,
   capped at 24. Enemy stats stay flat; the pressure is numbers.
 - **Level 31+:** the count holds and the stat ramps start — faster movement,
@@ -133,8 +140,8 @@ it that way.
 
 ## Engine
 
-~870 lines of hand-written WAT, 4.5 KB compiled, zero dependencies, zero runtime
-network requests.
+~1,070 lines of hand-written WAT, 5.4 KB compiled, zero dependencies, zero
+runtime network requests.
 
 ### Memory layout
 
@@ -144,11 +151,14 @@ network requests.
 | bots | 24 | 40 | 33 | x, y, vx, vy, heading, alive, cooldown, wanderTimer, targetX, targetY |
 | bullets | 1344 | 24 | 160 | x, y, vx, vy, owner (0 = player), active |
 | asteroids | 5184 | 24 | 20 | x, y, vx, vy, radius, active |
-| score | 5664 | — | 1 | f32 |
-| lives | 5668 | — | 1 | f32 |
+| pickups | 5664 | 24 | 8 | x, y, vy, kind (0 rapid, 1 spread, 2 shield, 3 life), life, active |
+| score | 5856 | — | 1 | f32 |
+| lives | 5860 | — | 1 | f32 |
 
-5,672 bytes total — 8.7% of the single 64 KiB page the module declares. It never
-grows.
+5,864 bytes total — 8.9% of the single 64 KiB page the module declares. It never
+grows. Score and lives sat at 5664 and 5668 until power-ups arrived; the pickup
+pool went in with the other regions and the two scalars moved up past it, which
+is the rule [chapter 5](../../docs/05-linear-memory.md) teaches from this map.
 
 **If you change this layout in `game.wat`, update the matching constants and
 the `FIELD` table at the top of `pixel-wave.js`.** Nothing links the two at
@@ -161,10 +171,12 @@ a field inside a record disagrees.
 memory · init() · set_input(rot: f32, thrust: i32, fire: i32) · step(dt: f32)
 get_score() · get_lives() · get_level() · is_game_over() · bots_alive_count()
 get_shots() · get_enemy_shots() · get_kills() · get_rocks() · get_hurts() · get_waves()
+get_drops() · get_grabs() · get_blocks()
+get_rapid_t() · get_spread_t() · get_shield_t()
 set_difficulty(d: i32) · get_difficulty()
 ```
 
-The last six are **event counters**: integers that only ever go up, one per
+`get_shots` through `get_blocks` are **event counters**: integers that only ever go up, one per
 kind of event, incremented at the line in `game.wat` where the event is
 decided and zeroed by `init()`. The widget diffs them between frames to decide
 what to play and when to flash.
@@ -191,6 +203,11 @@ What it needed was never really the synthesiser. It was the counters, because
 a sound has to know *that* something happened. Enemy fire is rate-limited to
 one blip every 110ms, since thirty-odd bots late on would otherwise be a wall
 of oscillators nobody needs to hear individually.
+
+Good news goes up. A cleared wave is a rising three-note figure, and a pickup
+is the only other good news, so it gets two rising notes — never mistaken for
+the wave. A shield taking a hit is a hard, high knock where a lost life is a low
+one: it has to be heard as *that would have hurt*.
 
 `init()` takes no arguments — wave size is `1 + level` capped at 24, computed
 inside the engine — the opposite of taking the count as a parameter, which
@@ -311,6 +328,87 @@ never dodges eventually flies into a hornet.
 same key as before, so a best set before difficulty existed is still Normal's,
 and the hub card keeps showing it. Easy and Hard get `pixel-wave:easy` and
 `pixel-wave:hard`.
+
+---
+
+## Power-ups, September 2026
+
+The original plan's four, as a new entity pool in the engine: a bot shot down
+drops a capsule with probability `$DROP_CHANCE`, and flying into it applies it.
+
+| Kind | Share of drops | Effect |
+|---|---|---|
+| **Rapid fire** | 35% | a burst recovers in 0.12 s instead of 0.35, for 8 s |
+| **Spread** | 30% | every round leaves the gun as three, 0.2 rad apart, for 8 s |
+| **Shield** | 25% | the next hit of any kind — a shot, an asteroid, a ram — costs nothing; lasts 12 s if unused |
+| **Life** | 10% | one life back, never past the setting's starting count |
+
+Taking a kind already in force restarts its clock rather than stacking it:
+eight seconds is the effect, not a bank. A life is capped at the starting count
+because it is a repair, not a way to build a cushion — which is also why it is
+the rarest: it is the only kind that outlasts its moment. A spread volley is
+still one entry on `get_shots`, because that counter means *a round left the
+gun* and the widget plays one sound for it, not three.
+
+### Drops have their own random stream
+
+Everything else in the engine draws from `$rng`, in an order the simulation
+fixes. If a drop roll came out of the same stream, every kill would shift every
+wander target and asteroid after it, and a run where the player never touched a
+pickup would still be a different run. So drops draw from **`$dropRng`**, the
+same xorshift on its own state.
+
+That is what makes the change checkable. Old and new engine, compiled with the
+same seed and driven with the same input, were compared until the first pickup
+was collected — after that they are *meant* to differ. Over **24 seeds × 3
+settings, 116,939 frames** — 63 of the 72 games played to the end with no grab,
+110 drops rolled — the first 5,664 bytes of memory (everything that existed
+before) and all eleven old readers were identical on every frame. A player who
+ignores the capsules is playing the same game as before, on every setting, which
+is why the difficulty table did not need re-tuning.
+
+### Tuning the drop rate
+
+The bench's pilot is written to the description [Difficulty](#difficulty-september-2026)
+gives — aims loosely at the nearest enemy, fires on a fixed rhythm, never dodges
+— with one change for this: it detours into any capsule on the board. The pilot
+that produced the Difficulty table is not in the repository, and this one is
+not it: its baseline on Normal is 25 s where that one's was 19. Every comparison
+below is this pilot against itself. 64 runs per setting, median survival:
+
+| Drop chance | Normal: grabs a game | Normal (25 s without) | Easy (51 s without) | Hard (11 s without) |
+|---|---|---|---|---|
+| 8% | 0.6 | 26 s | 55 s | 13 s |
+| **14%** | **1.4** | **29 s** | **67 s** | **15 s** |
+| 20% | 2.7 | 37 s | 77 s | 16 s |
+
+At 8% half of all Normal games showed no capsule at all, so the feature was
+invisible to the player it is for. At 20% chasing them lengthened a Normal run
+by half — the size of the step between two settings, not a reward within one.
+**14%** is about one kill in seven: a Normal game sees one or two, chasing them
+is worth about 14%, and every setting *with* pickups still ends well short of
+the easier setting without them.
+
+The shipped rate, worst / median / best over 64 runs:
+
+| | Before | Ignores capsules | Detours for them | Reaches level 3 (before → detours) |
+|---|---|---|---|---|
+| Easy | 30 / 51 / 83 s | 31 / 50 / 91 s | 26 / **67** / 142 s | 61 → 64 of 64 |
+| Normal | 12 / 25 / 47 s | 11 / 24 / 49 s | 12 / **29** / 63 s | 59 → 52 of 64 |
+| Hard | 4 / 11 / 31 s | 5 / 11 / 23 s | 4 / **15** / 51 s | 11 → 24 of 64 |
+
+Two things in that table are worth reading twice. **The pilot that ignores them
+is the old game**, within the noise of different runs — which the replay above
+already said exactly. And **detouring is not free**: on Normal the chasing pilot
+lives longer but fewer of its runs reach level 3 (59 → 52), because a detour is
+time not spent shooting, and a capsule dropped near the swarm is flown into the
+swarm to fetch. That is the trade the feature should be.
+
+**What the bench does not cover: rapid fire.** This pilot's aim, not its rate
+of fire, is what limits it — firing four times as often left its survival
+where it was (51 / 25 / 11-12 s either way) — so rapid fire is worth nothing
+to it. Rapid fire pays a player who can already aim, which is the right way
+round, and no pilot here measures how much.
 
 ---
 

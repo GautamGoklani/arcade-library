@@ -223,7 +223,9 @@ JavaScript renderer that reads the memory, and the documentation.
 ;;             ends at 1344 + 160*24 = 5184
 ;; asteroids @5184  : stride 24B, MAX_AST=20 (x,y,vx,vy,radius,active)
 ;;             ends at 5184 + 20*24 = 5664
-;; score @5664  lives @5668
+;; pickups   @5664  : stride 24B, MAX_PICKUPS=8 (x,y,vy,kind,life,active)
+;;             ends at 5664 + 8*24 = 5856
+;; score @5856  lives @5860
 ;; ===================================================
 ```
 
@@ -236,6 +238,15 @@ instead of a debugging session.
 address space, so adding one does not move anything. Getting this backwards
 means every new counter shifts the entity arrays and invalidates every offset
 constant in the renderer.
+
+The rule has a second half, and this map shows it happening. Pixel Wave had no
+`pickups` row until power-ups arrived, and score and lives sat at 5664 and
+5668. A new *region* is not a scalar: it goes with the other regions, and
+whatever sits after it moves — here, the two scalars, up by one pool's worth to
+5856 and 5860. Because the sum was written out, finding the new offsets was
+reading one line; and because the renderer reads score and lives through
+`get_score` and `get_lives` rather than at their addresses, moving them broke
+nothing outside this file.
 
 ---
 

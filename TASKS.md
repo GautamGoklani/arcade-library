@@ -21,11 +21,11 @@ rather than a backlog item.
 
 ### Pixel Wave's own roadmap — *product decisions*
 
-Power-ups and boss waves. Listed in full at the bottom of
+Boss waves. Listed in full at the bottom of
 [`games/plans-for-other-games.md`](games/plans-for-other-games.md). Sound,
-pause, difficulty settings, per-species enemy behaviour and gamepad support are
-done. Both of the rest change what the game *is*, so they are for the owner to
-choose between rather than for anyone to work through in order.
+pause, difficulty settings, per-species enemy behaviour, gamepad support and
+power-ups are done. What is left changes what the game *is*, so it is for the
+owner to choose rather than for anyone to pick up in order.
 
 ### Features the other eight could take — *product decisions*
 
@@ -41,14 +41,14 @@ game's README has a "Difficulty" section with its bench. What benching them
 taught is in CLAUDE.md's tuning lessons, where the next piece of tuning will
 find it.
 
-Each of Pixel Wave's two remaining ideas — power-ups and boss waves — was asked
+Each of Pixel Wave's two later ideas — power-ups and boss waves — was asked
 of every title, and **not all of them fit**. A feature
 that would blunt what a game is about is listed as a no, with the reason, so
 nobody has to re-derive it later.
 
 | Title | Power-ups | Boss waves | Its own idea |
 |---|---|---|---|
-| `pixel-wave` | yes | yes | — |
+| `pixel-wave` | **done** | yes | — |
 | `grid-breaker` | **has them** | yes | a tile that repairs its neighbours |
 | `worm-chase` | yes | yes | a hunter that cuts your trail |
 | `asteroid-miner` | yes | maybe | spend cargo at the depot |

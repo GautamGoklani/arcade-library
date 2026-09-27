@@ -55,7 +55,7 @@ scripts/serve.mjs       dev server
 
 | Slug | Engine | Shape | Notes |
 |---|---|---|---|
-| `pixel-wave` | 4.5 KB | wave shooter | the first title; the course's main worked example; Easy/Normal/Hard as a table in the engine; three enemy roles keyed off the pool slot |
+| `pixel-wave` | 5.4 KB | wave shooter | the first title; the course's main worked example; Easy/Normal/Hard as a table in the engine; three enemy roles keyed off the pool slot; power-ups on a random stream of their own |
 | `grid-breaker` | 5.2 KB | paddle and ball | arrived from a portfolio repo; predates some conventions; Easy/Normal/Hard as a table in the engine |
 | `worm-chase` | 4.1 KB | grid territory capture | **no imports**; hold-to-move; Easy/Normal/Hard as a table in the engine |
 | `asteroid-miner` | 4.4 KB | mining run | splitting entities, fuel/cargo; first with the retro renderer; Easy/Normal/Hard as a table in the engine |

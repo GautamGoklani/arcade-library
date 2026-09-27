@@ -221,7 +221,7 @@ it.</p>
 (global $pendingFire    (mut i32) (i32.const 0))
 </code></pre>
 <p>Eleven machine words. Meanwhile score and lives — two equally scalar values —
-live in <em>memory</em>, at offsets 5664 and 5668. Why the split?</p>
+live in <em>memory</em>, at offsets 5856 and 5860. Why the split?</p>
 <p><strong>Because JavaScript reads score and lives, and does not read the others.</strong> A
 global is reachable from JS only through an accessor or an exported
 <code>WebAssembly.Global</code>; a memory word is reachable through the <code>Float32Array</code> view

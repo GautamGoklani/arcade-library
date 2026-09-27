@@ -23,6 +23,7 @@
   var BOTS_OFF = 24, BOT_STRIDE = 40, MAX_BOTS = 33;
   var BULLETS_OFF = 1344, BULLET_STRIDE = 24, MAX_BULLETS = 160;
   var AST_OFF = 5184, AST_STRIDE = 24, MAX_AST = 20;
+  var PICKUPS_OFF = 5664, PICKUP_STRIDE = 24, MAX_PICKUPS = 8;
   // Field positions inside each record, in f32 slots — the `@fields` lines in
   // game.wat, copied. Every read goes through this table rather than a bare
   // `f32[o + 5]`, so scripts/check-layout.mjs can see a field that moved.
@@ -31,11 +32,12 @@
     bot: { x: 0, y: 1, vx: 2, vy: 3, heading: 4, alive: 5, cooldown: 6, wanderTimer: 7, targetX: 8, targetY: 9 },
     bullet: { x: 0, y: 1, vx: 2, vy: 3, owner: 4, active: 5 },
     ast: { x: 0, y: 1, vx: 2, vy: 3, radius: 4, active: 5 },
+    pickup: { x: 0, y: 1, vy: 2, kind: 3, life: 4, active: 5 },
   };
   var PXS = 3; // chunky pixel scale
   var LOW_SCALE = 3;  // 1/3-size buffer, blown up — see the retro adapter in mount()
 
-  var WASM_B64 = "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";
+  var WASM_B64 = "AGFzbQEAAAABQw1gAX0BfWABfwF/YAABfWACfX0AYAJ9fQF9YAN9fX0BfWABfwF9YAV/fX19fQBgAABgAX8AYAABf2ADfX9/AGABfQACFwIDZW52BHNpbmYAAANlbnYEY29zZgAAAykoAQEBAgIBAwQFAgEGBwgJCgoICAsCAgoKCgoKCgoKCgoKCgICAgkKDAUDAQABBsoEVX8AQSELfwBBoAELfwBBFAt/AEEYC38AQSgLfwBBwAoLfwBBGAt/AEHAKAt/AEEYC38AQaAsC38AQRgLfwBBCAt/AEHgLQt/AEHkLQt9AEMAAJZEC30AQwCAO0QLfQBDAIC7Qwt9AEMAACBAC30AQwAA0kMLfQBDmpkZPwt9AEMAAIdDC30AQwAAG0QLfQBDKVwPPgt9AEMAAJhBC30AQwAAkEELfQBDAACQQQt/AUHl0IUqC38BQQELfQFDAAAAAAt/AUEAC38BQQALfQFDAAAAAAt/AUEAC30BQwAAAEALfwFBAQt9AUMAAKBAC30BQwAASEILfQFDAACgQAt9AUMAAD5DC30BQ2ZmhkALfQFDAADgQAt/AUEBC38BQRgLfQFDAACQQAt9AUMAAOBAC30BQwAAjEILfQFDAADmQgt9AUMAAIBAC30BQwAAjEMLfQFDAADAPwt9AUMAAIBAC30AQwAAwD8LfQBDAADAPwt9AEMAAAA/C30AQzMzsz8LfQBDMzMzPwt9AEMAAMA/C38AQQMLfQBD7FG4PQt9AEMzM7M+C38BQQALfwFBAAt/AUEAC30AQylcDz4LfQBDAACMQgt9AEMAABBBC30AQwAAgEELfQBDAAAAQQt9AEOPwvU9C30AQwAAAEELfQBDzcxMPgt9AEMAAEBBC38BQeWr6awBC30BQwAAAAALfQFDAAAAAAt9AUMAAAAAC38BQQALfwFBAAt/AUEAC38BQQALfwFBAAt/AUEAC38BQQALfwFBAAt/AUEACwerAhcGbWVtb3J5AgAEaW5pdAAUCXNldF9pbnB1dAAVCWdldF9zY29yZQAWCWdldF9saXZlcwAXCWdldF9sZXZlbAAYDGlzX2dhbWVfb3ZlcgAZEGJvdHNfYWxpdmVfY291bnQAGglnZXRfc2hvdHMAGw9nZXRfZW5lbXlfc2hvdHMAHAlnZXRfa2lsbHMAHQlnZXRfcm9ja3MAHglnZXRfaHVydHMAHwlnZXRfd2F2ZXMAIAlnZXRfZHJvcHMAIQlnZXRfZ3JhYnMAIgpnZXRfYmxvY2tzACMLZ2V0X3JhcGlkX3QAJAxnZXRfc3ByZWFkX3QAJQxnZXRfc2hpZWxkX3QAJg5zZXRfZGlmZmljdWx0eQAnDmdldF9kaWZmaWN1bHR5ACgEc3RlcAApCp4jKAoAIwMgACMEbGoLCgAjBSAAIwZsagsKACMHIAAjCGxqCzMBAX8jGiEAIAAgAEENdHMhACAAIABBEXZzIQAgACAAQQV0cyEAIAAkGiAAs0MAAIBPlQszAQF/I0ghACAAIABBDXRzIQAgACAAQRF2cyEAIAAgAEEFdHMhACAAJEggALNDAACAT5ULCgAjCSAAIwpsaguxAQICfwJ9EAYjP2AEQA8LEAYhBCAEQzMzsz5dBH1DAAAAAAUgBENmZiY/XQR9QwAAgD8FIARDZmZmP10EfUMAAABABUMAAEBACwsLIQVBACECAkADQCACIwtODQEgAhAHIQMgAyoCFEMAAAAAWwRAIAMgADgCACADIAE4AgQgAyNAOAIIIAMgBTgCDCADI0E4AhAgA0MAAIA/OAIUI1JBAWokUgwCCyACQQFqIQIMAAsLCw0AIAAQBSABIACTlJILIgEBfSAAIQMgAyABXQRAIAEhAwsgAyACXgRAIAIhAwsgAwsjAQF9IxuyQwAA8EGTIQAgAEMAAAAAXQRAQwAAAAAhAAsgAAsHACAAQQNwCxQAIAAQDEEBRgR9IzQFQwAAgD8LC2IBAn9BACEFAkADQCAFIwFODQEgBRADIQYgBioCFEMAAAAAWwRAIAYgATgCACAGIAI4AgQgBiADOAIIIAYgBDgCDCAGIACyOAIQIAZDAACAPzgCFAwCCyAFQQFqIQUMAAsLC48BAQJ/QQAhAAJAA0AgACMCTg0BIAAQBCEBIAEqAhRDAAAAAFsEQCABQwAAwEEjDkMAAMBBkxAJOAIAIAFDAADwwTgCBCABQwAANMJDAAA0QhAJOAIIIAEjLSMuEAkQCyMvlJI4AgwgAUMAAIBBQwAACEIQCTgCECABQwAAgD84AhQMAgsgAEEBaiEADAALCwu/AQECf0EAIQECQANAIAEjAE4NASABEAIhAiABIABIBEAgAkMAAAhCIw5DAAAIQpMQCTgCACACQwAACEIjEEMAAAhCkxAJOAIEIAJDAAAAADgCCCACQwAAAAA4AgwgAkMAAIA/OAIUIAIjMSMyEAkgARANlDgCGCACQwAAAAA4AhwgAkMAAAhCIw5DAAAIQpMQCTgCICACQwAACEIjEEMAAAhCkxAJOAIkBSACQwAAAAA4AhQLIAFBAWohAQwACwsLOwECf0EAIQBBACEBAkADQCAAIwBODQEgABACKgIUQwAAAABeBEAgAUEBaiEBCyAAQQFqIQAMAAsLIAELJQEBfyMpIxtqIQAgACMqSgRAIyohAAsgACMASgRAIwAhAAsgAAvQAgAjIkUEQEMAAOBAJCNDAAAoQiQkQwAAgEAkJUMAACBDJCZDAACwQCQnQwAAEEEkKEMAAEhDJDBDAACAQCQxQwAA4EAkMkEBJClBFCQqQwAAsEAkK0MAAAhBJCxDAABwQiQtQwAAyEIkLkMAAEBAJC8FIyJBAkYEQEMAAEBAJCNDAABwQiQkQwAAAEEkJUMAAGZDJCZDAABAQCQnQwAAsEAkKEMAAIxDJDBDAADAPyQxQwAAgEAkMkEDJClBISQqQwAAQEAkK0MAAKBAJCxDAAC0QiQtQwAAFkMkLkMAAMBAJC8FQwAAoEAkI0MAAEhCJCRDAACgQCQlQwAAPkMkJkNmZoZAJCdDAADgQCQoQwAAjEMkMEMAAMA/JDFDAACAQCQyQQEkKUEYJCpDAACQQCQrQwAA4EAkLEMAAIxCJC1DAADmQiQuQwAAgEAkLwsLC7MCAQF/EBNBASQbQQAkIEMAAAAAJB9BACQdQQAkHkEBJDxBACQ9QQAkPkEAJExBACRNQQAkTkEAJE9BACRQQQAkUUEAJFJBACRTQQAkVEMAAAAAJElDAAAAACRKQwAAAAAkS0MAAAAAJBxDAAAgQCQhQQBDAAAWRDgCAEEAQwAAIEQ4AgRBAEMAAAAAOAIIQQBDAAAAADgCDEEAQ/kPyb84AhBBAEMAAIA/OAIUIwxDAAAAADgCACMNIyM4AgAQEhAQQQAhAAJAA0AgACMBTg0BIAAQA0MAAAAAOAIUIABBAWohAAwACwtBACEAAkADQCAAIwJODQEgABAEQwAAAAA4AhQgAEEBaiEADAALC0EAIQACQANAIAAjC04NASAAEAdDAAAAADgCFCAAQQFqIQAMAAsLCw4AIAAkHCABJB0gAiQeCwcAIwwqAgALBwAjDSoCAAsEACMbCwQAIyALBAAQEQsEACNMCwQAI00LBAAjTgsEACNPCwQAI1ALBAAjUQsEACNSCwQAI1MLBAAjVAsEACNJCwQAI0oLBAAjSwseACAAQQBIBEBBACEACyAAQQJKBEBBAiEACyAAJCILBAAjIgu2FQkJfQN/CX0Bfw19AX8GfQF/A30jIARADwtBACoCACEBQQAqAgQhAkEAKgIIIQNBACoCDCEEQQAqAhAhBUEAKgIUIQYgBSMcIxEgAJSUkiEFIx1BAEcEQCAFEAEjEpQhCCAFEAAjEpQhCSADIAggAJSSIQMgBCAJIACUkiEECyADQwAAgD8jEyAAlJOUIQMgBEMAAIA/IxMgAJSTlCEEIAMgA5QgBCAElJKRIQcgByMUXgRAIAMgB5UjFJQhAyAEIAeVIxSUIQQLIAEgAyAAlJJDAACgQSMOQwAAoEGTEAohASACIAQgAJSSQwAAoEEjD0MAAKBBkxAKIQIjHyAAkyQfI0kgAJNDAAAAAJckSSNKIACTQwAAAACXJEojSyAAk0MAAAAAlyRLIx5BAEcjPEEARnEEQEEBJD4LIx4kPCM+QQBHIz1BAEYjH0MAAAAAX3FxBEAjOSQ9QQAkPgsjPUEASiMfQwAAAABfcQRAQQAgASACIAUQASMVlCAFEAAjFZQQDiNKQwAAAABeBEBBACABIAIgBSNGkxABIxWUIAUjRpMQACMVlBAOQQAgASACIAUjRpIQASMVlCAFI0aSEAAjFZQQDgsjTEEBaiRMIz1BAWskPSM9QQBKBH0jOgUjSUMAAAAAXgR9I0QFIzsLCyQfC0EAIAE4AgBBACACOAIEQQAgAzgCCEEAIAQ4AgxBACAFOAIQEAshLiMkIC4jJZSSISkgKSMmXgRAIyYhKQsjJyAuQ83MTD6UkyEnICdDmpmZP10EQEOamZk/IScLIyggLkMpXI8+lJMhKCAoQwAAAEBdBEBDAAAAQCEoC0EAIQoCQANAIAojAE4NASAKEAIhCyAKEAwhFiALKgIUIREgEUMAAAAAXgRAIAsqAgAhDSALKgIEIQ4gCyoCCCEPIAsqAgwhECALKgIYIRIgCyoCHCETIAsqAiAhFCALKgIkIRUgEyAAkyETIBQgDZMhGSAVIA6TIRogGSAZlCAaIBqUkpEhGyATQwAAAABfIBtDAACAQV1yBEBDAAAIQiMOQwAACEKTEAkhFEMAAAhCIxBDAAAIQpMQCSEVIBZBAUYEQCM1IzYQCSETBUOamZk/Q83MTEAQCSETCyAUIA2TIRkgFSAOkyEaIBkgGZQgGiAalJKRIRsLICkhFyAWQQFGBEAgKSMzlCEXCyAWQQJGBEAgKSM3lCEXC0MAAAAAIRxDAAAAACEdIBtDAAAAP14EQCAZIBuVIRwgGiAblSEdCyAPIBwgF5QgD5MgAEMAACBAlJSSIQ8gECAdIBeUIBCTIABDAAAgQJSUkiEQIA0gDyAAlJJDAACQQSMOQwAAkEGTEAohDSAOIBAgAJSSQwAAkEEjEEMAAJBBkxAKIQ4gEiAAkyESIBJDAAAAAF8EQCABIA2TIRkgAiAOkyEaIBkgGZQgGiAalJKRIRsgFkECRgRAIBsjMJUhGCAYIzheBEAjOCEYCyAZIAMgGJSSIRkgGiAEIBiUkiEaIBkgGZQgGiAalJKRIRsLIBtDbxKDOl4EQEEBIA0gDiAZIBuVIzCUIBogG5UjMJQQDiNNQQFqJE0LICcgKBAJIAoQDZQhEgsgCyANOAIAIAsgDjgCBCALIA84AgggCyAQOAIMIAsgEjgCGCALIBM4AhwgCyAUOAIgIAsgFTgCJAsgCkEBaiEKDAALCyMrIC5D7FE4PpSTISwgLEMAAMA/XQRAQwAAwD8hLAsjLCAuQ4/CdT6UkyEtIC1DAAAgQF0EQEMAACBAIS0LIyEgAJMkISMhQwAAAABfBEAQDyAsIC0QCSQhCyMMKgIAISUjDSoCACEmQQAqAhQhBkEAKgIAIQFBACoCBCECQQAhKwJAA0AgKyMBTg0BICsQAyEMIAwqAhQhIyAjQwAAAABeBEAgDCoCACEeIAwqAgQhHyAMKgIIISAgDCoCDCEhIAwqAhAhIiAeICAgAJSSIR4gHyAhIACUkiEfIB5DAADAwV0gHiMOQwAAwEGSXnIgH0MAAMDBXSAfIw9DAADAQZJecnIEQEMAAAAAISMFQQAhJCAiQwAAAABbBEBBACEKAkADQCAKIwBODQEgChACIQsgCyoCFEMAAAAAXgRAIB4gCyoCAJMhGSAfIAsqAgSTIRogGSAZlCAaIBqUkiMZIxmUXQRAIAtDAAAAADgCFCAlQwAAgD+SISVBASEkI05BAWokTiALKgIAIAsqAgQQCAwDCwsgCkEBaiEKDAALCyAkRQRAQQAhCgJAA0AgCiMCTg0BIAoQBCELIAsqAhRDAAAAAF4EQCALKgIQISogHiALKgIAkyEZIB8gCyoCBJMhGiAZIBmUIBogGpSSICpDAACAQJIgKkMAAIBAkpRdBEAgC0MAAAAAOAIUICVDAACAP5IhJUEBISQjT0EBaiRPDAMLCyAKQQFqIQoMAAsLCwUgBkMAAAAAXgRAIB4gAZMhGSAfIAKTIRogGSAZlCAaIBqUkiMZIxmUXQRAQQEhJCNLQwAAAABeBEBDAAAAACRLI1RBAWokVAUgJkMAAIA/kyEmI1BBAWokUCAmQwAAAABfBEBDAAAAACEGQQEkIAsLCwsLICRBAEcEQEMAAAAAISMLCyAMIB44AgAgDCAfOAIEIAwgIzgCFAsgK0EBaiErDAALC0EAISsCQANAICsjAk4NASArEAQhCyALKgIUISMgI0MAAAAAXgRAIAsqAgAhHiALKgIEIR8gCyoCCCEgIAsqAgwhISALKgIQISogHiAgIACUkiEeIB8gISAAlJIhHyAfIw9DAAAwQpJeBEBDAAAAACEjBSAGQwAAAABeBEAgHiABkyEZIB8gApMhGiAZIBmUIBogGpSSICojF5IgKiMXkpRdBEBDAAAAACEjI0tDAAAAAF4EQEMAAAAAJEsjVEEBaiRUBSAmQwAAgD+TISYjUEEBaiRQICZDAAAAAF8EQEMAAAAAIQZBASQgCwsLCwsgCyAeOAIAIAsgHzgCBCALICM4AhQLICtBAWohKwwACwtBACEKAkADQCAGQwAAAABfDQEgCiMATg0BIAoQAiELIAsqAhRDAAAAAF4EQCABIAsqAgCTIRkgAiALKgIEkyEaIBkgGZQgGiAalJIjFyMYkiMXIxiSlF0EQCALQwAAAAA4AhQjS0MAAAAAXgRAQwAAAAAkSyNUQQFqJFQFICZDAACAP5MhJiNQQQFqJFAgJkMAAAAAXwRAQwAAAAAhBkEBJCALCwsLIApBAWohCgwACwtBACErAkADQCArIwtODQEgKxAHIQsgCyoCFEMAAAAAXgRAIAsqAgQgCyoCCCAAlJIhHyALIB84AgQgCyALKgIQIACTOAIQIAsqAhBDAAAAAF8gHyMPQwAAoEGSXnIEQCALQwAAAAA4AhQFIAZDAAAAAF4EQCALKgIAIAGTIRkgHyACkyEaIBkgGZQgGiAalJIjFyNCkiMXI0KSlF0EQCALQwAAAAA4AhQjU0EBaiRTIAsqAgyoIRYgFkEARgRAI0MkSQsgFkEBRgRAI0UkSgsgFkECRgRAI0ckSwsgFkEDRgRAICZDAACAP5IjI5YhJgsLCwsLICtBAWohKwwACwtBACAGOAIUIwwgJTgCACMNICY4AgAjIEUQEUVxBEAjG0EBaiQbI1FBAWokURASEBALCw==";
 
   // ============================================================
   // PIXEL SPRITES (ASCII grids -> offscreen canvases)
@@ -197,6 +199,26 @@
     '.R.',
   ];
 
+  // Power-ups: one capsule per kind, in the order of the engine's kind field
+  // (0 rapid, 1 spread, 2 shield, 3 life). The frame colour is the kind, and the
+  // HUD's effect pips use the same colours, so a pickup and what it gave you
+  // read as the same thing.
+  var PU_COLOURS = ['#ffd23c', '#39d5ff', '#6b8cff', '#e8283c'];
+  var puRows = [
+    [ // rapid: R
+      '.FFFFFFF.', 'F.......F', 'F.GGG...F', 'F.G..G..F', 'F.GGG...F',
+      'F.G.G...F', 'F.G..G..F', 'F.......F', '.FFFFFFF.' ],
+    [ // spread: three rounds leaving one gun
+      '.FFFFFFF.', 'F.......F', 'F.G.G.G.F', 'F.G.G.G.F', 'F..GGG..F',
+      'F...G...F', 'F...G...F', 'F.......F', '.FFFFFFF.' ],
+    [ // shield
+      '.FFFFFFF.', 'F.......F', 'F.GGGGG.F', 'F.G...G.F', 'F.G...G.F',
+      'F..G.G..F', 'F...G...F', 'F.......F', '.FFFFFFF.' ],
+    [ // life: a heart
+      '.FFFFFFF.', 'F.......F', 'F.GG.GG.F', 'F.GGGGG.F', 'F.GGGGG.F',
+      'F..GGG..F', 'F...G...F', 'F.......F', '.FFFFFFF.' ],
+  ];
+
   // pre-render all shared sprites once (shared across instances)
   var sprPlayer = makeSprite(playerRows, P_PAL, PXS);
   var sprFlame1 = makeSprite(flameRows1, FLAME_PAL, PXS);
@@ -207,6 +229,9 @@
   var sprSkul = [makeSprite(skulC1, C_PAL, PXS), makeSprite(skulC2, C_PAL, PXS)];
   var sprPBolt = makeSprite(playerBoltRows, PB_PAL, PXS);
   var sprEBolt = makeSprite(enemyBoltRows, EB_PAL, PXS);
+  var sprPickup = puRows.map(function (rows, k) {
+    return makeSprite(rows, { F: PU_COLOURS[k], G: k === 3 ? '#ff8a9a' : '#ffffff' }, PXS);
+  });
 
   function base64ToBytes(b64) {
     var bin = atob(b64);
@@ -290,13 +315,21 @@
       kill: function () { noise(0.14, 0.06); tone(520, 140, 0.16, 'square', 0.04); },
       rock: function () { noise(0.2, 0.08); tone(160, 60, 0.2, 'sawtooth', 0.04); },
       hurt: function () { noise(0.35, 0.11); tone(240, 50, 0.4, 'sawtooth', 0.07); },
-      // A wave cleared is a rising three-note figure: the one moment in this
-      // game that is good news, so it is the one sound that goes up.
+      // A wave cleared is a rising three-note figure. Good news goes up in this
+      // game; a pickup is the only other good news, and gets two notes to the
+      // wave's three so the two are never mistaken for each other.
       wave: function () {
         tone(392, 392, 0.1, 'square', 0.04);
         tone(523, 523, 0.1, 'square', 0.04, 0.1);
         tone(784, 784, 0.18, 'square', 0.04, 0.2);
       },
+      grab: function () {
+        tone(659, 659, 0.07, 'square', 0.04);
+        tone(988, 988, 0.12, 'square', 0.04, 0.07);
+      },
+      // The shield taking a hit: a hard, high knock, where a lost life is a low
+      // one. It has to be heard as "that would have hurt".
+      block: function () { tone(1400, 900, 0.12, 'triangle', 0.06); },
       over: function () { tone(260, 40, 1.0, 'sawtooth', 0.085); },
       setMuted: function (m) { muted = m; },
       close: function () { if (ctx && ctx.close) { try { ctx.close(); } catch (e) {} } ctx = null; },
@@ -317,7 +350,12 @@
     root.innerHTML =
       '<div class="ss-hud">' +
         '<span>SCORE <b class="ss-c" data-ss="score">0</b></span>' +
-        '<span>LIVES <b class="ss-r" data-ss="lives">3</b></span>' +
+        '<span>LIVES <b class="ss-r" data-ss="lives">3</b>' +
+        '<span class="ss-fx" data-ss="fx">' +
+          '<i class="ss-fx-r" data-ss="fxr" title="Rapid fire"></i>' +
+          '<i class="ss-fx-s" data-ss="fxs" title="Spread shot"></i>' +
+          '<i class="ss-fx-d" data-ss="fxd" title="Shield"></i>' +
+        '</span></span>' +
         '<span>LEVEL <b class="ss-y" data-ss="level">1</b></span>' +
         '<span>ENEMIES <b data-ss="bots">0</b></span>' +
         '<button type="button" class="ss-mute" data-ss="mute">SOUND ON</button>' +
@@ -451,8 +489,9 @@
     var prevAstActive = new Array(MAX_AST).fill(0);
     // The engine's event counters as of last frame. These replaced watching
     // the lives float and the level number for changes — see pollEvents().
-    var prev = { shots: 0, enemyShots: 0, kills: 0, rocks: 0, hurts: 0, waves: 0 };
-    var screenFlash = 0;
+    var prev = { shots: 0, enemyShots: 0, kills: 0, rocks: 0, hurts: 0, waves: 0, grabs: 0, blocks: 0 };
+    var screenFlash = 0, shieldFlash = 0;
+    var fxR = q('fxr'), fxS = q('fxs'), fxD = q('fxd');
     var sound = createSound();
     var muted = false;
     var rafId = 0;
@@ -813,6 +852,28 @@
       return { x: f32[o + B.x], y: f32[o + B.y], vx: f32[o + B.vx], vy: f32[o + B.vy],
                owner: f32[o + B.owner], active: f32[o + B.active] };
     }
+    function readPickup(i) {
+      var o = (PICKUPS_OFF + i * PICKUP_STRIDE) / 4, K = FIELD.pickup;
+      return { x: f32[o + K.x], y: f32[o + K.y], kind: f32[o + K.kind],
+               life: f32[o + K.life], active: f32[o + K.active] };
+    }
+    // Shown for as long as the engine says an effect has left, blinking over
+    // its last two seconds so running out is never a surprise.
+    function setPip(el, t) {
+      el.style.display = t > 0 ? 'inline-block' : 'none';
+      el.style.visibility = (t > 0 && t < 2 && Math.floor(tGlobal * 8) % 2) ? 'hidden' : 'visible';
+    }
+    // The shield, drawn as a ring of low-res pixels rather than a stroked
+    // circle: a one-pixel stroke drawn into the one-third buffer comes out as a
+    // smear (see the retro adapter), and this is the same fillRect-on-the-grid
+    // answer the other hairlines here got.
+    function drawShieldRing(x, y) {
+      ctx.fillStyle = PU_COLOURS[2];
+      for (var k = 0; k < 40; k++) {
+        var a = k / 40 * Math.PI * 2;
+        ctx.fillRect(snap(x + Math.cos(a) * 36) - 1, snap(y + Math.sin(a) * 36) - 1, 3, 3);
+      }
+    }
     function readAsteroid(i) {
       var o = (AST_OFF + i * AST_STRIDE) / 4, A = FIELD.ast;
       return { x: f32[o + A.x], y: f32[o + A.y], radius: f32[o + A.radius], active: f32[o + A.active] };
@@ -834,6 +895,7 @@
       prev.shots = e.get_shots(); prev.enemyShots = e.get_enemy_shots();
       prev.kills = e.get_kills(); prev.rocks = e.get_rocks();
       prev.hurts = e.get_hurts(); prev.waves = e.get_waves();
+      prev.grabs = e.get_grabs(); prev.blocks = e.get_blocks();
     }
 
     /**
@@ -858,6 +920,10 @@
       if (n > prev.hurts) { sound.hurt(); screenFlash = 0.25; prev.hurts = n; }
       n = e.get_waves();
       if (n > prev.waves) { sound.wave(); showLevelBanner(); prev.waves = n; }
+      n = e.get_grabs();
+      if (n > prev.grabs) { sound.grab(); prev.grabs = n; }
+      n = e.get_blocks();
+      if (n > prev.blocks) { sound.block(); shieldFlash = 0.2; prev.blocks = n; }
     }
 
     function showLevelBanner() {
@@ -1006,6 +1072,15 @@
         }
       }
 
+      // pickups, under the ships: something to fly into, not something that
+      // hides a bot. They blink as they fade, like the effects they give.
+      for (i = 0; i < MAX_PICKUPS; i++) {
+        var pk = readPickup(i);
+        if (pk.active > 0 && !(pk.life < 2.5 && Math.floor(tGlobal * 8) % 2)) {
+          drawSprite(sprPickup[pk.kind | 0], pk.x, pk.y);
+        }
+      }
+
       var frame = Math.floor(tGlobal * 2.5) % 2;
       var botsAlive = 0;
       for (i = 0; i < MAX_BOTS; i++) {
@@ -1035,6 +1110,8 @@
           drawSpriteRot(fl, p.x - Math.cos(p.heading) * 34, p.y - Math.sin(p.heading) * 34, pang);
         }
         drawSpriteRot(sprPlayer, p.x, p.y, pang);
+        var sh = wasm.exports.get_shield_t();
+        if (sh > 0 && !(sh < 2 && Math.floor(tGlobal * 8) % 2)) drawShieldRing(p.x, p.y);
       }
 
       updateDrawExplosions(dt);
@@ -1043,6 +1120,13 @@
         ctx.fillStyle = 'rgba(255,40,60,' + (screenFlash * 1.6).toFixed(3) + ')';
         ctx.fillRect(0, 0, WORLD_W, WORLD_H);
         screenFlash -= dt;
+      }
+      // a blocked hit flashes the shield's colour, not the hurt red: the point
+      // is that nothing was lost
+      if (shieldFlash > 0) {
+        ctx.fillStyle = 'rgba(107,140,255,' + (shieldFlash * 1.4).toFixed(3) + ')';
+        ctx.fillRect(0, 0, WORLD_W, WORLD_H);
+        shieldFlash -= dt;
       }
 
       screen.setTransform(1, 0, 0, 1, 0, 0);
@@ -1053,6 +1137,9 @@
       hudLives.textContent = Math.max(0, Math.round(livesNow));
       hudLevel.textContent = wasm.exports.get_level();
       hudBots.textContent = botsAlive;
+      setPip(fxR, wasm.exports.get_rapid_t());
+      setPip(fxS, wasm.exports.get_spread_t());
+      setPip(fxD, wasm.exports.get_shield_t());
 
       rafId = requestAnimationFrame(loop);
     }

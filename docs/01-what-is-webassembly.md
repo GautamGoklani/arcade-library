@@ -178,7 +178,7 @@ declaration surface of `games/pixel-wave/game.wat`, which is a complete game:
   (import "env" "cosf" (func $cosf (param f32) (result f32)))
   (memory (export "memory") 1)          ;; 64 KB, exported so JS can read it
   (global $MAX_BOTS i32 (i32.const 33))
-  ;; … ~40 more globals, ~20 functions …
+  ;; … ~85 more globals, ~40 functions …
   (func (export "step") (param $dt f32) …)
 )
 ```

@@ -13,7 +13,15 @@
   ;;             ends at 1344 + 160*24 = 5184
   ;; asteroids @5184  : stride 24B, MAX_AST=20 (x,y,vx,vy,radius,active)
   ;;             ends at 5184 + 20*24 = 5664
-  ;; score @5664  lives @5668
+  ;; pickups   @5664  : stride 24B, MAX_PICKUPS=8 (x,y,vy,kind,life,active)
+  ;;             ends at 5664 + 8*24 = 5856
+  ;; score @5856  lives @5860
+  ;;
+  ;; Score and lives were at 5664 and 5668 until power-ups arrived, and moved
+  ;; because of the rule chapter 5 teaches from this map: scalars go last, so
+  ;; that adding a *scalar* moves nothing. Adding a *region* is the other case —
+  ;; it goes with the regions, and whatever sits after it moves. The written-out
+  ;; sums are what made that a two-line edit.
   ;;
   ;; The field lists above, once more, in the form scripts/check-layout.mjs
   ;; reads. It fails if any line here disagrees with the prose, overflows
@@ -23,6 +31,7 @@
   ;; @fields bot    f32 BOT_STRIDE: x y vx vy heading alive cooldown wanderTimer targetX targetY
   ;; @fields bullet f32 BULLET_STRIDE: x y vx vy owner active
   ;; @fields ast    f32 AST_STRIDE: x y vx vy radius active
+  ;; @fields pickup f32 PICKUP_STRIDE: x y vy kind life active
   ;; ===================================================
 
   (global $MAX_BOTS i32 (i32.const 33))
@@ -34,8 +43,11 @@
   (global $BULLET_STRIDE i32 (i32.const 24))
   (global $AST_OFF i32 (i32.const 5184))
   (global $AST_STRIDE i32 (i32.const 24))
-  (global $SCORE_OFF i32 (i32.const 5664))
-  (global $LIVES_OFF i32 (i32.const 5668))
+  (global $PICKUPS_OFF i32 (i32.const 5664))
+  (global $PICKUP_STRIDE i32 (i32.const 24))
+  (global $MAX_PICKUPS i32 (i32.const 8))
+  (global $SCORE_OFF i32 (i32.const 5856))
+  (global $LIVES_OFF i32 (i32.const 5860))
 
   (global $WORLD_W f32 (f32.const 1200.0))
   (global $WORLD_H f32 (f32.const 750.0))
@@ -184,6 +196,46 @@
   (global $burstLeft (mut i32) (i32.const 0))
   (global $pendingFire (mut i32) (i32.const 0))
 
+  ;; ---- power-ups ------------------------------------------------------------
+  ;; A bot shot down sometimes drops one. It falls toward the player's half and
+  ;; is collected by flying into it; the four kinds are the four the original
+  ;; plan listed.
+  ;;
+  ;;   0 rapid    the burst recovers in $RAPID_RECOVER instead of $BURST_RECOVER
+  ;;   1 spread   every round leaves the gun as three, $SPREAD_ANGLE apart
+  ;;   2 shield   the next hit, of any kind, costs nothing
+  ;;   3 life     one life back, never past the setting's starting count
+  ;;
+  ;; **Drops draw from their own random stream, $dropRng.** Everything else in
+  ;; this engine draws from $rng, in an order the simulation fixes; if a drop
+  ;; roll came out of the same stream, every kill would shift every wander
+  ;; target and asteroid after it, and a run where the player never touched a
+  ;; pickup would still be a different run. On its own stream, a run where
+  ;; nothing is collected replays the engine that had no power-ups byte for byte
+  ;; — which is both the check that this change is only what it says, and the
+  ;; reason the difficulty table above did not need re-tuning for a player who
+  ;; ignores them.
+  ;; One kill in seven, about. Swept against a pilot that detours into every
+  ;; pickup, 64 runs a setting: at 0.08 half of all Normal games showed no
+  ;; pickup at all, so the feature was invisible to the player it is for; at
+  ;; 0.20 chasing them lengthened a Normal run by half, which is the size of the
+  ;; step between two settings rather than a reward within one. At 0.14 a Normal
+  ;; game sees one or two and chasing them is worth about 14%, and every setting
+  ;; with pickups still ends well short of the easier one without.
+  (global $DROP_CHANCE f32 (f32.const 0.14))   ;; per bot shot down
+  (global $PICKUP_FALL f32 (f32.const 70.0))   ;; px/s, toward the player
+  (global $PICKUP_LIFE f32 (f32.const 9.0))    ;; seconds before it fades
+  (global $PICKUP_R f32 (f32.const 16.0))      ;; plus SHIP_R, for collection
+  (global $RAPID_TIME f32 (f32.const 8.0))
+  (global $RAPID_RECOVER f32 (f32.const 0.12))
+  (global $SPREAD_TIME f32 (f32.const 8.0))
+  (global $SPREAD_ANGLE f32 (f32.const 0.2))   ;; radians either side
+  (global $SHIELD_TIME f32 (f32.const 12.0))
+  (global $dropRng (mut i32) (i32.const 362436069))
+  (global $rapidT (mut f32) (f32.const 0.0))
+  (global $spreadT (mut f32) (f32.const 0.0))
+  (global $shieldT (mut f32) (f32.const 0.0))
+
   ;; ---- event counters ------------------------------------------------------
   ;; JavaScript diffs these between frames to decide what to play and what to
   ;; flash. They only ever increase, and init zeroes them.
@@ -201,6 +253,9 @@
   (global $rocks (mut i32) (i32.const 0))        ;; an asteroid shot down
   (global $hurts (mut i32) (i32.const 0))        ;; a life lost, to anything
   (global $waves (mut i32) (i32.const 0))        ;; a wave cleared
+  (global $drops (mut i32) (i32.const 0))        ;; a pickup fell from a kill
+  (global $grabs (mut i32) (i32.const 0))        ;; a pickup was collected
+  (global $blocks (mut i32) (i32.const 0))       ;; the shield took a hit
 
   ;; ---------------- helpers ----------------
 
@@ -219,6 +274,50 @@
     (local.set $x (i32.xor (local.get $x) (i32.shl (local.get $x) (i32.const 5))))
     (global.set $rng (local.get $x))
     (f32.div (f32.convert_i32_u (local.get $x)) (f32.const 4294967296.0)))
+
+  ;; The drop stream: the same xorshift as $rand_f32, on its own state, so
+  ;; rolling for a drop never moves anything $rng decides. See "power-ups".
+  (func $drop_rand (result f32)
+    (local $x i32)
+    (local.set $x (global.get $dropRng))
+    (local.set $x (i32.xor (local.get $x) (i32.shl (local.get $x) (i32.const 13))))
+    (local.set $x (i32.xor (local.get $x) (i32.shr_u (local.get $x) (i32.const 17))))
+    (local.set $x (i32.xor (local.get $x) (i32.shl (local.get $x) (i32.const 5))))
+    (global.set $dropRng (local.get $x))
+    (f32.div (f32.convert_i32_u (local.get $x)) (f32.const 4294967296.0)))
+
+  (func $pickup_addr (param $i i32) (result i32)
+    (i32.add (global.get $PICKUPS_OFF) (i32.mul (local.get $i) (global.get $PICKUP_STRIDE))))
+
+  ;; Roll for a drop where a bot died. Rapid and spread are the common ones,
+  ;; the shield less so, and a life is rare, because a life is the only kind
+  ;; that outlasts its moment.
+  (func $maybe_drop (param $x f32) (param $y f32)
+    (local $i i32) (local $a i32) (local $r f32) (local $kind f32)
+    (if (f32.ge (call $drop_rand) (global.get $DROP_CHANCE)) (then (return)))
+    (local.set $r (call $drop_rand))
+    (local.set $kind
+      (if (result f32) (f32.lt (local.get $r) (f32.const 0.35)) (then (f32.const 0.0))
+        (else (if (result f32) (f32.lt (local.get $r) (f32.const 0.65)) (then (f32.const 1.0))
+          (else (if (result f32) (f32.lt (local.get $r) (f32.const 0.9)) (then (f32.const 2.0))
+            (else (f32.const 3.0))))))))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $lp
+        (br_if $done (i32.ge_s (local.get $i) (global.get $MAX_PICKUPS)))
+        (local.set $a (call $pickup_addr (local.get $i)))
+        (if (f32.eq (f32.load offset=20 (local.get $a)) (f32.const 0.0))
+          (then
+            (f32.store offset=0 (local.get $a) (local.get $x))
+            (f32.store offset=4 (local.get $a) (local.get $y))
+            (f32.store offset=8 (local.get $a) (global.get $PICKUP_FALL))
+            (f32.store offset=12 (local.get $a) (local.get $kind))
+            (f32.store offset=16 (local.get $a) (global.get $PICKUP_LIFE))
+            (f32.store offset=20 (local.get $a) (f32.const 1.0))
+            (global.set $drops (i32.add (global.get $drops) (i32.const 1)))
+            (br $done)))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $lp))))
 
   (func $frand (param $lo f32) (param $hi f32) (result f32)
     (f32.add (local.get $lo) (f32.mul (call $rand_f32) (f32.sub (local.get $hi) (local.get $lo)))))
@@ -426,6 +525,12 @@
     (global.set $rocks (i32.const 0))
     (global.set $hurts (i32.const 0))
     (global.set $waves (i32.const 0))
+    (global.set $drops (i32.const 0))
+    (global.set $grabs (i32.const 0))
+    (global.set $blocks (i32.const 0))
+    (global.set $rapidT (f32.const 0.0))
+    (global.set $spreadT (f32.const 0.0))
+    (global.set $shieldT (f32.const 0.0))
     (global.set $rotDir (f32.const 0.0))
     (global.set $astTimer (f32.const 2.5))
 
@@ -454,7 +559,14 @@
         (br_if $da (i32.ge_s (local.get $i) (global.get $MAX_AST)))
         (f32.store offset=20 (call $ast_addr (local.get $i)) (f32.const 0.0))
         (local.set $i (i32.add (local.get $i) (i32.const 1)))
-        (br $la))))
+        (br $la)))
+    (local.set $i (i32.const 0))
+    (block $dp
+      (loop $lpk
+        (br_if $dp (i32.ge_s (local.get $i) (global.get $MAX_PICKUPS)))
+        (f32.store offset=20 (call $pickup_addr (local.get $i)) (f32.const 0.0))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $lpk))))
 
   (func $set_input (export "set_input") (param $rot f32) (param $thrust i32) (param $fire i32)
     (global.set $rotDir (local.get $rot))
@@ -472,6 +584,13 @@
   (func $get_rocks (export "get_rocks") (result i32) (global.get $rocks))
   (func $get_hurts (export "get_hurts") (result i32) (global.get $hurts))
   (func $get_waves (export "get_waves") (result i32) (global.get $waves))
+  (func $get_drops (export "get_drops") (result i32) (global.get $drops))
+  (func $get_grabs (export "get_grabs") (result i32) (global.get $grabs))
+  (func $get_blocks (export "get_blocks") (result i32) (global.get $blocks))
+  ;; Seconds left on each effect, for the HUD. Zero when not in force.
+  (func $get_rapid_t (export "get_rapid_t") (result f32) (global.get $rapidT))
+  (func $get_spread_t (export "get_spread_t") (result f32) (global.get $spreadT))
+  (func $get_shield_t (export "get_shield_t") (result f32) (global.get $shieldT))
 
   ;; 0 easy, 1 normal, 2 hard. Out-of-range values are clamped rather than
   ;; trusted, and a JavaScript call with no argument arrives as 0, so it clamps
@@ -533,6 +652,10 @@
     (local.set $py (call $clampf (f32.add (local.get $py) (f32.mul (local.get $pvy) (local.get $dt))) (f32.const 20.0) (f32.sub (global.get $WORLD_H) (f32.const 20.0))))
 
     (global.set $playerCooldown (f32.sub (global.get $playerCooldown) (local.get $dt)))
+    ;; power-up clocks run down whether or not anything is happening
+    (global.set $rapidT (f32.max (f32.sub (global.get $rapidT) (local.get $dt)) (f32.const 0.0)))
+    (global.set $spreadT (f32.max (f32.sub (global.get $spreadT) (local.get $dt)) (f32.const 0.0)))
+    (global.set $shieldT (f32.max (f32.sub (global.get $shieldT) (local.get $dt)) (f32.const 0.0)))
 
     ;; A fresh press (0 -> 1) requests a burst; holding does nothing further.
     (if (i32.and (i32.ne (global.get $firing) (i32.const 0))
@@ -558,6 +681,17 @@
         (call $spawn_bullet (i32.const 0) (local.get $px) (local.get $py)
           (f32.mul (call $cosf (local.get $phead)) (global.get $PLAYER_BULLET_SPEED))
           (f32.mul (call $sinf (local.get $phead)) (global.get $PLAYER_BULLET_SPEED)))
+        ;; spread: the same round twice more, either side. One press is still
+        ;; one entry on $shots — the counter is "a round left the gun", and the
+        ;; widget plays one sound for it, not three.
+        (if (f32.gt (global.get $spreadT) (f32.const 0.0))
+          (then
+            (call $spawn_bullet (i32.const 0) (local.get $px) (local.get $py)
+              (f32.mul (call $cosf (f32.sub (local.get $phead) (global.get $SPREAD_ANGLE))) (global.get $PLAYER_BULLET_SPEED))
+              (f32.mul (call $sinf (f32.sub (local.get $phead) (global.get $SPREAD_ANGLE))) (global.get $PLAYER_BULLET_SPEED)))
+            (call $spawn_bullet (i32.const 0) (local.get $px) (local.get $py)
+              (f32.mul (call $cosf (f32.add (local.get $phead) (global.get $SPREAD_ANGLE))) (global.get $PLAYER_BULLET_SPEED))
+              (f32.mul (call $sinf (f32.add (local.get $phead) (global.get $SPREAD_ANGLE))) (global.get $PLAYER_BULLET_SPEED)))))
         (global.set $shots (i32.add (global.get $shots) (i32.const 1)))
         (global.set $burstLeft (i32.sub (global.get $burstLeft) (i32.const 1)))
         ;; the last round of a burst pays the recovery, so mashing the key
@@ -565,7 +699,9 @@
         (global.set $playerCooldown
           (if (result f32) (i32.gt_s (global.get $burstLeft) (i32.const 0))
             (then (global.get $BURST_GAP))
-            (else (global.get $BURST_RECOVER))))))
+            (else (if (result f32) (f32.gt (global.get $rapidT) (f32.const 0.0))
+              (then (global.get $RAPID_RECOVER))
+              (else (global.get $BURST_RECOVER))))))))
 
     (f32.store offset=0 (i32.const 0) (local.get $px))
     (f32.store offset=4 (i32.const 0) (local.get $py))
@@ -741,6 +877,7 @@
                                 (local.set $score (f32.add (local.get $score) (f32.const 1.0)))
                                 (local.set $hit (i32.const 1))
                                 (global.set $kills (i32.add (global.get $kills) (i32.const 1)))
+                                (call $maybe_drop (f32.load offset=0 (local.get $a)) (f32.load offset=4 (local.get $a)))
                                 (br $donechk)))))
                         (local.set $i (i32.add (local.get $i) (i32.const 1)))
                         (br $lpchk)))
@@ -777,12 +914,18 @@
                                     (f32.mul (global.get $BULLET_HIT_R) (global.get $BULLET_HIT_R)))
                           (then
                             (local.set $hit (i32.const 1))
-                            (local.set $lives (f32.sub (local.get $lives) (f32.const 1.0)))
-                (global.set $hurts (i32.add (global.get $hurts) (i32.const 1)))
-                            (if (f32.le (local.get $lives) (f32.const 0.0))
+                            ;; a shield in force takes the hit instead, and is spent
+                            (if (f32.gt (global.get $shieldT) (f32.const 0.0))
                               (then
-                                (local.set $palive (f32.const 0.0))
-                                (global.set $gameOver (i32.const 1))))))))))
+                                (global.set $shieldT (f32.const 0.0))
+                                (global.set $blocks (i32.add (global.get $blocks) (i32.const 1))))
+                              (else
+                                (local.set $lives (f32.sub (local.get $lives) (f32.const 1.0)))
+                                (global.set $hurts (i32.add (global.get $hurts) (i32.const 1)))
+                                (if (f32.le (local.get $lives) (f32.const 0.0))
+                                  (then
+                                    (local.set $palive (f32.const 0.0))
+                                    (global.set $gameOver (i32.const 1))))))))))))
                 (if (i32.ne (local.get $hit) (i32.const 0)) (then (local.set $active (f32.const 0.0))))))
 
             (f32.store offset=0 (local.get $b) (local.get $ox))
@@ -819,12 +962,17 @@
                                 (f32.mul (f32.add (local.get $astR) (global.get $SHIP_R)) (f32.add (local.get $astR) (global.get $SHIP_R))))
                       (then
                         (local.set $active (f32.const 0.0))
-                        (local.set $lives (f32.sub (local.get $lives) (f32.const 1.0)))
-                (global.set $hurts (i32.add (global.get $hurts) (i32.const 1)))
-                        (if (f32.le (local.get $lives) (f32.const 0.0))
+                        (if (f32.gt (global.get $shieldT) (f32.const 0.0))
                           (then
-                            (local.set $palive (f32.const 0.0))
-                            (global.set $gameOver (i32.const 1))))))))))
+                            (global.set $shieldT (f32.const 0.0))
+                            (global.set $blocks (i32.add (global.get $blocks) (i32.const 1))))
+                          (else
+                            (local.set $lives (f32.sub (local.get $lives) (f32.const 1.0)))
+                            (global.set $hurts (i32.add (global.get $hurts) (i32.const 1)))
+                            (if (f32.le (local.get $lives) (f32.const 0.0))
+                              (then
+                                (local.set $palive (f32.const 0.0))
+                                (global.set $gameOver (i32.const 1))))))))))))
             (f32.store offset=0 (local.get $a) (local.get $ox))
             (f32.store offset=4 (local.get $a) (local.get $oy))
             (f32.store offset=20 (local.get $a) (local.get $active))))
@@ -851,14 +999,64 @@
                         (f32.mul (f32.add (global.get $SHIP_R) (global.get $BOT_R)) (f32.add (global.get $SHIP_R) (global.get $BOT_R))))
               (then
                 (f32.store offset=20 (local.get $a) (f32.const 0.0))
-                (local.set $lives (f32.sub (local.get $lives) (f32.const 1.0)))
-                (global.set $hurts (i32.add (global.get $hurts) (i32.const 1)))
-                (if (f32.le (local.get $lives) (f32.const 0.0))
+                ;; a shield absorbs a ram too; the bot is lost either way, and
+                ;; still scores nothing
+                (if (f32.gt (global.get $shieldT) (f32.const 0.0))
                   (then
-                    (local.set $palive (f32.const 0.0))
-                    (global.set $gameOver (i32.const 1))))))))
+                    (global.set $shieldT (f32.const 0.0))
+                    (global.set $blocks (i32.add (global.get $blocks) (i32.const 1))))
+                  (else
+                    (local.set $lives (f32.sub (local.get $lives) (f32.const 1.0)))
+                    (global.set $hurts (i32.add (global.get $hurts) (i32.const 1)))
+                    (if (f32.le (local.get $lives) (f32.const 0.0))
+                      (then
+                        (local.set $palive (f32.const 0.0))
+                        (global.set $gameOver (i32.const 1))))))))))
         (local.set $i (i32.add (local.get $i) (i32.const 1)))
         (br $lpram)))
+
+    ;; ===== pickups: fall, fade, collect =====
+    (local.set $j (i32.const 0))
+    (block $donepk
+      (loop $lppk
+        (br_if $donepk (i32.ge_s (local.get $j) (global.get $MAX_PICKUPS)))
+        (local.set $a (call $pickup_addr (local.get $j)))
+        (if (f32.gt (f32.load offset=20 (local.get $a)) (f32.const 0.0))
+          (then
+            (local.set $oy (f32.add (f32.load offset=4 (local.get $a))
+                                    (f32.mul (f32.load offset=8 (local.get $a)) (local.get $dt))))
+            (f32.store offset=4 (local.get $a) (local.get $oy))
+            (f32.store offset=16 (local.get $a) (f32.sub (f32.load offset=16 (local.get $a)) (local.get $dt)))
+            (if (i32.or (f32.le (f32.load offset=16 (local.get $a)) (f32.const 0.0))
+                        (f32.gt (local.get $oy) (f32.add (global.get $WORLD_H) (f32.const 20.0))))
+              (then (f32.store offset=20 (local.get $a) (f32.const 0.0)))
+              (else
+                (if (f32.gt (local.get $palive) (f32.const 0.0))
+                  (then
+                    (local.set $dx (f32.sub (f32.load offset=0 (local.get $a)) (local.get $px)))
+                    (local.set $dy (f32.sub (local.get $oy) (local.get $py)))
+                    (if (f32.lt (f32.add (f32.mul (local.get $dx) (local.get $dx)) (f32.mul (local.get $dy) (local.get $dy)))
+                                (f32.mul (f32.add (global.get $SHIP_R) (global.get $PICKUP_R))
+                                         (f32.add (global.get $SHIP_R) (global.get $PICKUP_R))))
+                      (then
+                        (f32.store offset=20 (local.get $a) (f32.const 0.0))
+                        (global.set $grabs (i32.add (global.get $grabs) (i32.const 1)))
+                        (local.set $sp (i32.trunc_f32_s (f32.load offset=12 (local.get $a))))
+                        ;; picking up a kind already in force restarts its clock,
+                        ;; rather than stacking it: eight seconds is the effect
+                        (if (i32.eq (local.get $sp) (i32.const 0))
+                          (then (global.set $rapidT (global.get $RAPID_TIME))))
+                        (if (i32.eq (local.get $sp) (i32.const 1))
+                          (then (global.set $spreadT (global.get $SPREAD_TIME))))
+                        (if (i32.eq (local.get $sp) (i32.const 2))
+                          (then (global.set $shieldT (global.get $SHIELD_TIME))))
+                        ;; a life never takes you past where the setting started
+                        ;; you: it is a repair, not a way to bank a cushion
+                        (if (i32.eq (local.get $sp) (i32.const 3))
+                          (then (local.set $lives
+                            (f32.min (f32.add (local.get $lives) (f32.const 1.0)) (global.get $livesStart)))))))))))))
+        (local.set $j (i32.add (local.get $j) (i32.const 1)))
+        (br $lppk)))
 
     (f32.store offset=20 (i32.const 0) (local.get $palive))
     (f32.store (global.get $SCORE_OFF) (local.get $score))

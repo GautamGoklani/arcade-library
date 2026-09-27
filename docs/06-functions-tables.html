@@ -250,14 +250,29 @@ gets. Pixel Wave exports fifteen things and no more:</p>
 (func $get_rocks       (export &quot;get_rocks&quot;)       (result i32))
 (func $get_hurts       (export &quot;get_hurts&quot;)       (result i32))
 (func $get_waves       (export &quot;get_waves&quot;)       (result i32))
+(func $get_drops       (export &quot;get_drops&quot;)       (result i32))
+(func $get_grabs       (export &quot;get_grabs&quot;)       (result i32))
+(func $get_blocks      (export &quot;get_blocks&quot;)      (result i32))
+;; what the HUD shows of a power-up: seconds left, zero when not in force
+(func $get_rapid_t     (export &quot;get_rapid_t&quot;)     (result f32))
+(func $get_spread_t    (export &quot;get_spread_t&quot;)    (result f32))
+(func $get_shield_t    (export &quot;get_shield_t&quot;)    (result f32))
+;; a choice about the next run, applied by init
+(func $set_difficulty  (export &quot;set_difficulty&quot;)  (param i32))
+(func $get_difficulty  (export &quot;get_difficulty&quot;)  (result i32))
 </code></pre>
-<p>Fifteen, for a complete game with 33 enemies and 160 bullets in flight — and
-six of them are one idea repeated. They are <strong>event counters</strong>: one integer per
-kind of thing that can happen, incremented at the line where the engine decides
-it happened, which the host diffs between frames to decide what to play. Pixel
-Wave was the first title here and for most of its life exported only the first
-nine; it was the last in the repository to get counters, and
+<p>Twenty-three, for a complete game with 33 enemies and 160 bullets in flight —
+and nine of them are one idea repeated. They are <strong>event counters</strong>: one integer
+per kind of thing that can happen, incremented at the line where the engine
+decides it happened, which the host diffs between frames to decide what to play.
+Pixel Wave was the first title here and for most of its life exported only the
+first nine entries; it was the last in the repository to get counters, and
 <a href="15-game-loop-architecture.html">chapter 15</a> is why it needed them.</p>
+<p>The list has grown twice since, and both times the same way: difficulty added a
+command and its reader, and power-ups added three counters and three readers.
+Neither added a callback, and neither changed a signature already there — a
+host written against the first fifteen still works, which is what keeping the
+boundary to scalars in and scalars out buys.</p>
 <p>Three principles hold this together, and all three are about keeping the
 boundary narrow.</p>
 <p><strong>Commands take scalars; state comes back through memory.</strong> <code>set_input</code> takes

@@ -329,7 +329,9 @@ JavaScript renderer that reads the memory, and the documentation.</p>
 ;;             ends at 1344 + 160*24 = 5184
 ;; asteroids @5184  : stride 24B, MAX_AST=20 (x,y,vx,vy,radius,active)
 ;;             ends at 5184 + 20*24 = 5664
-;; score @5664  lives @5668
+;; pickups   @5664  : stride 24B, MAX_PICKUPS=8 (x,y,vy,kind,life,active)
+;;             ends at 5664 + 8*24 = 5856
+;; score @5856  lives @5860
 ;; ===================================================
 </code></pre>
 <p>Notice the arithmetic is written out. Each region&#39;s start is the previous
@@ -340,6 +342,14 @@ instead of a debugging session.</p>
 address space, so adding one does not move anything. Getting this backwards
 means every new counter shifts the entity arrays and invalidates every offset
 constant in the renderer.</p>
+<p>The rule has a second half, and this map shows it happening. Pixel Wave had no
+<code>pickups</code> row until power-ups arrived, and score and lives sat at 5664 and
+5668. A new <em>region</em> is not a scalar: it goes with the other regions, and
+whatever sits after it moves — here, the two scalars, up by one pool&#39;s worth to
+5856 and 5860. Because the sum was written out, finding the new offsets was
+reading one line; and because the renderer reads score and lives through
+<code>get_score</code> and <code>get_lives</code> rather than at their addresses, moving them broke
+nothing outside this file.</p>
 <hr>
 <h2>Building an allocator</h2>
 <p>You will not need one for a fixed world, but the moment you have variable-sized

@@ -143,7 +143,10 @@ will inherit pieces of:
   argued the engine has no clock to stop. Difficulty settings arrived as a
   table in the engine that `init()` applies, with one best score per setting.
   Per-species behaviour arrived keyed off the slot index the renderer already
-  used to pick each sprite.*
+  used to pick each sprite. Power-ups arrived as the plan described them — the
+  four kinds, a new pool — with one addition it did not anticipate: drops draw
+  from a random stream of their own, so a player who ignores them plays the
+  same game as before.*
 - **Medium term:** boss waves every 10 levels, distinct per-species enemy
   behaviour, screen shake/hit-stop, gamepad support, difficulty settings.
 - **Long term:** local co-op and online versus multiplayer (lockstep WASM), a
