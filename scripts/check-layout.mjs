@@ -83,7 +83,8 @@ const TITLES = [
     js: 'pixel-wave.js',
     names: ['BOTS_OFF', 'BOT_STRIDE', 'MAX_BOTS', 'BULLETS_OFF', 'BULLET_STRIDE',
             'MAX_BULLETS', 'AST_OFF', 'AST_STRIDE', 'MAX_AST',
-            'PICKUPS_OFF', 'PICKUP_STRIDE', 'MAX_PICKUPS'],
+            'PICKUPS_OFF', 'PICKUP_STRIDE', 'MAX_PICKUPS',
+            'BOSS_OFF', 'PARTS_OFF', 'PART_STRIDE', 'MAX_PARTS'],
   },
   {
     slug: 'grid-breaker',

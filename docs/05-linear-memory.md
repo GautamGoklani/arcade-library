@@ -225,7 +225,11 @@ JavaScript renderer that reads the memory, and the documentation.
 ;;             ends at 5184 + 20*24 = 5664
 ;; pickups   @5664  : stride 24B, MAX_PICKUPS=8 (x,y,vy,kind,life,active)
 ;;             ends at 5664 + 8*24 = 5856
-;; score @5856  lives @5860
+;; boss      @5856  : x,y,vx,state,timer,pattern,active,number   (8 f32 = 32 B)
+;;             ends at 5856 + 32 = 5888
+;; parts     @5888  : stride 28B, MAX_PARTS=5 (dx,dy,hp,maxHp,alive,flash,windup)
+;;             ends at 5888 + 5*28 = 6028
+;; score @6028  lives @6032
 ;; ===================================================
 ```
 
@@ -239,14 +243,15 @@ address space, so adding one does not move anything. Getting this backwards
 means every new counter shifts the entity arrays and invalidates every offset
 constant in the renderer.
 
-The rule has a second half, and this map shows it happening. Pixel Wave had no
-`pickups` row until power-ups arrived, and score and lives sat at 5664 and
-5668. A new *region* is not a scalar: it goes with the other regions, and
-whatever sits after it moves — here, the two scalars, up by one pool's worth to
-5856 and 5860. Because the sum was written out, finding the new offsets was
+The rule has a second half, and this map shows it happening — twice. Pixel
+Wave had no `pickups` row until power-ups arrived, and score and lives sat at
+5664 and 5668. A new *region* is not a scalar: it goes with the other regions,
+and whatever sits after it moves — here, the two scalars, up by one pool's worth
+to 5856 and 5860. Then boss waves added `boss` and `parts`, and they moved again,
+to 6028 and 6032. Because each sum was written out, finding the new offsets was
 reading one line; and because the renderer reads score and lives through
 `get_score` and `get_lives` rather than at their addresses, moving them broke
-nothing outside this file.
+nothing outside this file either time.
 
 ---
 

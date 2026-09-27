@@ -233,7 +233,7 @@ restart&quot; bugs.</p>
 <hr>
 <h2>Designing the export surface</h2>
 <p>The exports <strong>are</strong> the API, and this is worth more thought than it usually
-gets. Pixel Wave exports fifteen things and no more:</p>
+gets. Pixel Wave started with fifteen exports; this is all of them now:</p>
 <pre><code class="language-wat">(memory (export &quot;memory&quot;) 1)
 (func $init      (export &quot;init&quot;))
 (func $set_input (export &quot;set_input&quot;) (param f32) (param i32) (param i32))
@@ -253,6 +253,11 @@ gets. Pixel Wave exports fifteen things and no more:</p>
 (func $get_drops       (export &quot;get_drops&quot;)       (result i32))
 (func $get_grabs       (export &quot;get_grabs&quot;)       (result i32))
 (func $get_blocks      (export &quot;get_blocks&quot;)      (result i32))
+(func $get_bosses      (export &quot;get_bosses&quot;)      (result i32))
+(func $get_warns       (export &quot;get_warns&quot;)       (result i32))
+(func $get_clinks      (export &quot;get_clinks&quot;)      (result i32))
+(func $get_boss_parts  (export &quot;get_boss_parts&quot;)  (result i32))
+(func $get_boss_downs  (export &quot;get_boss_downs&quot;)  (result i32))
 ;; what the HUD shows of a power-up: seconds left, zero when not in force
 (func $get_rapid_t     (export &quot;get_rapid_t&quot;)     (result f32))
 (func $get_spread_t    (export &quot;get_spread_t&quot;)    (result f32))
@@ -261,18 +266,20 @@ gets. Pixel Wave exports fifteen things and no more:</p>
 (func $set_difficulty  (export &quot;set_difficulty&quot;)  (param i32))
 (func $get_difficulty  (export &quot;get_difficulty&quot;)  (result i32))
 </code></pre>
-<p>Twenty-three, for a complete game with 33 enemies and 160 bullets in flight —
-and nine of them are one idea repeated. They are <strong>event counters</strong>: one integer
+<p>Twenty-eight, for a complete game with 33 enemies, a five-part boss and 160
+bullets in flight — and fourteen of them are one idea repeated. They are <strong>event counters</strong>: one integer
 per kind of thing that can happen, incremented at the line where the engine
 decides it happened, which the host diffs between frames to decide what to play.
 Pixel Wave was the first title here and for most of its life exported only the
 first nine entries; it was the last in the repository to get counters, and
 <a href="15-game-loop-architecture.html">chapter 15</a> is why it needed them.</p>
-<p>The list has grown twice since, and both times the same way: difficulty added a
-command and its reader, and power-ups added three counters and three readers.
-Neither added a callback, and neither changed a signature already there — a
-host written against the first fifteen still works, which is what keeping the
-boundary to scalars in and scalars out buys.</p>
+<p>The list has grown three times since, and every time the same way: difficulty
+added a command and its reader, power-ups three counters and three readers, and
+boss waves five counters. None added a callback, and none changed a signature
+already there — a host written against the first fifteen still works, which is
+what keeping the boundary to scalars in and scalars out buys. The boss did not
+need a reader at all for what the widget draws: the boss and its parts are
+memory, read through the same <code>Float32Array</code> as everything else.</p>
 <p>Three principles hold this together, and all three are about keeping the
 boundary narrow.</p>
 <p><strong>Commands take scalars; state comes back through memory.</strong> <code>set_input</code> takes

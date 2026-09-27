@@ -15,13 +15,27 @@
   ;;             ends at 5184 + 20*24 = 5664
   ;; pickups   @5664  : stride 24B, MAX_PICKUPS=8 (x,y,vy,kind,life,active)
   ;;             ends at 5664 + 8*24 = 5856
-  ;; score @5856  lives @5860
+  ;; boss      @5856  : x,y,vx,state,timer,pattern,active,number   (8 f32 = 32 B)
+  ;;             ends at 5856 + 32 = 5888
+  ;; parts     @5888  : stride 28B, MAX_PARTS=5 (dx,dy,hp,maxHp,alive,flash,windup)
+  ;;             ends at 5888 + 5*28 = 6028
+  ;; score @6028  lives @6032
   ;;
-  ;; Score and lives were at 5664 and 5668 until power-ups arrived, and moved
-  ;; because of the rule chapter 5 teaches from this map: scalars go last, so
-  ;; that adding a *scalar* moves nothing. Adding a *region* is the other case —
-  ;; it goes with the regions, and whatever sits after it moves. The written-out
-  ;; sums are what made that a two-line edit.
+  ;; Score and lives were at 5664 and 5668 until power-ups arrived, then at 5856
+  ;; and 5860 until boss waves did. Both moves follow the rule chapter 5 teaches
+  ;; from this map: scalars go last, so that adding a *scalar* moves nothing.
+  ;; Adding a *region* is the other case — it goes with the regions, and whatever
+  ;; sits after it moves. The written-out sums are what made each a two-line edit.
+  ;;
+  ;; Part 0 is the core; 1 and 2 are the wings, 3 and 4 the guns. A part's place
+  ;; is (dx, dy) from the boss, so the boss moves as one thing and the widget
+  ;; draws each part where the engine says it is.
+  ;;
+  ;; `windup` is 1 on the parts that will fire the attack being wound up, and
+  ;; the widget flashes exactly those. It is a field rather than something the
+  ;; widget works out from `pattern`, because which parts own which attack is a
+  ;; rule, and a rule copied into the renderer is one that can quietly disagree
+  ;; with the engine the day the rotation changes.
   ;;
   ;; The field lists above, once more, in the form scripts/check-layout.mjs
   ;; reads. It fails if any line here disagrees with the prose, overflows
@@ -32,6 +46,8 @@
   ;; @fields bullet f32 BULLET_STRIDE: x y vx vy owner active
   ;; @fields ast    f32 AST_STRIDE: x y vx vy radius active
   ;; @fields pickup f32 PICKUP_STRIDE: x y vy kind life active
+  ;; @fields boss   f32 -: x y vx state timer pattern active number
+  ;; @fields part   f32 PART_STRIDE: dx dy hp maxHp alive flash windup
   ;; ===================================================
 
   (global $MAX_BOTS i32 (i32.const 33))
@@ -46,8 +62,12 @@
   (global $PICKUPS_OFF i32 (i32.const 5664))
   (global $PICKUP_STRIDE i32 (i32.const 24))
   (global $MAX_PICKUPS i32 (i32.const 8))
-  (global $SCORE_OFF i32 (i32.const 5856))
-  (global $LIVES_OFF i32 (i32.const 5860))
+  (global $BOSS_OFF i32 (i32.const 5856))
+  (global $PARTS_OFF i32 (i32.const 5888))
+  (global $PART_STRIDE i32 (i32.const 28))
+  (global $MAX_PARTS i32 (i32.const 5))
+  (global $SCORE_OFF i32 (i32.const 6028))
+  (global $LIVES_OFF i32 (i32.const 6032))
 
   (global $WORLD_W f32 (f32.const 1200.0))
   (global $WORLD_H f32 (f32.const 750.0))
@@ -98,6 +118,7 @@
   ;;   asteroid gap         5.5-8.5    4.5-7.0    3.0-5.0 s
   ;;   asteroid fall        60-100     70-115     90-150
   ;;   ... per level 31+       3          4          6
+  ;;   boss wind-up          1.40       1.00       0.70 s
   ;;
   ;; Three things about it are deliberate.
   ;;
@@ -147,6 +168,7 @@
   (global $enemyBulletSpeed (mut f32) (f32.const 280.0))
   (global $openCdMin (mut f32) (f32.const 1.5))
   (global $openCdMax (mut f32) (f32.const 4.0))
+  (global $bossTelegraph (mut f32) (f32.const 1.00))
 
   ;; ---- species ------------------------------------------------------------
   ;; Pool slot i holds species i % 3: 0 crab, 1 hornet, 2 skull. The renderer
@@ -236,6 +258,46 @@
   (global $spreadT (mut f32) (f32.const 0.0))
   (global $shieldT (mut f32) (f32.const 0.0))
 
+  ;; ---- boss waves ----------------------------------------------------------
+  ;; Every tenth level is one enemy instead of a wave: five parts in a single
+  ;; body, patrolling the top of the arena. The four outer sections — two wings,
+  ;; two guns — can be shot off in any order. The core is armoured until all
+  ;; four are gone; a round that hits it before then is absorbed (a "clink",
+  ;; so the player learns why), and the core is what ends the level.
+  ;;
+  ;; **Its attacks are telegraphed, and they are not random.** The boss idles,
+  ;; then the parts about to fire flash for $bossTelegraph seconds — the wind-up
+  ;; — and then they fire. Guns fire a fan straight down, wings fire an aimed
+  ;; volley, and the core, once exposed, fires a ring. Which comes next follows
+  ;; a fixed rotation over whichever parts are still alive, and nothing in it
+  ;; draws from $rng. That is what a telegraph is for: a pattern the player can
+  ;; see coming and learn, rather than one they can only react to. It is also
+  ;; why the boss cannot change the run it sits in — levels 1-9 replay the
+  ;; engine that had no bosses, byte for byte.
+  (global $BOSS_EVERY i32 (i32.const 10))
+  (global $BOSS_Y f32 (f32.const 130.0))
+  (global $BOSS_SPEED f32 (f32.const 70.0))      ;; px/s, side to side
+  (global $BOSS_SPEED_STEP f32 (f32.const 10.0))  ;; faster each boss
+  ;; The pause between attacks, and the rounds each part takes, are one budget:
+  ;; how many attacks a fight lasts. A pilot that never dodges is hit by every
+  ;; aimed volley — they aim where the ship is, with no lead — so its losses
+  ;; are the fight's length over the volley period, and the draft (1.6 s, 6-hp
+  ;; sections, 12-hp core) beat half of 64 such pilots on Easy and 15 on
+  ;; Normal, from full lives. At 2.6 s and 4 / 8 it beats 52 on Easy and 34 on
+  ;; Normal, and a pilot that reads the telegraph beats 50 of 64 on Normal
+  ;; losing a median of one life, against four for one that does not. The
+  ;; second boss, two rounds tougher a section and faster, takes those win
+  ;; counts down by 13-29% depending on setting and pilot — harder, not a wall.
+  (global $BOSS_IDLE f32 (f32.const 2.6))        ;; seconds between attacks
+  (global $PART_R f32 (f32.const 30.0))
+  (global $SECTION_HP f32 (f32.const 4.0))     ;; rounds, first boss
+  (global $SECTION_HP_STEP f32 (f32.const 2.0))
+  (global $CORE_HP f32 (f32.const 8.0))
+  (global $CORE_HP_STEP f32 (f32.const 4.0))
+  (global $FAN_STEP f32 (f32.const 0.25))      ;; radians between fan rounds
+  (global $SECTION_SCORE f32 (f32.const 5.0))
+  (global $CORE_SCORE f32 (f32.const 20.0))
+
   ;; ---- event counters ------------------------------------------------------
   ;; JavaScript diffs these between frames to decide what to play and what to
   ;; flash. They only ever increase, and init zeroes them.
@@ -256,6 +318,11 @@
   (global $drops (mut i32) (i32.const 0))        ;; a pickup fell from a kill
   (global $grabs (mut i32) (i32.const 0))        ;; a pickup was collected
   (global $blocks (mut i32) (i32.const 0))       ;; the shield took a hit
+  (global $bosses (mut i32) (i32.const 0))       ;; a boss arrived
+  (global $warns (mut i32) (i32.const 0))        ;; a boss began a wind-up
+  (global $clinks (mut i32) (i32.const 0))       ;; the armoured core stopped a round
+  (global $bossParts (mut i32) (i32.const 0))    ;; a section shot off
+  (global $bossDowns (mut i32) (i32.const 0))    ;; a boss destroyed
 
   ;; ---------------- helpers ----------------
 
@@ -429,6 +496,308 @@
         (br $lp)))
     (local.get $c))
 
+  ;; ---------------- the boss ----------------
+
+  (func $part_addr (param $i i32) (result i32)
+    (i32.add (global.get $PARTS_OFF) (i32.mul (local.get $i) (global.get $PART_STRIDE))))
+
+  (func $boss_active (result i32)
+    (f32.gt (f32.load offset=24 (global.get $BOSS_OFF)) (f32.const 0.0)))
+
+  (func $part_alive (param $i i32) (result i32)
+    (f32.gt (f32.load offset=16 (call $part_addr (local.get $i))) (f32.const 0.0)))
+
+  ;; the four outer sections still standing; the core is armoured while any are
+  (func $sections_alive (result i32)
+    (i32.add (i32.add (call $part_alive (i32.const 1)) (call $part_alive (i32.const 2)))
+             (i32.add (call $part_alive (i32.const 3)) (call $part_alive (i32.const 4)))))
+
+  (func $set_part (param $i i32) (param $dx f32) (param $dy f32) (param $hp f32)
+    (local $a i32)
+    (local.set $a (call $part_addr (local.get $i)))
+    (f32.store offset=0 (local.get $a) (local.get $dx))
+    (f32.store offset=4 (local.get $a) (local.get $dy))
+    (f32.store offset=8 (local.get $a) (local.get $hp))
+    (f32.store offset=12 (local.get $a) (local.get $hp))
+    (f32.store offset=16 (local.get $a) (f32.const 1.0))
+    (f32.store offset=20 (local.get $a) (f32.const 0.0))
+    (f32.store offset=24 (local.get $a) (f32.const 0.0)))
+
+  ;; Mark the parts that own an attack, or clear every mark. Pattern 0 is the
+  ;; guns', 1 the wings' while any section stands and the core's after, 2 the
+  ;; core's — the same ownership $boss_fire acts on, kept next to it so the two
+  ;; are read together.
+  (func $mark_windup (param $pat i32)
+    (local $i i32)
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $lp
+        (br_if $done (i32.ge_s (local.get $i) (global.get $MAX_PARTS)))
+        (f32.store offset=24 (call $part_addr (local.get $i)) (f32.const 0.0))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $lp)))
+    (if (i32.lt_s (local.get $pat) (i32.const 0)) (then (return)))
+    (if (i32.eqz (local.get $pat))
+      (then
+        (f32.store offset=24 (call $part_addr (i32.const 3)) (f32.const 1.0))
+        (f32.store offset=24 (call $part_addr (i32.const 4)) (f32.const 1.0))
+        (return)))
+    (if (i32.and (i32.eq (local.get $pat) (i32.const 1)) (i32.ne (call $sections_alive) (i32.const 0)))
+      (then
+        (f32.store offset=24 (call $part_addr (i32.const 1)) (f32.const 1.0))
+        (f32.store offset=24 (call $part_addr (i32.const 2)) (f32.const 1.0))
+        (return)))
+    (f32.store offset=24 (call $part_addr (i32.const 0)) (f32.const 1.0)))
+
+  ;; A boss level has no wave: spawn_wave(0) clears the pool without drawing
+  ;; from $rng. Each boss is the tenth level's number of tens, and every one is
+  ;; a little quicker and a little tougher than the last.
+  (func $spawn_boss
+    (local $b i32) (local $num f32) (local $sec f32) (local $core f32)
+    (call $spawn_wave (i32.const 0))
+    (local.set $b (global.get $BOSS_OFF))
+    (local.set $num (f32.convert_i32_s (i32.div_s (global.get $level) (global.get $BOSS_EVERY))))
+    (local.set $sec (f32.add (global.get $SECTION_HP)
+      (f32.mul (f32.sub (local.get $num) (f32.const 1.0)) (global.get $SECTION_HP_STEP))))
+    (local.set $core (f32.add (global.get $CORE_HP)
+      (f32.mul (f32.sub (local.get $num) (f32.const 1.0)) (global.get $CORE_HP_STEP))))
+    (f32.store offset=0 (local.get $b) (f32.mul (global.get $WORLD_W) (f32.const 0.5)))
+    (f32.store offset=4 (local.get $b) (global.get $BOSS_Y))
+    (f32.store offset=8 (local.get $b) (f32.add (global.get $BOSS_SPEED)
+      (f32.mul (f32.sub (local.get $num) (f32.const 1.0)) (global.get $BOSS_SPEED_STEP))))
+    (f32.store offset=12 (local.get $b) (f32.const 0.0))              ;; state: idle
+    (f32.store offset=16 (local.get $b) (global.get $BOSS_IDLE))      ;; timer
+    (f32.store offset=20 (local.get $b) (f32.const 1.0))              ;; last pattern
+    (f32.store offset=24 (local.get $b) (f32.const 1.0))              ;; active
+    (f32.store offset=28 (local.get $b) (local.get $num))
+    (call $set_part (i32.const 0) (f32.const 0.0) (f32.const 0.0) (local.get $core))
+    (call $set_part (i32.const 1) (f32.const -96.0) (f32.const -8.0) (local.get $sec))
+    (call $set_part (i32.const 2) (f32.const 96.0) (f32.const -8.0) (local.get $sec))
+    (call $set_part (i32.const 3) (f32.const -48.0) (f32.const 36.0) (local.get $sec))
+    (call $set_part (i32.const 4) (f32.const 48.0) (f32.const 36.0) (local.get $sec))
+    (global.set $bosses (i32.add (global.get $bosses) (i32.const 1))))
+
+  ;; What a level starts with: a boss on every tenth, a wave otherwise.
+  (func $spawn_level
+    (if (i32.eqz (i32.rem_u (global.get $level) (global.get $BOSS_EVERY)))
+      (then (call $spawn_boss))
+      (else (call $spawn_wave (call $wave_size)))))
+
+  (func $enemy_round (param $x f32) (param $y f32) (param $dx f32) (param $dy f32)
+    (call $spawn_bullet (i32.const 1) (local.get $x) (local.get $y)
+      (f32.mul (local.get $dx) (global.get $enemyBulletSpeed))
+      (f32.mul (local.get $dy) (global.get $enemyBulletSpeed)))
+    (global.set $enemyShots (i32.add (global.get $enemyShots) (i32.const 1))))
+
+  ;; One part's attack. Fan: five rounds straight down, spread. Aimed: three at
+  ;; the player, the outer two 0.12 rad either side. Ring: twelve, evenly.
+  (func $part_fire (param $i i32) (param $pat i32) (param $px f32) (param $py f32)
+    (local $a i32) (local $x f32) (local $y f32) (local $dx f32) (local $dy f32)
+    (local $d f32) (local $k i32) (local $ang f32)
+    (local.set $a (call $part_addr (local.get $i)))
+    (local.set $x (f32.add (f32.load offset=0 (global.get $BOSS_OFF)) (f32.load offset=0 (local.get $a))))
+    (local.set $y (f32.add (f32.load offset=4 (global.get $BOSS_OFF)) (f32.load offset=4 (local.get $a))))
+    (if (i32.eqz (local.get $pat))
+      (then
+        (local.set $k (i32.const -2))
+        (block $done
+          (loop $lp
+            (br_if $done (i32.gt_s (local.get $k) (i32.const 2)))
+            (local.set $ang (f32.add (f32.const 1.5708)
+              (f32.mul (f32.convert_i32_s (local.get $k)) (global.get $FAN_STEP))))
+            (call $enemy_round (local.get $x) (local.get $y) (call $cosf (local.get $ang)) (call $sinf (local.get $ang)))
+            (local.set $k (i32.add (local.get $k) (i32.const 1)))
+            (br $lp)))
+        (return)))
+    (if (i32.eq (local.get $pat) (i32.const 1))
+      (then
+        (local.set $dx (f32.sub (local.get $px) (local.get $x)))
+        (local.set $dy (f32.sub (local.get $py) (local.get $y)))
+        (local.set $d (f32.sqrt (f32.add (f32.mul (local.get $dx) (local.get $dx)) (f32.mul (local.get $dy) (local.get $dy)))))
+        (if (f32.lt (local.get $d) (f32.const 1.0)) (then (local.set $d (f32.const 1.0))))
+        (local.set $dx (f32.div (local.get $dx) (local.get $d)))
+        (local.set $dy (f32.div (local.get $dy) (local.get $d)))
+        (call $enemy_round (local.get $x) (local.get $y) (local.get $dx) (local.get $dy))
+        ;; rotated by +/-0.12 rad: cos 0.12 = 0.99281, sin 0.12 = 0.11971
+        (call $enemy_round (local.get $x) (local.get $y)
+          (f32.sub (f32.mul (local.get $dx) (f32.const 0.99281)) (f32.mul (local.get $dy) (f32.const 0.11971)))
+          (f32.add (f32.mul (local.get $dx) (f32.const 0.11971)) (f32.mul (local.get $dy) (f32.const 0.99281))))
+        (call $enemy_round (local.get $x) (local.get $y)
+          (f32.add (f32.mul (local.get $dx) (f32.const 0.99281)) (f32.mul (local.get $dy) (f32.const 0.11971)))
+          (f32.sub (f32.mul (local.get $dy) (f32.const 0.99281)) (f32.mul (local.get $dx) (f32.const 0.11971))))
+        (return)))
+    (local.set $k (i32.const 0))
+    (block $rdone
+      (loop $rlp
+        (br_if $rdone (i32.ge_s (local.get $k) (i32.const 12)))
+        (local.set $ang (f32.mul (f32.convert_i32_s (local.get $k)) (f32.const 0.5236)))
+        (call $enemy_round (local.get $x) (local.get $y) (call $cosf (local.get $ang)) (call $sinf (local.get $ang)))
+        (local.set $k (i32.add (local.get $k) (i32.const 1)))
+        (br $rlp))))
+
+  ;; Which attack comes next. While sections stand, guns (fan) and wings
+  ;; (aimed) take turns, and a pair that has been shot off is skipped. Once the
+  ;; core is bare it alternates the ring with an aimed volley of its own.
+  (func $next_pattern (param $last i32) (result i32)
+    (local $guns i32) (local $wings i32)
+    (if (i32.eqz (call $sections_alive))
+      (then (return (if (result i32) (i32.eq (local.get $last) (i32.const 2))
+                      (then (i32.const 1)) (else (i32.const 2))))))
+    (local.set $guns (i32.or (call $part_alive (i32.const 3)) (call $part_alive (i32.const 4))))
+    (local.set $wings (i32.or (call $part_alive (i32.const 1)) (call $part_alive (i32.const 2))))
+    (if (i32.eqz (local.get $guns)) (then (return (i32.const 1))))
+    (if (i32.eqz (local.get $wings)) (then (return (i32.const 0))))
+    (if (result i32) (i32.eqz (local.get $last)) (then (i32.const 1)) (else (i32.const 0))))
+
+  ;; Fire the pattern from the parts that own it: the fan from the gun nearer
+  ;; the player, the aimed volley from the nearer wing while any stand and from
+  ;; the core once it is bare, and the ring from the core.
+  ;;
+  ;; **One gun and one wing, not both.** The first version fired every attack
+  ;; from both of its pair. Both wings' centre rounds were aimed at the same
+  ;; point, so a ship that was not moving took two hits from one volley. And the
+  ;; two guns' fans, 96px apart, interleaved into a round every ~45px at the
+  ;; ship's range against a lethal width of 36 — a wall, where a fan is meant to
+  ;; be a pattern with gaps you can read and sit in. Benched against 64 varied
+  ;; pilots that never dodge, that boss beat half of them on Easy and 49 of 64
+  ;; on Normal. From one part each, a single telegraphed attack can cost at
+  ;; most about one life, and a fan leaves ~50px gaps between its rounds.
+  (func $boss_fire (param $pat i32) (param $px f32) (param $py f32)
+    (if (i32.eqz (local.get $pat))
+      (then
+        (if (i32.and (call $part_alive (i32.const 4))
+                     (i32.or (i32.eqz (call $part_alive (i32.const 3)))
+                             (f32.gt (local.get $px) (f32.load offset=0 (global.get $BOSS_OFF)))))
+          (then (call $part_fire (i32.const 4) (i32.const 0) (local.get $px) (local.get $py)))
+          (else (call $part_fire (i32.const 3) (i32.const 0) (local.get $px) (local.get $py))))
+        (return)))
+    (if (i32.eq (local.get $pat) (i32.const 1))
+      (then
+        (if (call $sections_alive)
+          (then
+            ;; the right wing if it stands and either the left does not or the
+            ;; player is right of centre; otherwise the left
+            (if (i32.and (call $part_alive (i32.const 2))
+                         (i32.or (i32.eqz (call $part_alive (i32.const 1)))
+                                 (f32.gt (local.get $px) (f32.load offset=0 (global.get $BOSS_OFF)))))
+              (then (call $part_fire (i32.const 2) (i32.const 1) (local.get $px) (local.get $py)))
+              (else (call $part_fire (i32.const 1) (i32.const 1) (local.get $px) (local.get $py)))))
+          (else (call $part_fire (i32.const 0) (i32.const 1) (local.get $px) (local.get $py))))
+        (return)))
+    (call $part_fire (i32.const 0) (i32.const 2) (local.get $px) (local.get $py)))
+
+  ;; Move, count down, wind up, fire.
+  (func $step_boss (param $dt f32) (param $px f32) (param $py f32)
+    (local $b i32) (local $x f32) (local $vx f32) (local $t f32) (local $i i32) (local $a i32) (local $pat i32)
+    (local.set $b (global.get $BOSS_OFF))
+    (if (i32.eqz (call $boss_active)) (then (return)))
+    (local.set $x (f32.add (f32.load offset=0 (local.get $b))
+                           (f32.mul (f32.load offset=8 (local.get $b)) (local.get $dt))))
+    (local.set $vx (f32.load offset=8 (local.get $b)))
+    (if (f32.lt (local.get $x) (f32.const 180.0))
+      (then (local.set $x (f32.const 180.0)) (local.set $vx (f32.abs (local.get $vx)))))
+    (if (f32.gt (local.get $x) (f32.const 1020.0))
+      (then (local.set $x (f32.const 1020.0)) (local.set $vx (f32.neg (f32.abs (local.get $vx))))))
+    (f32.store offset=0 (local.get $b) (local.get $x))
+    (f32.store offset=8 (local.get $b) (local.get $vx))
+    ;; hit flashes are the engine's, like everything else the widget draws
+    (local.set $i (i32.const 0))
+    (block $fd
+      (loop $fl
+        (br_if $fd (i32.ge_s (local.get $i) (global.get $MAX_PARTS)))
+        (local.set $a (call $part_addr (local.get $i)))
+        (f32.store offset=20 (local.get $a)
+          (f32.max (f32.sub (f32.load offset=20 (local.get $a)) (local.get $dt)) (f32.const 0.0)))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $fl)))
+    (local.set $t (f32.sub (f32.load offset=16 (local.get $b)) (local.get $dt)))
+    (if (f32.le (local.get $t) (f32.const 0.0))
+      (then
+        (if (f32.eq (f32.load offset=12 (local.get $b)) (f32.const 0.0))
+          (then
+            ;; idle -> wind-up: choose the attack now, so the widget can flash
+            ;; the parts that will fire for the whole of the wind-up
+            (local.set $pat (call $next_pattern (i32.trunc_f32_s (f32.load offset=20 (local.get $b)))))
+            (f32.store offset=20 (local.get $b) (f32.convert_i32_s (local.get $pat)))
+            (call $mark_windup (local.get $pat))
+            (f32.store offset=12 (local.get $b) (f32.const 1.0))
+            (local.set $t (global.get $bossTelegraph))
+            (global.set $warns (i32.add (global.get $warns) (i32.const 1))))
+          (else
+            ;; wind-up -> fire -> idle
+            (call $boss_fire (i32.trunc_f32_s (f32.load offset=20 (local.get $b))) (local.get $px) (local.get $py))
+            (call $mark_windup (i32.const -1))
+            (f32.store offset=12 (local.get $b) (f32.const 0.0))
+            (local.set $t (global.get $BOSS_IDLE))))))
+    (f32.store offset=16 (local.get $b) (local.get $t)))
+
+  ;; A player round against the boss. Returns 0 for a miss, otherwise 1 plus
+  ;; the points it earned: step() owns the score, so it has to be told.
+  (func $hit_boss (param $ox f32) (param $oy f32) (result i32)
+    (local $i i32) (local $a i32) (local $dx f32) (local $dy f32) (local $x f32) (local $y f32)
+    (if (i32.eqz (call $boss_active)) (then (return (i32.const 0))))
+    ;; sections first: they sit round the core, and a round that reaches the
+    ;; core's circle has already passed theirs
+    (local.set $i (i32.const 4))
+    (block $done
+      (loop $lp
+        (br_if $done (i32.lt_s (local.get $i) (i32.const 0)))
+        (local.set $a (call $part_addr (local.get $i)))
+        (if (call $part_alive (local.get $i))
+          (then
+            (local.set $x (f32.add (f32.load offset=0 (global.get $BOSS_OFF)) (f32.load offset=0 (local.get $a))))
+            (local.set $y (f32.add (f32.load offset=4 (global.get $BOSS_OFF)) (f32.load offset=4 (local.get $a))))
+            (local.set $dx (f32.sub (local.get $ox) (local.get $x)))
+            (local.set $dy (f32.sub (local.get $oy) (local.get $y)))
+            (if (f32.lt (f32.add (f32.mul (local.get $dx) (local.get $dx)) (f32.mul (local.get $dy) (local.get $dy)))
+                        (f32.mul (global.get $PART_R) (global.get $PART_R)))
+              (then
+                ;; the core while any section stands: absorbed, and heard
+                (if (i32.and (i32.eqz (local.get $i)) (i32.ne (call $sections_alive) (i32.const 0)))
+                  (then
+                    (global.set $clinks (i32.add (global.get $clinks) (i32.const 1)))
+                    (return (i32.const 1))))
+                (f32.store offset=8 (local.get $a) (f32.sub (f32.load offset=8 (local.get $a)) (f32.const 1.0)))
+                (f32.store offset=20 (local.get $a) (f32.const 0.08))
+                (if (f32.le (f32.load offset=8 (local.get $a)) (f32.const 0.0))
+                  (then
+                    (f32.store offset=16 (local.get $a) (f32.const 0.0))
+                    (call $maybe_drop (local.get $x) (local.get $y))
+                    (if (i32.eqz (local.get $i))
+                      (then
+                        (f32.store offset=24 (global.get $BOSS_OFF) (f32.const 0.0))
+                        (global.set $bossDowns (i32.add (global.get $bossDowns) (i32.const 1)))
+                        (return (i32.trunc_f32_s (f32.add (global.get $CORE_SCORE) (f32.const 1.0))))))
+                    (global.set $bossParts (i32.add (global.get $bossParts) (i32.const 1)))
+                    (return (i32.trunc_f32_s (f32.add (global.get $SECTION_SCORE) (f32.const 1.0))))))
+                (return (i32.const 1))))))
+        (local.set $i (i32.sub (local.get $i) (i32.const 1)))
+        (br $lp)))
+    (i32.const 0))
+
+  ;; Is the player's hull inside any standing part?
+  (func $boss_touch (param $px f32) (param $py f32) (result i32)
+    (local $i i32) (local $a i32) (local $dx f32) (local $dy f32) (local $r f32)
+    (if (i32.eqz (call $boss_active)) (then (return (i32.const 0))))
+    (local.set $r (f32.add (global.get $PART_R) (global.get $SHIP_R)))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $lp
+        (br_if $done (i32.ge_s (local.get $i) (global.get $MAX_PARTS)))
+        (local.set $a (call $part_addr (local.get $i)))
+        (if (call $part_alive (local.get $i))
+          (then
+            (local.set $dx (f32.sub (local.get $px)
+              (f32.add (f32.load offset=0 (global.get $BOSS_OFF)) (f32.load offset=0 (local.get $a)))))
+            (local.set $dy (f32.sub (local.get $py)
+              (f32.add (f32.load offset=4 (global.get $BOSS_OFF)) (f32.load offset=4 (local.get $a)))))
+            (if (f32.lt (f32.add (f32.mul (local.get $dx) (local.get $dx)) (f32.mul (local.get $dy) (local.get $dy)))
+                        (f32.mul (local.get $r) (local.get $r)))
+              (then (return (i32.const 1))))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $lp)))
+    (i32.const 0))
+
   ;; Wave size: 1 + level, capped at 24. Was 3 + level capped at MAX_BOTS (33),
   ;; which opened on four enemies and saturated the screen by level 30. The
   ;; gentler slope keeps the same shape — pure numbers until the cap, then the
@@ -465,7 +834,8 @@
         (global.set $astGapMax (f32.const 8.5))
         (global.set $astFallMin (f32.const 60.0))
         (global.set $astFallMax (f32.const 100.0))
-        (global.set $astFallRamp (f32.const 3.0)))
+        (global.set $astFallRamp (f32.const 3.0))
+        (global.set $bossTelegraph (f32.const 1.40)))
       (else
         (if (i32.eq (global.get $difficulty) (i32.const 2))
           (then   ;; hard
@@ -484,7 +854,8 @@
             (global.set $astGapMax (f32.const 5.0))
             (global.set $astFallMin (f32.const 90.0))
             (global.set $astFallMax (f32.const 150.0))
-            (global.set $astFallRamp (f32.const 6.0)))
+            (global.set $astFallRamp (f32.const 6.0))
+            (global.set $bossTelegraph (f32.const 0.70)))
           (else   ;; normal
             (global.set $livesStart (f32.const 5.0))
             (global.set $botSpeedBase (f32.const 50.0))
@@ -501,7 +872,8 @@
             (global.set $astGapMax (f32.const 7.0))
             (global.set $astFallMin (f32.const 70.0))
             (global.set $astFallMax (f32.const 115.0))
-            (global.set $astFallRamp (f32.const 4.0)))))))
+            (global.set $astFallRamp (f32.const 4.0))
+            (global.set $bossTelegraph (f32.const 1.00)))))))
 
   ;; ---------------- init / input / queries ----------------
 
@@ -531,6 +903,12 @@
     (global.set $rapidT (f32.const 0.0))
     (global.set $spreadT (f32.const 0.0))
     (global.set $shieldT (f32.const 0.0))
+    (global.set $bosses (i32.const 0))
+    (global.set $warns (i32.const 0))
+    (global.set $clinks (i32.const 0))
+    (global.set $bossParts (i32.const 0))
+    (global.set $bossDowns (i32.const 0))
+    (f32.store offset=24 (global.get $BOSS_OFF) (f32.const 0.0))
     (global.set $rotDir (f32.const 0.0))
     (global.set $astTimer (f32.const 2.5))
 
@@ -544,7 +922,7 @@
     (f32.store (global.get $SCORE_OFF) (f32.const 0.0))
     (f32.store (global.get $LIVES_OFF) (global.get $livesStart))
 
-    (call $spawn_wave (call $wave_size))
+    (call $spawn_level)
 
     (local.set $i (i32.const 0))
     (block $db
@@ -587,6 +965,11 @@
   (func $get_drops (export "get_drops") (result i32) (global.get $drops))
   (func $get_grabs (export "get_grabs") (result i32) (global.get $grabs))
   (func $get_blocks (export "get_blocks") (result i32) (global.get $blocks))
+  (func $get_bosses (export "get_bosses") (result i32) (global.get $bosses))
+  (func $get_warns (export "get_warns") (result i32) (global.get $warns))
+  (func $get_clinks (export "get_clinks") (result i32) (global.get $clinks))
+  (func $get_boss_parts (export "get_boss_parts") (result i32) (global.get $bossParts))
+  (func $get_boss_downs (export "get_boss_downs") (result i32) (global.get $bossDowns))
   ;; Seconds left on each effect, for the HUD. Zero when not in force.
   (func $get_rapid_t (export "get_rapid_t") (result f32) (global.get $rapidT))
   (func $get_spread_t (export "get_spread_t") (result f32) (global.get $spreadT))
@@ -815,6 +1198,9 @@
         (local.set $i (i32.add (local.get $i) (i32.const 1)))
         (br $lp)))
 
+    ;; ===== the boss, on its levels =====
+    (call $step_boss (local.get $dt) (local.get $px) (local.get $py))
+
     ;; ===== asteroids: spawn timer (flat until 30, faster after) =====
     ;; the gap comes from the difficulty table; the slopes and floors are shared
     ;; (the old floors were 0.7/1.4)
@@ -881,6 +1267,15 @@
                                 (br $donechk)))))
                         (local.set $i (i32.add (local.get $i) (i32.const 1)))
                         (br $lpchk)))
+                    ;; player bullet vs the boss
+                    (if (i32.eqz (local.get $hit))
+                      (then
+                        (local.set $sp (call $hit_boss (local.get $ox) (local.get $oy)))
+                        (if (i32.gt_s (local.get $sp) (i32.const 0))
+                          (then
+                            (local.set $hit (i32.const 1))
+                            (local.set $score (f32.add (local.get $score)
+                              (f32.convert_i32_s (i32.sub (local.get $sp) (i32.const 1)))))))))
                     ;; player bullet vs asteroids
                     (if (i32.eqz (local.get $hit))
                       (then
@@ -1015,6 +1410,28 @@
         (local.set $i (i32.add (local.get $i) (i32.const 1)))
         (br $lpram)))
 
+    ;; ===== flying into the boss =====
+    ;; It costs a life (or the shield) like any ram, but the boss survives it,
+    ;; so the player is thrown clear below it: without that, an overlap that
+    ;; lasts ten frames would bill ten lives. Nothing else in this game gives a
+    ;; moment's immunity, and this does not either — it moves the ship out.
+    (if (i32.and (f32.gt (local.get $palive) (f32.const 0.0)) (call $boss_touch (local.get $px) (local.get $py)))
+      (then
+        (local.set $py (f32.add (f32.load offset=4 (global.get $BOSS_OFF)) (f32.const 150.0)))
+        (f32.store offset=4 (i32.const 0) (local.get $py))
+        (f32.store offset=12 (i32.const 0) (f32.const 260.0))
+        (if (f32.gt (global.get $shieldT) (f32.const 0.0))
+          (then
+            (global.set $shieldT (f32.const 0.0))
+            (global.set $blocks (i32.add (global.get $blocks) (i32.const 1))))
+          (else
+            (local.set $lives (f32.sub (local.get $lives) (f32.const 1.0)))
+            (global.set $hurts (i32.add (global.get $hurts) (i32.const 1)))
+            (if (f32.le (local.get $lives) (f32.const 0.0))
+              (then
+                (local.set $palive (f32.const 0.0))
+                (global.set $gameOver (i32.const 1))))))))
+
     ;; ===== pickups: fall, fade, collect =====
     (local.set $j (i32.const 0))
     (block $donepk
@@ -1063,10 +1480,11 @@
     (f32.store (global.get $LIVES_OFF) (local.get $lives))
 
     ;; ===== level up when wave cleared =====
-    (if (i32.and (i32.eqz (global.get $gameOver)) (i32.eqz (call $count_alive_bots)))
+    (if (i32.and (i32.and (i32.eqz (global.get $gameOver)) (i32.eqz (call $count_alive_bots)))
+                 (i32.eqz (call $boss_active)))
       (then
         (global.set $level (i32.add (global.get $level) (i32.const 1)))
         (global.set $waves (i32.add (global.get $waves) (i32.const 1)))
-        (call $spawn_wave (call $wave_size))))
+        (call $spawn_level)))
     )
 )

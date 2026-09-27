@@ -128,6 +128,13 @@ it that way.
   (red) gives back a life — never more than you started with. Effects in force
   show as coloured squares beside LIVES and blink before they run out. See
   [Power-ups](#power-ups-september-2026).
+- **Every tenth level is a boss** instead of a wave: one ship in five parts
+  across the top of the arena. Shoot off the two wings and two guns in any
+  order; the core in the middle is plated, and a round that hits it before
+  they are gone just ticks off. Before every attack the parts about to fire
+  **flash white** — guns throw a fan straight down, wings an aimed volley, the
+  bare core a ring — so move when you see it. Flying into the boss costs a life
+  and throws you clear. See [Boss waves](#boss-waves-september-2026).
 - **Levels 1–30:** each cleared wave adds one enemy — on Normal, 2 at level 1,
   capped at 24. Enemy stats stay flat; the pressure is numbers.
 - **Level 31+:** the count holds and the stat ramps start — faster movement,
@@ -140,7 +147,7 @@ it that way.
 
 ## Engine
 
-~1,070 lines of hand-written WAT, 5.4 KB compiled, zero dependencies, zero
+~1,490 lines of hand-written WAT, 7.6 KB compiled, zero dependencies, zero
 runtime network requests.
 
 ### Memory layout
@@ -152,13 +159,16 @@ runtime network requests.
 | bullets | 1344 | 24 | 160 | x, y, vx, vy, owner (0 = player), active |
 | asteroids | 5184 | 24 | 20 | x, y, vx, vy, radius, active |
 | pickups | 5664 | 24 | 8 | x, y, vy, kind (0 rapid, 1 spread, 2 shield, 3 life), life, active |
-| score | 5856 | — | 1 | f32 |
-| lives | 5860 | — | 1 | f32 |
+| boss | 5856 | — | 1 | x, y, vx, state (0 idle, 1 winding up), timer, pattern (0 fan, 1 aimed, 2 ring), active, number |
+| parts | 5888 | 28 | 5 | dx, dy, hp, maxHp, alive, flash, windup — 0 core, 1-2 wings, 3-4 guns |
+| score | 6028 | — | 1 | f32 |
+| lives | 6032 | — | 1 | f32 |
 
-5,864 bytes total — 8.9% of the single 64 KiB page the module declares. It never
-grows. Score and lives sat at 5664 and 5668 until power-ups arrived; the pickup
-pool went in with the other regions and the two scalars moved up past it, which
-is the rule [chapter 5](../../docs/05-linear-memory.md) teaches from this map.
+6,036 bytes total — 9.2% of the single 64 KiB page the module declares. It never
+grows. Score and lives sat at 5664 and 5668 until power-ups arrived, then at 5856
+and 5860 until boss waves did; each time the new region went in with the others
+and the two scalars moved up past it, which is the rule
+[chapter 5](../../docs/05-linear-memory.md) teaches from this map.
 
 **If you change this layout in `game.wat`, update the matching constants and
 the `FIELD` table at the top of `pixel-wave.js`.** Nothing links the two at
@@ -172,11 +182,12 @@ memory · init() · set_input(rot: f32, thrust: i32, fire: i32) · step(dt: f32)
 get_score() · get_lives() · get_level() · is_game_over() · bots_alive_count()
 get_shots() · get_enemy_shots() · get_kills() · get_rocks() · get_hurts() · get_waves()
 get_drops() · get_grabs() · get_blocks()
+get_bosses() · get_warns() · get_clinks() · get_boss_parts() · get_boss_downs()
 get_rapid_t() · get_spread_t() · get_shield_t()
 set_difficulty(d: i32) · get_difficulty()
 ```
 
-`get_shots` through `get_blocks` are **event counters**: integers that only ever go up, one per
+`get_shots` through `get_boss_downs` are **event counters**: integers that only ever go up, one per
 kind of event, incremented at the line in `game.wat` where the event is
 decided and zeroed by `init()`. The widget diffs them between frames to decide
 what to play and when to flash.
@@ -208,6 +219,11 @@ Good news goes up. A cleared wave is a rising three-note figure, and a pickup
 is the only other good news, so it gets two rising notes — never mistaken for
 the wave. A shield taking a hit is a hard, high knock where a lost life is a low
 one: it has to be heard as *that would have hurt*.
+
+The boss adds the only low, slow sound in the game for its arrival; a rising
+buzz on every wind-up, so the ear hears an attack coming the way the eye sees the
+parts flash; and a dry tick for a round on the plated core, which is the only
+way the game says *that shot was wasted*.
 
 `init()` takes no arguments — wave size is `1 + level` capped at 24, computed
 inside the engine — the opposite of taking the count as a parameter, which
@@ -277,6 +293,7 @@ changing it starts a fresh run.
 | Wave size | 1 + level, cap 20 | 1 + level, cap 24 | 3 + level, cap 33 |
 | Asteroid gap | 5.5–8.5 s | 4.5–7.0 s | 3.0–5.0 s |
 | Asteroid fall, per level after 30 | 60–100, +3 | 70–115, +4 | 90–150, +6 |
+| Boss wind-up (see [Boss waves](#boss-waves-september-2026)) | 1.4 s | 1.0 s | 0.7 s |
 
 **Normal is the August balance.** When difficulty arrived, identical input
 replayed through the previous engine and the new one gave byte-identical linear
@@ -328,6 +345,100 @@ never dodges eventually flies into a hornet.
 same key as before, so a best set before difficulty existed is still Normal's,
 and the hub card keeps showing it. Easy and Hard get `pixel-wave:easy` and
 `pixel-wave:hard`.
+
+---
+
+## Boss waves, September 2026
+
+The plan's description, built as written: *every 10 levels, a large multi-part
+enemy with destructible sections and telegraphed attack patterns.*
+
+| Part | Hit points (first boss, +2 / +4 each boss) | Fires | Score |
+|---|---|---|---|
+| Wings (2) | 4 | an **aimed volley**: three rounds at the ship, 0.12 rad apart | 5 |
+| Guns (2) | 4 | a **fan**: five rounds straight down, 0.25 rad apart | 5 |
+| Core | 8, and plated until all four sections are gone | once bare, a **ring** of twelve, alternating with an aimed volley of its own | 20 |
+
+The boss patrols side to side at the top of the arena, quicker each time. It
+idles for 2.6 s, then **winds up** — the parts about to fire flash white for the
+setting's wind-up time (1.4 / 1.0 / 0.7 s) — then fires. Guns and wings take
+turns, a pair that has been shot off is skipped, and a bare core alternates its
+ring with an aimed volley. Of each pair, only the one nearer the ship fires.
+Flying into it costs a life, like any ram, and throws the ship clear below it,
+because the boss survives the collision and a ten-frame overlap would otherwise
+bill ten lives.
+
+**None of it is random.** The rotation is fixed and draws nothing from `$rng`,
+which is what makes the wind-up a telegraph rather than a warning: the player
+can learn what comes next as well as see it coming. It is also why **levels 1-9
+replay the previous engine exactly** — old and new, same seed, same input,
+compared byte for byte up to level 10 over 24 seeds × 3 settings, 116,945 frames.
+
+The engine marks which parts are winding up (`windup` on each part) and the
+widget flashes exactly those. It could have worked them out from `pattern`, but
+which part owns which attack is a rule, and a rule copied into the renderer is
+one that quietly disagrees with the engine the day the rotation changes.
+
+### Benching it, and two things the bench got wrong first
+
+A boss level is reached by few of the pilots the rest of this README uses, so
+the fight was benched from engine builds that start at level 10. Two mistakes in
+the bench are worth recording, because both produced confident numbers.
+
+**The pilot flew into the boss.** The README's pilot thrusts toward its target
+until it is 320 px away, then coasts. Against a wave spread across the arena that
+is fine; against one enemy at the top, with this little drag, the ship sailed
+straight up past it and was shot at point-blank or rammed. The fight pilots
+refuse to close faster than 80 px/s and back off inside 220 px — flying, not
+dodging.
+
+**Sixty-four runs were one run.** A boss level has no wave, so its only
+randomness is the asteroids, and a fixed pilot against a deterministic boss
+plays the same fight every time: every one of 64 "runs" rammed at exactly 10.12 s
+from the same position. The fight pilots draw their own stand-off distance, aim
+error, fire rhythm and start delay per run, so 64 runs are 64 players.
+
+### Two things the bench changed about the boss
+
+**One gun and one wing, not both.** As drafted, every attack came from both of
+its pair. Both wings' centre rounds were aimed at the same point, so a ship that
+was not moving took two hits from one volley; and the two guns' fans, 96 px
+apart, interleaved into a round every ~45 px against a lethal width of 36 — a
+wall, where a fan should have gaps you can read and sit in. From the nearer part
+only, one telegraphed attack costs at most about one life.
+
+**Attack rate and hit points are one budget.** An aimed volley aims where the
+ship is, with no lead, so a pilot that never dodges is hit by every one, and its
+losses are simply the fight's length over the volley period. The draft — 1.6 s
+between attacks, 6-hp sections, a 12-hp core — beat half of 64 such pilots on
+Easy and 15 of 64 on Normal, from full lives.
+
+### The fight as shipped
+
+Two pilots, identical except in one respect. **Still** never dodges. **Reader**
+does exactly one thing differently: when the boss winds up an aimed volley, it
+turns side-on and gets moving, so it is somewhere else when the rounds arrive.
+64 varied runs each, from full lives:
+
+| First boss | Easy | Normal | Hard |
+|---|---|---|---|
+| Still: wins | 52 / 64 | 34 / 64 | 8 / 64 |
+| Reader: wins | 55 / 64 | **50 / 64** | **35 / 64** |
+| Lives lost, median (still → reader) | 3 → 2 | **4 → 1** | 3 → 2 |
+
+**That gap is the telegraph.** The reader's only advantage is acting on the
+wind-up, and on Normal it takes the median cost of the fight from four lives to
+one; on Hard it takes the win rate from one in eight to more than half. The
+second boss, two hit points a section tougher and faster, takes those win
+counts down by 13-29% depending on setting and pilot — harder, not a wall.
+
+**What the bench does not cover.** A still pilot sometimes fires at the plated
+core forever — it aims at the nearest part, and learns nothing from the tick —
+and those runs time out (5 of 64 on Easy). A person learns from the tick in a
+shot or two. And no pilot here dodges the way a player does, reading the fan's
+gaps or the ring's spokes; the reader only answers the aimed volley. Every pilot
+also arrives with full lives, where a real one arrives with what the first nine
+levels left it.
 
 ---
 

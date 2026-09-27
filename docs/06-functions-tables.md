@@ -165,7 +165,7 @@ restart" bugs.
 ## Designing the export surface
 
 The exports **are** the API, and this is worth more thought than it usually
-gets. Pixel Wave exports fifteen things and no more:
+gets. Pixel Wave started with fifteen exports; this is all of them now:
 
 ```wat
 (memory (export "memory") 1)
@@ -187,6 +187,11 @@ gets. Pixel Wave exports fifteen things and no more:
 (func $get_drops       (export "get_drops")       (result i32))
 (func $get_grabs       (export "get_grabs")       (result i32))
 (func $get_blocks      (export "get_blocks")      (result i32))
+(func $get_bosses      (export "get_bosses")      (result i32))
+(func $get_warns       (export "get_warns")       (result i32))
+(func $get_clinks      (export "get_clinks")      (result i32))
+(func $get_boss_parts  (export "get_boss_parts")  (result i32))
+(func $get_boss_downs  (export "get_boss_downs")  (result i32))
 ;; what the HUD shows of a power-up: seconds left, zero when not in force
 (func $get_rapid_t     (export "get_rapid_t")     (result f32))
 (func $get_spread_t    (export "get_spread_t")    (result f32))
@@ -196,19 +201,21 @@ gets. Pixel Wave exports fifteen things and no more:
 (func $get_difficulty  (export "get_difficulty")  (result i32))
 ```
 
-Twenty-three, for a complete game with 33 enemies and 160 bullets in flight —
-and nine of them are one idea repeated. They are **event counters**: one integer
+Twenty-eight, for a complete game with 33 enemies, a five-part boss and 160
+bullets in flight — and fourteen of them are one idea repeated. They are **event counters**: one integer
 per kind of thing that can happen, incremented at the line where the engine
 decides it happened, which the host diffs between frames to decide what to play.
 Pixel Wave was the first title here and for most of its life exported only the
 first nine entries; it was the last in the repository to get counters, and
 [chapter 15](15-game-loop-architecture.md) is why it needed them.
 
-The list has grown twice since, and both times the same way: difficulty added a
-command and its reader, and power-ups added three counters and three readers.
-Neither added a callback, and neither changed a signature already there — a
-host written against the first fifteen still works, which is what keeping the
-boundary to scalars in and scalars out buys.
+The list has grown three times since, and every time the same way: difficulty
+added a command and its reader, power-ups three counters and three readers, and
+boss waves five counters. None added a callback, and none changed a signature
+already there — a host written against the first fifteen still works, which is
+what keeping the boundary to scalars in and scalars out buys. The boss did not
+need a reader at all for what the widget draws: the boss and its parts are
+memory, read through the same `Float32Array` as everything else.
 
 Three principles hold this together, and all three are about keeping the
 boundary narrow.

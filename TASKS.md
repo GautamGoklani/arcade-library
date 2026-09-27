@@ -19,13 +19,14 @@ rather than a backlog item.
 
 ## 1 · Library goals not built
 
-### Pixel Wave's own roadmap — *product decisions*
+### Pixel Wave's own roadmap — done
 
-Boss waves. Listed in full at the bottom of
-[`games/plans-for-other-games.md`](games/plans-for-other-games.md). Sound,
-pause, difficulty settings, per-species enemy behaviour, gamepad support and
-power-ups are done. What is left changes what the game *is*, so it is for the
-owner to choose rather than for anyone to pick up in order.
+Every near- and medium-term item on it has shipped: sound, pause, difficulty
+settings, per-species behaviour, gamepad support, power-ups and boss waves.
+The long-term tier in
+[`games/plans-for-other-games.md`](games/plans-for-other-games.md) — multiplayer,
+a level editor, achievements — was never adopted as work, and is listed there
+rather than here.
 
 ### Features the other eight could take — *product decisions*
 
@@ -48,7 +49,7 @@ nobody has to re-derive it later.
 
 | Title | Power-ups | Boss waves | Its own idea |
 |---|---|---|---|
-| `pixel-wave` | **done** | yes | — |
+| `pixel-wave` | **done** | **done** | — |
 | `grid-breaker` | **has them** | yes | a tile that repairs its neighbours |
 | `worm-chase` | yes | yes | a hunter that cuts your trail |
 | `asteroid-miner` | yes | maybe | spend cargo at the depot |
