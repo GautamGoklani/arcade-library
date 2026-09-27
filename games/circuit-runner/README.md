@@ -79,7 +79,7 @@ For plain integration you only need to copy **two files** into a site:
 var game = CircuitRunner.mount(containerOrSelector, options?);
 
 game.restart();    // start a fresh run
-game.getState();   // { score, distance, current, speed, lane, overclock, gameOver, paused }
+game.getState();   // { score, distance, current, speed, lane, overclock, gameOver, paused, difficulty }
 game.destroy();    // stop the loop, remove DOM + all event listeners
 ```
 
@@ -97,6 +97,7 @@ Multiple instances on one page are supported — each `mount()` is independent.
 | Action  | Desktop        | Mobile                    |
 |---------|----------------|---------------------------|
 | Change trace | ← / → or A / D | tap the left or right side |
+| Difficulty | the EASY / NORMAL / HARD button; changing it starts a fresh run | the same button |
 | Pause   | P or Esc; losing focus too | the PAUSE button; tap the board to resume |
 | Restart | R              | tap the GAME OVER text    |
 | Mute    | M              | the SOUND button          |
@@ -275,7 +276,15 @@ nothing else, which is how a person plays — found all three.
    The inset is now 26, giving 76 and four pixels of margin.
 
 After all three, the same pilot runs for **a little over two minutes**, taking
-four or five hits in the first thirty seconds. The pilot that detours for
+four or five hits in the first thirty seconds.
+
+*The difficulty bench (September 2026, below) could not reproduce that figure
+with any pilot it built. A pilot that reads the board and moves in the same
+frame survives indefinitely; one with a human reaction time — 150, 250 or 350ms
+— ends a median of 52, 46 or 38 seconds in, taking two or three hits in the
+first thirty. The pilot above is not in the repository, so which of its
+properties produced two minutes cannot be checked. The numbers below are the
+ones to trust, and they are reproducible from the description given there.* The pilot that detours for
 charges takes roughly twice as many hits and survives *longer*, which is the
 trade the game is about.
 
@@ -299,6 +308,110 @@ The curve is entirely a function of distance travelled:
 | row spacing | −8, floored at 172 |
 | traces a row may block | +1 per 2.2km, from 2 to 3 of 6 |
 | component kinds in play | 1 below 900m, 2 below 2km, 4 after |
+
+The speed ramp, the row-spacing taper and floor, the drain and the hit cost are
+the **Normal** column of the difficulty table rather than fixed constants. See
+below.
+
+## Difficulty, September 2026
+
+Three settings, picked with the HUD button or
+`mount(el, { difficulty: 'hard' })`. The table lives in the engine:
+`set_difficulty(d)` records the choice (0 easy, 1 normal, 2 hard) and `init()`
+applies it, so a setting never changes halfway through a run.
+
+| | Easy | Normal | Hard |
+|---|---|---|---|
+| Rows closer per km | 5 px | 8 px | 11 px |
+| ... floored at | 195 px | 172 px | 150 px |
+| Speed added per km | 14 | 18 | 22 |
+| ... capped at | 640 | 640 | 640 |
+| Drain at base speed | 2.8 /s | 3.4 /s | 3.9 /s |
+| A hit costs | 16 | 20 | 24 |
+
+### This title was not supposed to get a table
+
+The backlog said Circuit Runner was the exception: *speed is its only curve, so
+"easier" is starting slower and ramping later, not a setting with columns.* The
+bench disagreed on every count, and the table is what came of that.
+
+**The opening was already gentle.** A pilot that reacts to the nearest row
+after a quarter of a second — the pilot used for everything below — reached the
+thirty-second mark with the meter at 96–100 and two or three hits taken.
+Starting slower would have made the first half-minute emptier, not fairer, and
+this repository has a rule about dead time.
+
+**Speed was not the curve that ended runs.** Over 24 boards, runs ended at
+**18–20 km whatever the speed ramp was**. Nearly halving it — 18 per km down to
+10 — bought the quarter-second pilot twelve seconds, 46 to 58, and the speed it
+died at *fell* as the ramp slowed (571 to 448 px/s). Something else was keyed to
+distance.
+
+**What was keyed to distance is the row spacing.** It tapers 8 px a kilometre to
+its floor at 16 km — the other curve the backlog's note missed. The time a
+player has per row is spacing over speed, so that is the quantity the table
+moves. And the meter's own drain, not the hits, was most of what emptied it:
+**63% of everything a run lost** went to drain, 37% to hits. So the drain is in
+the table, and the hit cost with it as this game's lives.
+
+The note in the backlog was a reasonable reading of the code — the comment on
+`$SPEED_BASE` calls speed "the only difficulty curve an endless runner needs" —
+and it was wrong in a way only a bench could show.
+
+### Two choices worth recording
+
+**Every column keeps Normal's speed cap.** At Hard's end, `$SPEED_CAP`'s note
+is that 640 is as fast as the lane slide can answer, and the reserved path is a
+guarantee only while one lane can be crossed between two rows. Hard's floor of
+150 px at 640 px/s is a row every 0.23 s against a 0.18 s slide — it holds. A
+higher cap on the tighter spacing would not.
+
+At Easy's end, the first draft capped Easy at 560 with a 210 px floor, and a
+pilot with a 150 ms reaction ran a median of **504 seconds**, some runs reaching
+the bench's ten-minute limit. A row every 0.38 s at the top of the curve is a
+steady state a quick player never leaves, and an endless-runner setting that
+never ends has no curve left in it. At 640 and 195 px that pilot's median is
+105 s and every run ends, while the slow pilot Easy exists for keeps its extra
+twenty seconds.
+
+**Three things are not in the table.** `$SPEED_BASE` is where the board starts
+*and* the reference the drain is scaled against, so moving it would silently
+move the drain on every column. `$SLIDE_SPEED` and `$STUN_TIME` are the feel of
+the runner, and the path guarantee is built on the slide. The lanes a row may
+block and the component kinds stay put, because both reach their final values by
+2.2 km and no run is decided that early.
+
+### The bench
+
+**Normal is the previous balance exactly.** The same input replayed through the
+committed engine and this one gave byte-identical memory across the 1,272-byte
+layout and all seventeen readers on every frame, over 36,000 frames,
+re-initialising on each game over.
+
+The engine seeds its board to a constant, so one engine is one board; the bench
+rewrote the seed to get **24 boards**, and drove each with the reacting pilot at
+three reaction times. Survival, worst / median / best:
+
+| | 150 ms | 250 ms | 350 ms |
+|---|---|---|---|
+| Easy | 59 / **105** / 148 s | 47 / **68** / 128 s | 27 / **60** / 107 s |
+| Normal | 39 / **52** / 89 s | 24 / **46** / 68 s | 24 / **38** / 74 s |
+| Hard | 33 / **40** / 66 s | 11 / **32** / 56 s | 22 / **27** / 45 s |
+
+Hard runs 70-77% as long as Normal at every reaction time; Easy runs
+roughly half as long again, and twice as long for the quick pilot. The opening
+stays gentle on all three: a median of 0–3 hits in the first thirty seconds.
+
+**One honest outlier.** Hard's worst run at 250 ms ends at 11 seconds: one
+board that lands three hits in that time and offers only two charges, so at 24
+current a hit the meter that started at 85 is gone. The same board on Normal
+runs past 26 s. It is one board in 24, and the median opening is as gentle as
+Normal's, but it is the harshest thing the bench found, and it is Hard's hit
+cost doing it.
+
+**Best scores are kept per setting.** The page shell records Normal under the
+same key as before, so a best set before difficulty existed is still Normal's,
+and Easy and Hard get `circuit-runner:easy` and `circuit-runner:hard`.
 
 ## Rebuilding the engine
 

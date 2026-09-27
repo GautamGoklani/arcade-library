@@ -60,7 +60,7 @@ scripts/serve.mjs       dev server
 | `worm-chase` | 4.1 KB | grid territory capture | **no imports**; hold-to-move; Easy/Normal/Hard as a table in the engine |
 | `asteroid-miner` | 4.4 KB | mining run | splitting entities, fuel/cargo; first with the retro renderer; Easy/Normal/Hard as a table in the engine |
 | `sector-defense` | 4.0 KB | wave defence | **no imports**; per-entity intent, two meters instead of lives; Easy/Normal/Hard as a table in the engine |
-| `circuit-runner` | 3.0 KB | endless lane runner | **no imports**; nothing to shoot, generated board, tap-zone touch |
+| `circuit-runner` | 3.1 KB | endless lane runner | **no imports**; nothing to shoot, generated board, tap-zone touch; Easy/Normal/Hard as a table in the engine |
 | `starfield-runner` | 3.3 KB | graze-scoring runner | **no imports**; free flight, close passes are the only score and the only repair; Easy/Normal/Hard as a table in the engine |
 | `tower-defense` | 5.2 KB | wave defence, placed | **no imports**; the player places rather than steers; guns overheat, vents cool their neighbours; Easy/Normal/Hard as a table in the engine |
 | `pulse` | 3.5 KB | rhythm tube shooter | **no imports**; the engine is the sequencer — it owns the tempo and the bar, and the widget plays notes off its step counter; Easy/Normal/Hard as a table in the engine |
@@ -170,13 +170,20 @@ region ends.
    `opts.wasmBase64` are supported everywhere. Include
    `var WASM_B64 = "";` — the builder fills it — and a `var FIELD` table copied
    from the `@fields` lines, and read every record field through it.
-   Two conventions every title now carries, copied by hand like the rest:
+   Three conventions every title now carries, copied by hand like the rest:
    **pause** (`P`/`Esc`, a PAUSE button beside SOUND, a press on the stage to
    resume, pausing on blur; the loop stops calling `step` and holds `dt` at
-   zero, and `getState()` reports `paused`) and **gamepad** (standard mapping,
+   zero, and `getState()` reports `paused`), **gamepad** (standard mapping,
    polled once a frame because `getGamepads()` only refreshes when called;
    `Start` pauses, `Back` restarts, a shoulder button mutes, and the steering
-   maps onto whatever that game's input already is).
+   maps onto whatever that game's input already is) and **difficulty**
+   (`set_difficulty(d)` records 0/1/2 and `init()` applies one column of a table
+   in the engine; the widget has an EASY/NORMAL/HARD button beside PAUSE that
+   restarts the run, an `opts.difficulty` mount option, and `difficulty` in
+   `getState()`; the page shell files a best score per setting, Normal under the
+   plain slug). Anything that shows a number the table can move — plates, a
+   meter's maximum, a tempo — reads it from the engine; two titles had one
+   hardcoded and only showed it once a setting moved it.
 3. `games/<slug>/<slug>.css` — everything under `.<prefix>-root`.
 4. `index.html` (standalone page) and `demo.html` (minimal integration example).
    Copy an existing pair; the `--<prefix>-max-width` hook is how the standalone
@@ -279,6 +286,26 @@ low the pilot cleared 28 waves without a single attacker reaching the line.
 - A harder wave should not simply be a longer wave.
 - Always check for the dead-time case: a state where the player has no agency
   and nothing is happening. Fix it in the design, not with a timer.
+
+Four more, from benching a difficulty table for every title in September 2026:
+
+- **The knobs you were told to move may not be the ones that decide when the
+  game gets hard.** Sector Defense's three named knobs produced columns that
+  only separated in the last minute of a six-minute run, and Circuit Runner's
+  "speed is its only curve" was wrong — runs ended at the same distance
+  whatever the speed ramp was. Bench, then instrument one run and look at
+  *when* the losing meter starts to move.
+- **One pilot may not reach the knob you care about.** A Starfield Runner pilot
+  that only dodges never grazed, so it could not see the graze band at all.
+  Measuring a knob can take a pilot built to exercise it, flying *identically*
+  on every setting so the knob is the only variable.
+- **Move the rate, not only the start.** Pulse's first Hard column opened
+  denser and killed the weak pilot at level 2. Opening on Normal's values and
+  steepening the ramp kept level 1 gentle and still separated the columns.
+- **Give the pilot a human reaction time.** A pilot that reads the board and
+  moves in the same frame survives an endless runner indefinitely; add 150,
+  250 and 350ms of lag and it dies where people do. One engine is also one
+  board — rewrite the seed in the source to bench two dozen.
 
 ---
 

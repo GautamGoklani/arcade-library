@@ -34,49 +34,29 @@ written down so the choice gets made once and on purpose. **Invariant 1 means
 every row is per-game work**: each title gets its own hand-written copy, never a
 shared helper.
 
-**Pause and gamepad support are done everywhere**, all nine titles, each a
-hand-written copy of the same shape.
+**Pause, gamepad support and difficulty settings are done everywhere**, all
+nine titles, each a hand-written copy of the same shape. Every difficulty table
+keeps Normal byte-identical to the engine that shipped before it, and each
+game's README has a "Difficulty" section with its bench. What benching them
+taught is in CLAUDE.md's tuning lessons, where the next piece of tuning will
+find it.
 
-Each of Pixel Wave's three remaining ideas — difficulty settings, power-ups,
-boss waves — was asked of every title, and **not all of them fit**. A feature
+Each of Pixel Wave's two remaining ideas — power-ups and boss waves — was asked
+of every title, and **not all of them fit**. A feature
 that would blunt what a game is about is listed as a no, with the reason, so
 nobody has to re-derive it later.
 
-| Title | Difficulty settings | Power-ups | Boss waves | Its own idea |
-|---|---|---|---|---|
-| `pixel-wave` | **done** | yes | yes | — |
-| `grid-breaker` | **done** | **has them** | yes | a tile that repairs its neighbours |
-| `worm-chase` | **done** | yes | yes | a hunter that cuts your trail |
-| `asteroid-miner` | **done** | yes | maybe | spend cargo at the depot |
-| `sector-defense` | **done** | yes | yes | a carrier that lands attackers |
-| `circuit-runner` | a gentler opening | **has them** | no | a named stretch of board |
-| `starfield-runner` | **done** | **no** | yes | a squeeze that scores double |
-| `tower-defense` | **done** | as abilities | yes | upgrade a tower in place |
-| `pulse` | **done** | **no** | yes | a second instrument line |
-
-**Difficulty settings** anywhere mean the same shape as Pixel Wave's: a tuning
-table the engine's `init()` applies, a re-bench of every setting with a pilot
-that plays badly, and one best score per setting. **Eight are done** — Pixel
-Wave, Grid Breaker, Worm Chase, Asteroid Miner, Sector Defense, Starfield
-Runner, Tower Defense and Pulse — each a hand-written copy of the same shape, and
-in each of the seven that followed Pixel Wave, Normal replays the engine that
-shipped before the setting existed.
-
-Three lessons so far are worth carrying into the one left. From Sector Defense:
-**the knobs named below may not be the ones that decide when a game gets hard.**
-Its three were the right knobs and still produced columns that only separated in
-the last minute of a six-minute run, because a shared curve elsewhere dominated
-all of them. Bench the table, then instrument a run and look at *when* the
-meters actually start moving. From Starfield Runner: **one pilot may not reach
-the knob you care about.** A pilot that only dodges never grazed, so it could not
-see the graze band at all; measuring that took a second pilot flying a *fixed*
-standoff on every setting, so the band width was the only variable. From Pulse:
-**move the rate, not only the start.** Its first Hard column opened denser and
-killed the weak pilot at level 2; opening on Normal's bar and filling it faster
-kept level 1 gentle and still separated the columns. For the one left:
-**Circuit Runner is the exception**: speed is
-its only curve, so "easier" is starting slower and ramping later, not a setting
-with columns.
+| Title | Power-ups | Boss waves | Its own idea |
+|---|---|---|---|
+| `pixel-wave` | yes | yes | — |
+| `grid-breaker` | **has them** | yes | a tile that repairs its neighbours |
+| `worm-chase` | yes | yes | a hunter that cuts your trail |
+| `asteroid-miner` | yes | maybe | spend cargo at the depot |
+| `sector-defense` | yes | yes | a carrier that lands attackers |
+| `circuit-runner` | **has them** | no | a named stretch of board |
+| `starfield-runner` | **no** | yes | a squeeze that scores double |
+| `tower-defense` | as abilities | yes | upgrade a tower in place |
+| `pulse` | **no** | yes | a second instrument line |
 
 **Power-ups.** Grid Breaker already has them (WIDE, MULTI, SLOW, STICKY) and
 Circuit Runner's charges and boosts are the same idea wearing its economy's

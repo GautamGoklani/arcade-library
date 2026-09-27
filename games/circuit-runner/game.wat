@@ -98,15 +98,24 @@
 
   ;; ---- scrolling ----
   ;; Speed is a function of distance, not of a level counter: the board simply
-  ;; gets faster the further you get, which is the only difficulty curve an
-  ;; endless runner needs. 250 is a walk; 640 is as fast as the lane slide can
-  ;; still answer.
+  ;; gets faster the further you get. 250 is a walk; 640 is as fast as the lane
+  ;; slide can still answer.
+  ;;
+  ;; This comment used to call speed "the only difficulty curve an endless
+  ;; runner needs", and the backlog took it at its word. The difficulty bench
+  ;; says it is not this one's: runs ended at 18-20km whatever the speed ramp
+  ;; was, because the row spacing ($ROW_GAP_STEP, below) tightens on its own
+  ;; distance clock and it is spacing over speed — the time per row — that a
+  ;; player runs out of. See the difficulty table.
   (global $SPEED_BASE f32 (f32.const 250.0))
   ;; 42 reached the cap in about twenty-five seconds, which is not a ramp, it
   ;; is a countdown to top speed. 18 puts the cap a little over a minute in, so
   ;; the opening is walkable and the board tightens under you rather than at you.
-  (global $SPEED_PER_KM f32 (f32.const 18.0))   ;; added per 1000px travelled
-  (global $SPEED_CAP f32 (f32.const 640.0))
+  ;; Mutable, like the rest of the numbers the difficulty table writes — see
+  ;; $apply_difficulty. The initialisers are Normal's values, which is what
+  ;; makes a Normal run identical to the engine that had no settings at all.
+  (global $SPEED_PER_KM (mut f32) (f32.const 18.0))   ;; added per 1000px travelled
+  (global $SPEED_CAP (mut f32) (f32.const 640.0))
 
   ;; ---- current ----
   (global $CURRENT_MAX f32 (f32.const 100.0))
@@ -119,8 +128,8 @@
   ;; ran out before the board had asked it a hard question. At 3.4 a clean line
   ;; through the charges gains slowly and a sloppy one loses slowly, which is
   ;; the balance an endless runner wants.
-  (global $DRAIN_BASE f32 (f32.const 3.4))
-  (global $HIT_COST f32 (f32.const 20.0))
+  (global $DRAIN_BASE (mut f32) (f32.const 3.4))
+  (global $HIT_COST (mut f32) (f32.const 20.0))
   (global $CHARGE_GAIN f32 (f32.const 17.0))
   (global $OVERCLOCK_TIME f32 (f32.const 6.0))
 
@@ -129,8 +138,8 @@
   ;; interval a faster board would space parts further apart, which is exactly
   ;; backwards — the board would get *easier* as it sped up.
   (global $ROW_GAP f32 (f32.const 300.0))
-  (global $ROW_GAP_MIN f32 (f32.const 172.0))
-  (global $ROW_GAP_STEP f32 (f32.const 8.0))    ;; closer per 1000px
+  (global $ROW_GAP_MIN (mut f32) (f32.const 172.0))
+  (global $ROW_GAP_STEP (mut f32) (f32.const 8.0))    ;; closer per 1000px
   (global $PART_HALF_H f32 (f32.const 30.0))
   (global $PICKUP_HALF f32 (f32.const 18.0))
   (global $CAP_PERIOD f32 (f32.const 1.35))     ;; seconds per capacitor flip
@@ -138,6 +147,59 @@
   ;; ---- scoring ----
   (global $SCORE_PER_PX f32 (f32.const 0.05))
   (global $SCORE_CHARGE f32 (f32.const 40.0))
+
+  ;; ---- difficulty ---------------------------------------------------------
+  ;; Easy / Normal / Hard. The widget calls set_difficulty(d) and then init();
+  ;; init() copies one column of this table into the globals below, and the rest
+  ;; of the engine reads only those.
+  ;;
+  ;;                              easy       normal      hard
+  ;;   rows closer per km          5px        8px        11px
+  ;;   ... floor                  195px      172px       150px
+  ;;   speed added per km           14         18          22
+  ;;   ... capped at              640px/s    640px/s     640px/s
+  ;;   drain at base speed        2.8/s      3.4/s       3.9/s
+  ;;   a hit costs                  16         20          24
+  ;;
+  ;; **This title was not supposed to get a table.** The backlog said speed is
+  ;; its only curve, so "easier" would mean starting slower and ramping later.
+  ;; The bench said otherwise, on both counts. The opening was already gentle —
+  ;; a pilot with a quarter-second reaction reached thirty seconds with the
+  ;; meter at 96-100 — so starting slower would only have added dead time. And
+  ;; speed was not what ended runs: runs ended at 18-20km *whatever the speed
+  ;; ramp was*, and nearly halving it bought twelve seconds. The curve that
+  ;; governs is the time between rows, which is row spacing over speed, and
+  ;; the spacing tapers on its own distance clock to a floor at 16km. That is a
+  ;; second curve, so there is a table after all, and it moves that one.
+  ;;
+  ;; The drain is in it because it did most of the killing: over the bench, the
+  ;; meter's own drain accounted for about 63% of everything a run lost, hits
+  ;; for the rest. The hit cost is this game's lives, and every other title's
+  ;; table moves that number.
+  ;;
+  ;; **Every column keeps Normal's speed cap**, for a reason at each end. At
+  ;; Hard's end: the note on $SPEED_CAP is that 640 is as fast as the lane slide
+  ;; can still answer, and the reserved path is only a guarantee while one lane
+  ;; can be crossed between two rows. At Hard's floor of 150px a row arrives
+  ;; every 0.23s against a 0.18s slide, which keeps it; a higher cap on top of
+  ;; the tighter spacing would not. At Easy's end: the first draft capped Easy
+  ;; at 560 with a 210px floor, and a pilot with a 150ms reaction ran a median
+  ;; of 504 seconds, some runs hitting the bench's ten-minute limit — a row every
+  ;; 0.38s at the top of the curve is a steady state a quick player never
+  ;; leaves, and an endless-runner setting that never ends has no curve left in
+  ;; it. At 640 and 195px the same pilot's median is 105s and every run ends,
+  ;; while the slow pilot Easy exists for keeps its extra twenty seconds.
+  ;;
+  ;; Three things are deliberately *not* in the table. $SPEED_BASE is where the
+  ;; board starts and also the reference the drain is scaled against, so moving
+  ;; it would silently move the drain on every column. $SLIDE_SPEED and
+  ;; $STUN_TIME are the feel of the runner, and the path guarantee is built on
+  ;; the slide. $max_blocked and the component kinds stay put because both are
+  ;; at their final values by 2.2km — no run is decided that early.
+  ;;
+  ;; $difficulty is not reset by init: it is a choice about the next run, so a
+  ;; restart has to carry it rather than wipe it — chapter 8's argument for $rng.
+  (global $difficulty (mut i32) (i32.const 1))   ;; 0 easy, 1 normal, 2 hard
 
   (global $rng (mut i32) (i32.const 1597334677))
   (global $gameOver (mut i32) (i32.const 0))
@@ -598,7 +660,48 @@
         (local.set $i (i32.add (local.get $i) (i32.const 1)))
         (br $lp))))
 
+  ;; Copy one column of the difficulty table into the globals the rest of the
+  ;; engine reads. Called only from init, so a run never changes balance halfway
+  ;; through. Normal restates the initialisers, because a restart after an Easy
+  ;; or Hard run has to put them back.
+  (func $apply_difficulty
+    (if (i32.eqz (global.get $difficulty))
+      (then   ;; easy
+        (global.set $ROW_GAP_STEP (f32.const 5.0))
+        (global.set $ROW_GAP_MIN (f32.const 195.0))
+        (global.set $SPEED_PER_KM (f32.const 14.0))
+        (global.set $SPEED_CAP (f32.const 640.0))
+        (global.set $DRAIN_BASE (f32.const 2.8))
+        (global.set $HIT_COST (f32.const 16.0)))
+      (else
+        (if (i32.eq (global.get $difficulty) (i32.const 2))
+          (then   ;; hard
+            (global.set $ROW_GAP_STEP (f32.const 11.0))
+            (global.set $ROW_GAP_MIN (f32.const 150.0))
+            (global.set $SPEED_PER_KM (f32.const 22.0))
+            (global.set $SPEED_CAP (f32.const 640.0))
+            (global.set $DRAIN_BASE (f32.const 3.9))
+            (global.set $HIT_COST (f32.const 24.0)))
+          (else   ;; normal
+            (global.set $ROW_GAP_STEP (f32.const 8.0))
+            (global.set $ROW_GAP_MIN (f32.const 172.0))
+            (global.set $SPEED_PER_KM (f32.const 18.0))
+            (global.set $SPEED_CAP (f32.const 640.0))
+            (global.set $DRAIN_BASE (f32.const 3.4))
+            (global.set $HIT_COST (f32.const 20.0)))))))
+
+  ;; 0 easy, 1 normal, 2 hard; anything else is clamped rather than trusted, and
+  ;; a JavaScript call with no argument arrives as 0. Takes effect at the next
+  ;; init().
+  (func $set_difficulty (export "set_difficulty") (param $d i32)
+    (if (i32.lt_s (local.get $d) (i32.const 0)) (then (local.set $d (i32.const 0))))
+    (if (i32.gt_s (local.get $d) (i32.const 2)) (then (local.set $d (i32.const 2))))
+    (global.set $difficulty (local.get $d)))
+  (func $get_difficulty (export "get_difficulty") (result i32) (global.get $difficulty))
+
   (func $init (export "init")
+    ;; first, because the current set below and the first row both read it
+    (call $apply_difficulty)
     (global.set $rng (i32.const 1597334677))
     (global.set $gameOver (i32.const 0))
     (global.set $score (f32.const 0.0))
