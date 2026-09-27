@@ -21,7 +21,7 @@ arcade-library/
 │   ├── circuit-runner/ ← endless lane runner, 3.0 KB engine, generated board
 │   ├── starfield-runner/ ← graze scoring, 3.3 KB engine, no imports, 320x240
 │   ├── tower-defense/  ← place, don't steer; 5.2 KB engine, generated route
-│   └── pulse/          ← rhythm tube shooter, 3.4 KB engine, the engine is the sequencer
+│   └── pulse/          ← rhythm tube shooter, 3.5 KB engine, the engine is the sequencer
 ├── docs/               ← the course: 22 chapters, glossary, cheatsheet
 └── scripts/            ← build.mjs (wat → wasm) and serve.mjs
 ```

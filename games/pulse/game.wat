@@ -112,15 +112,25 @@
   ;; ---- the song ----
   ;; Tempo. It rises with groove rather than with the level, which is the whole
   ;; reward loop in one line: play in time and the track speeds up.
-  (global $BPM_BASE f32 (f32.const 96.0))
-  (global $BPM_GROOVE f32 (f32.const 54.0))    ;; added at full groove
+  ;; Mutable because the difficulty table writes them — see $apply_difficulty.
+  ;; The initialisers are Normal's values, which is what makes a Normal run
+  ;; identical to the engine that had no settings at all.
+  (global $BPM_BASE (mut f32) (f32.const 96.0))
+  (global $BPM_GROOVE (mut f32) (f32.const 54.0))    ;; added at full groove
   (global $BPM_PER_LEVEL f32 (f32.const 2.2))
-  (global $BPM_CAP f32 (f32.const 168.0))
+  (global $BPM_CAP (mut f32) (f32.const 168.0))
   ;; How close to an eighth-note boundary a shot has to be. The window is a
   ;; fixed number of *seconds*, not a fraction of a beat, so it is the same in
-  ;; feel at every tempo and strictly harder as the track speeds up — which is
-  ;; what a player expects from a rhythm game and not what a fixed fraction
-  ;; would have given them.
+  ;; feel at every tempo: a player timing deliberately needs the same precision
+  ;; at 96bpm as at 168.
+  ;;
+  ;; This comment used to go on to say that made it "strictly harder as the
+  ;; track speeds up". The difficulty bench measured the opposite, for the case
+  ;; that matters: a fixed window is a *larger* share of a shorter beat, so the
+  ;; faster the track the more of a masher's shots land in it by accident — 35%
+  ;; at Easy's tempos, 39% at Normal's, 52% at Hard's. What gets harder as the
+  ;; track speeds up is everything else (more arrivals a second, less time to
+  ;; cross the ring), not the window. See "Difficulty" in the README.
   ;;
   ;; 0.058 rather than the first draft's 0.075 because of what the bench found
   ;; about mashing. Two windows per eighth note at 96bpm is 2*0.075/0.3125,
@@ -149,7 +159,7 @@
 
   ;; ---- the tube ----
   (global $SHIELD_MAX f32 (f32.const 100.0))
-  (global $LEAK_COST f32 (f32.const 20.0))
+  (global $LEAK_COST (mut f32) (f32.const 20.0))
   ;; A bar in which nothing reached the rim pays shield back. It is the only
   ;; repair there is, and it is deliberately a *bar* rather than a kill: the
   ;; unit of play here is the pattern, so the unit of reward is too.
@@ -159,6 +169,71 @@
   (global $SCORE_KILL f32 (f32.const 25.0))
   (global $SCORE_BEAT_KILL f32 (f32.const 60.0))
   (global $SCORE_PERFECT_BAR f32 (f32.const 200.0))
+
+  ;; ---- difficulty ---------------------------------------------------------
+  ;; Easy / Normal / Hard. The widget calls set_difficulty(d) and then init();
+  ;; init() copies one column of this table into the globals below, and the rest
+  ;; of the engine reads only those.
+  ;;
+  ;;                              easy       normal      hard
+  ;;   tempo floor                 84          96         108
+  ;;   tempo added at full groove  40          54          62
+  ;;   tempo cap                  150         168         184
+  ;;   spawns in a bar, level 1     2           3           3
+  ;;   ... one more every        2 levels    2 levels    1 level
+  ;;   ... capped at                9          11          12
+  ;;   shield lost to a leak       14          20          26
+  ;;
+  ;; The two knobs TASKS.md named are **the tempo floor and how full each bar
+  ;; is**, and both belong to the sequencer, which is the point: in this title
+  ;; the difficulty is written into the music. A setting is a different
+  ;; arrangement of the same song — slower and sparser, or faster and busier —
+  ;; rather than a multiplier applied to a game the music merely accompanies.
+  ;;
+  ;; The groove row is the one the named knobs would have missed. Groove raises
+  ;; the tempo, so a player who is in time is asking for a faster track — the
+  ;; README's finding 1 is that the metronome dies *before* the masher, because
+  ;; playing well is what speeds the song up. A lower floor alone would not
+  ;; change that: on Easy a good player would still be carried up to 150 by
+  ;; their own groove inside a minute. So Easy also takes less tempo from
+  ;; groove, which keeps the reward for playing in time from burying the
+  ;; player who has only just found it. Hard takes more.
+  ;;
+  ;; **Hard opens on Normal's bar, and fills it twice as fast.** The first
+  ;; draft of this table gave Hard four spawns from the first bar, and the
+  ;; bench's loose pilot — the one that aims at the beat and mostly misses — died
+  ;; at level 2 in thirty-one seconds. Every other title's Hard lets that pilot
+  ;; reach level 3, and CLAUDE.md is plain that level 1 must be gentle and the
+  ;; difficulty must come from the level number. Cutting the leak cost instead
+  ;; changed nothing (22 against 26: the same 31s), because it was the opening
+  ;; density that was killing it, not the shield. Dropping Hard's base to three
+  ;; fixed the opening but made its bars identical to Normal's for the whole
+  ;; run, since the cap of twelve is never reached — the knob would have stopped
+  ;; doing anything. So the table carries the rate, $BAR_EVERY, rather than
+  ;; only the start: Hard's level 1 is Normal's, and by level 6 it holds two
+  ;; more spawns a bar.
+  ;;
+  ;; The leak cost is this game's lives, and every other title's table moves
+  ;; that number. The shield *maximum* stays at 100, because the HUD draws it as
+  ;; a fraction and a larger number would be the same bar.
+  ;;
+  ;; **$BEAT_WINDOW is deliberately not in the table**, and it is the knob a
+  ;; rhythm game usually reaches for first. The note above it records why not:
+  ;; at 75ms a pilot that simply fired as fast as it could landed 70% of its
+  ;; shots on the beat by accident, and a rhythm mechanic that pays a
+  ;; button-masher is a decoration. Widening it on Easy would make Easy exactly
+  ;; that. TASKS.md ruled out power-ups for this title for the same reason — a
+  ;; faster gun is a way to stop listening — and a wider window is the same
+  ;; thing wearing a kinder name. The enemy climb rate stays put as well: the
+  ;; note above $enemy_speed says two ramps on the same axis is how a game
+  ;; becomes unplayable at level 6 without anyone deciding it should.
+  ;;
+  ;; $difficulty is not reset by init: it is a choice about the next run, so a
+  ;; restart has to carry it rather than wipe it — chapter 8's argument for $rng.
+  (global $difficulty (mut i32) (i32.const 1))   ;; 0 easy, 1 normal, 2 hard
+  (global $BAR_BASE (mut i32) (i32.const 3))
+  (global $BAR_CAP (mut i32) (i32.const 11))
+  (global $BAR_EVERY (mut i32) (i32.const 2))    ;; levels per extra spawn
 
   (global $rng (mut i32) (i32.const 707406378))
   (global $gameOver (mut i32) (i32.const 0))
@@ -290,8 +365,8 @@
 
   (func $bar_spawns (result i32)
     (call $clampi
-      (i32.add (i32.const 3) (i32.div_s (global.get $level) (i32.const 2)))
-      (i32.const 3) (i32.const 11)))
+      (i32.add (global.get $BAR_BASE) (i32.div_s (global.get $level) (global.get $BAR_EVERY)))
+      (global.get $BAR_BASE) (global.get $BAR_CAP)))
 
   ;; Which enemy kinds this level may send. The mirror is last because it is
   ;; the one that *requires* the beat rather than rewarding it, and a player
@@ -681,7 +756,52 @@
         (local.set $i (i32.add (local.get $i) (i32.const 1)))
         (br $lp))))
 
+  ;; Copy one column of the difficulty table into the globals the rest of the
+  ;; engine reads. Called only from init, so a run never changes balance halfway
+  ;; through — which matters more here than anywhere: a song whose arrangement
+  ;; changed mid-bar would be heard doing it. Normal restates the initialisers,
+  ;; because a restart after an Easy or Hard run has to put them back.
+  (func $apply_difficulty
+    (if (i32.eqz (global.get $difficulty))
+      (then   ;; easy
+        (global.set $BPM_BASE (f32.const 84.0))
+        (global.set $BPM_GROOVE (f32.const 40.0))
+        (global.set $BPM_CAP (f32.const 150.0))
+        (global.set $BAR_BASE (i32.const 2))
+        (global.set $BAR_EVERY (i32.const 2))
+        (global.set $BAR_CAP (i32.const 9))
+        (global.set $LEAK_COST (f32.const 14.0)))
+      (else
+        (if (i32.eq (global.get $difficulty) (i32.const 2))
+          (then   ;; hard
+            (global.set $BPM_BASE (f32.const 108.0))
+            (global.set $BPM_GROOVE (f32.const 62.0))
+            (global.set $BPM_CAP (f32.const 184.0))
+            (global.set $BAR_BASE (i32.const 2))
+            (global.set $BAR_EVERY (i32.const 1))
+            (global.set $BAR_CAP (i32.const 12))
+            (global.set $LEAK_COST (f32.const 26.0)))
+          (else   ;; normal
+            (global.set $BPM_BASE (f32.const 96.0))
+            (global.set $BPM_GROOVE (f32.const 54.0))
+            (global.set $BPM_CAP (f32.const 168.0))
+            (global.set $BAR_BASE (i32.const 3))
+            (global.set $BAR_EVERY (i32.const 2))
+            (global.set $BAR_CAP (i32.const 11))
+            (global.set $LEAK_COST (f32.const 20.0)))))))
+
+  ;; 0 easy, 1 normal, 2 hard; anything else is clamped rather than trusted, and
+  ;; a JavaScript call with no argument arrives as 0. Takes effect at the next
+  ;; init().
+  (func $set_difficulty (export "set_difficulty") (param $d i32)
+    (if (i32.lt_s (local.get $d) (i32.const 0)) (then (local.set $d (i32.const 0))))
+    (if (i32.gt_s (local.get $d) (i32.const 2)) (then (local.set $d (i32.const 2))))
+    (global.set $difficulty (local.get $d)))
+  (func $get_difficulty (export "get_difficulty") (result i32) (global.get $difficulty))
+
   (func $init (export "init")
+    ;; first, because the first bar planned below reads it
+    (call $apply_difficulty)
     (global.set $rng (i32.const 707406378))
     (global.set $gameOver (i32.const 0))
     (global.set $score (f32.const 0.0))

@@ -118,7 +118,7 @@
 .pl-mute:hover { background: rgba(201, 166, 255, 0.15); }
 /* PAUSE borrows SOUND's look and sits beside it. Touch has no P key, so on a
    phone this button is the only way to pause. */
-.pl-pause { margin-left: 8px; }
+.pl-pause, .pl-diff { margin-left: 8px; }
 /* Same overlay as SILENCE, in the HUD's violet: pause is a waiting state, not a
    loss, and it should not read as one. */
 .pl-paused {

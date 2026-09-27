@@ -116,7 +116,7 @@ var game = Pulse.mount(containerOrSelector, options?);
 
 game.restart();    // start a fresh run
 game.getState();   // { score, shield, groove, multiplier, bpm, level, bar,
-                   //   onBeatShots, shots, gameOver, paused }
+                   //   onBeatShots, shots, gameOver, paused, difficulty }
 game.destroy();    // stop the loop, remove DOM + all event listeners
 ```
 
@@ -138,6 +138,7 @@ tap. Everything else works without it.
 |---|---|---|
 | Rotate | ← / → or A / D | tap the left or right side |
 | Fire | Space | the FIRE pad |
+| Difficulty | the EASY / NORMAL / HARD button; changing it starts a fresh run | the same button |
 | Pause | P or Esc; losing focus too | the PAUSE button; tap the tube to resume |
 | Restart | R | tap the GAME OVER text |
 | Mute | M | the SOUND button |
@@ -354,9 +355,15 @@ a decoration with a light on it.
 
 At 58ms the accidental rate is 38%, which matches the arithmetic, and the
 metronome still clears the window comfortably. The window is a fixed number of
-**seconds** rather than a fraction of a beat, so it stays the same in feel and
-gets strictly harder as the track speeds up — which is what a rhythm player
-expects, and not what a fixed fraction would have given them.
+**seconds** rather than a fraction of a beat, so it stays the same in feel: a
+player timing deliberately needs the same precision at every tempo.
+
+*This finding used to add that the window "gets strictly harder as the track
+speeds up". It does not, and the difficulty bench below is what showed it. A
+fixed window is a larger share of a shorter beat, so at a faster tempo more of a
+masher's shots land in it by accident — 35% at Easy's tempos, 39% at Normal's,
+52% at Hard's. What gets harder as the song speeds up is everything around the
+window: more arrivals a second, less time to cross the ring.*
 
 ### 3 · A level every four bars is a level every six seconds
 
@@ -390,6 +397,106 @@ The difficulty curve:
 | spawns in a bar | +1 every two levels, from 3 to 11 |
 | climb rate | +11% of the base |
 | kinds in play | drone from 1, skipper from 2, hulk from 4, mirror from 6 |
+
+The tempo floor, the groove and cap rows of the tempo, the spawns-per-bar row
+and the leak cost are the **Normal** column of the difficulty table rather than
+fixed constants. See below.
+
+## Difficulty, September 2026
+
+Three settings, picked with the HUD button or
+`mount(el, { difficulty: 'hard' })`. The table lives in the engine:
+`set_difficulty(d)` records the choice (0 easy, 1 normal, 2 hard) and `init()`
+applies it, so a setting never changes halfway through a run — which matters
+more here than anywhere, because a song whose arrangement changed mid-bar would
+be heard doing it.
+
+| | Easy | Normal | Hard |
+|---|---|---|---|
+| Tempo floor | 84 BPM | 96 | 108 |
+| Tempo added at full groove | 40 | 54 | 62 |
+| Tempo cap | 150 | 168 | 184 |
+| Spawns in a bar at level 1 | 2 | 3 | 3 |
+| ... one more every | 2 levels | 2 levels | **1 level** |
+| ... capped at | 9 | 11 | 12 |
+| Shield lost to a leak | 14 | 20 | 26 |
+
+The two knobs the backlog named were **the tempo floor and how full each bar
+is**, and both belong to the sequencer — which is the point of them. In this
+title the difficulty is written into the music: a setting is a different
+arrangement of the same song, slower and sparser or faster and busier, rather
+than a multiplier on a game the music merely accompanies.
+
+**The groove row is the one the named knobs would have missed.** Groove raises
+the tempo, so a player who is in time is asking for a faster track — finding 1
+is that the metronome dies before the masher, because playing well is what
+speeds the song up. A lower floor alone would not change that: an Easy player
+who found the beat would be carried up past 140 by their own groove inside a
+minute. So Easy also takes less tempo from groove, which keeps the reward for
+playing in time from burying the player who has only just found it.
+
+**Hard opens on Normal's bar and fills it twice as fast** — and that was not the
+first draft. The first gave Hard four spawns from bar one, and the loose pilot
+below died at level 2 in thirty-one seconds. Every other title's Hard lets its
+weak pilot reach level 3. Cutting the leak cost instead changed nothing (22
+against 26: the same 31 s), because the opening density was what killed it, not
+the shield. Dropping Hard's start to three fixed the opening but made its bars
+identical to Normal's for the whole run, since the cap is never reached. So the
+table carries the *rate*: Hard's level 1 is Normal's, and by level 6 it holds
+two more spawns a bar. That is the rule CLAUDE.md states — level 1 gentle, the
+difficulty coming from the level number — arrived at by breaking it first.
+
+**`$BEAT_WINDOW` is deliberately not in the table**, though it is the knob a
+rhythm game usually reaches for first. Finding 2 is why: a window wide enough to
+pay a button-masher turns the mechanic into a decoration, and widening it on
+Easy would make Easy exactly that. TASKS.md ruled out power-ups for this title
+for the same reason — a faster gun is a way to stop listening — and a wider
+window is the same thing with a kinder name. The climb rate stays put too: the
+note above `$enemy_speed` says two ramps on the same axis is how a game
+becomes unplayable at level 6 without anyone deciding it should.
+
+**Normal is the previous balance exactly.** The same input replayed through the
+committed engine and this one gave byte-identical memory — the bar plan and
+both pools, 1,664 bytes — and all twenty-six readers on every frame, over
+36,000 frames, re-initialising on each game over.
+
+Benched with finding 1's three pilots, which share their targeting and differ
+only in when they fire. Same seed, so every row is the same song:
+
+| | Survived | Level | Score / s | On beat | Peak BPM |
+|---|---|---|---|---|---|
+| **metronome**, Easy | 121 s | 8 | 1,017 | 100% | 139 |
+| metronome, Normal | 81 s | 7 | 1,342 | 100% | 163 |
+| metronome, Hard | 56 s | 5 | 1,441 | 100% | 179 |
+| **mash**, Easy | 137 s | 7 | 146 | 35% | 101 |
+| mash, Normal | 103 s | 6 | 182 | 39% | 116 |
+| mash, Hard | 70 s | 5 | 243 | 52% | 128 |
+| **loose**, Easy | 109 s | 5 | 111 | 17% | 99 |
+| loose, Normal | 76 s | 4 | 160 | 33% | 112 |
+| loose, Hard | 48 s | 3 | 201 | 41% | 141 |
+
+(These pilots are this bench's, written to finding 1's description, so Normal's
+rows land near finding 1's numbers rather than on them — 81 s against 75 for the
+metronome, 103 against 101 for the masher.)
+
+The loose pilot reaches **level 3 on every setting**. Each pilot runs roughly
+two-thirds as long on Hard as on Normal, and a third to a half longer on Easy.
+
+**What the bench found that the table does not fix.** Look down the "on beat"
+column for the masher: 35%, 39%, 52%. The window is a fixed number of seconds,
+so at Hard's faster tempos it covers more of each beat and a button-masher lands
+more of its shots in it by accident — which is why finding 2's old claim that
+the window "gets strictly harder as the track speeds up" is now corrected
+above. Precision is still worth far more than mashing on every setting — the
+metronome scores 7.0×, 7.4× and 5.9× the masher per second — but on Hard the
+gap is narrowest. Narrowing the window on Hard would close it, and that is a
+real option. It is not taken here because the window is the one number this
+title's feel is tuned around, and changing it deserves a decision of its own
+rather than a row in a difficulty table.
+
+**Best scores are kept per setting.** The page shell records Normal under the
+same key as before, so a best set before difficulty existed is still Normal's,
+and Easy and Hard get `pulse:easy` and `pulse:hard`.
 
 ## Rebuilding the engine
 
