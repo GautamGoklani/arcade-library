@@ -149,10 +149,12 @@ will inherit pieces of:
   same game as before.*
 - **Medium term:** boss waves every 10 levels, distinct per-species enemy
   behaviour, screen shake/hit-stop, gamepad support, difficulty settings. *All
-  shipped. Boss waves arrived last, as the plan described them — a multi-part
-  enemy with destructible sections and telegraphed attacks — with the attacks on
-  a fixed rotation rather than random, since a telegraph is only worth reading
-  if what it announces can be learned.*
+  shipped except screen shake and hit-stop, which are open in
+  [`../TASKS.md`](../TASKS.md) with the near term's run-stats screen. Boss waves
+  arrived last, as the plan described them — a multi-part enemy with
+  destructible sections and telegraphed attacks — with the attacks on a fixed
+  rotation rather than random, since a telegraph is only worth reading if what
+  it announces can be learned.*
 - **Long term:** local co-op and online versus multiplayer (lockstep WASM), a
   level editor, achievements/unlockable skins.
 

@@ -19,10 +19,33 @@ rather than a backlog item.
 
 ## 1 · Library goals not built
 
-### Pixel Wave's own roadmap — done
+### Pixel Wave's own roadmap — three items left
 
-Every near- and medium-term item on it has shipped: sound, pause, difficulty
-settings, per-species behaviour, gamepad support, power-ups and boss waves.
+Shipped: sound, pause, difficulty settings, per-species behaviour, gamepad
+support, power-ups and boss waves. Three items from the plan's near and medium
+terms are **not** built, although an earlier version of this section said they
+were — checked against the widget in September 2026:
+
+- **A run-stats game-over screen** (near term). The overlay says GAME OVER and
+  PRESS R TO RESTART and nothing else. The plan asked for accuracy, enemies
+  destroyed and waves survived. Every number it needs already exists as an
+  event counter — `get_shots`, `get_kills`, `get_rocks`, `get_waves`, and now
+  `get_grabs` and `get_boss_downs` — so this is widget work, with no engine
+  change and nothing to re-bench. Accuracy is kills plus rocks over shots, with a
+  spread volley counting as one shot (see "Power-ups" in the game's README).
+- **Screen shake** (medium term). Every other title shakes on a hit; Pixel Wave
+  only flashes. The retro adapter already expects it — the comment above `Z` in
+  `pixel-wave.js` says the transform's offset is "always a whole low-res pixel,
+  screen shake included" — but nothing ever sets an offset. Copy the shape from
+  a title that has it, snapped to whole low-res pixels, and drop it under
+  `prefers-reduced-motion`.
+- **Hit-stop** (medium term). A few frames of frozen simulation on a kill or a
+  hit. This one is a design question before it is code: the engine takes
+  whatever `dt` it is given, so hit-stop belongs in the widget's loop the way
+  pause does ([chapter 15](docs/15-game-loop-architecture.md)), and a boss part
+  going down every few seconds may make it tiring rather than weighty. Bench or
+  play it before committing to it.
+
 The long-term tier in
 [`games/plans-for-other-games.md`](games/plans-for-other-games.md) — multiplayer,
 a level editor, achievements — was never adopted as work, and is listed there
@@ -86,9 +109,76 @@ boss with a health bar, and that is closer to its depot idea than to a wave.
 
 ---
 
-## 2 · Documentation
+## 2 · What the benches could not verify
 
-Nothing outstanding, but three things are deliberate and should not be "fixed":
+Every difficulty table, and both Pixel Wave features, were tuned against
+headless pilots, and each game's README says what its pilots could not reach.
+Collected here so they are not only findable one README at a time. None is a
+known bug; each is a number nobody has measured. The cheapest way to close most
+of them is a pilot built to exercise the one thing in question — CLAUDE.md's
+tuning lessons say how.
+
+- **Pixel Wave — rapid fire's value.** The bench pilot is limited by its aim, not
+  its rate of fire: firing four times as often left its survival exactly where
+  it was. So rapid fire was worth nothing to it, and no pilot here shows what it
+  is worth to a player who can aim.
+- **Pixel Wave — the boss fight's edges.** The fight was benched from builds
+  that start at level 10 with *full* lives; a real player arrives with what nine
+  levels left them. The "reader" pilot only answers the aimed volley — nobody has
+  measured the fan's gaps or the ring's spokes as things a player reads. A pilot
+  that never dodges also sometimes fires at the plated core forever (5 of 64
+  timeouts on Easy), because nothing tells it the tick means *stop*.
+- **Asteroid Miner — above level 4.** The bench pilot never passes level 4, and
+  the density caps are reached at levels 7, 8 and 9, so the field once density
+  stops growing is untested on every setting.
+- **Worm Chase — the per-level half of its table.** Its bench pilot never clears
+  level 1, so how fast a new chaser arrives, how hazards grow and how the target
+  tightens are untested; only the level-1 numbers are measured.
+- **Starfield Runner — the repair loop.** No pilot, on any setting, ever filled
+  the charge meter and bought a plate back. The half of the economy that makes
+  flying close worth the risk is unmeasured.
+- **Tower Defense — anything but reading-order placement.** Both pilots build in
+  the first free square beside the track and never sell. How much good placement
+  is worth, on each setting, is untested.
+- **Sector Defense — Normal's quiet opening.** On Normal the sector is still
+  untouched at wave 17 against the bench pilot. That is the balance the game
+  shipped with, and Normal is byte-identical to it, so the difficulty table could
+  not change it. Whether a quiet first several minutes is intended is the
+  owner's call, not a tuning task — Hard is the answer for players who want the
+  fight earlier.
+- **Circuit Runner — one harsh Hard board.** One of 24 boards ends at 11 s on
+  Hard (three early hits, two charges), against a worst of 24 s on Normal. It is
+  Hard's hit cost doing it. Worth playing that seed before deciding whether it
+  matters.
+
+### One code hazard, in Pixel Wave's engine
+
+**Losing a life is written out four times** in `games/pixel-wave/game.wat`: for
+an enemy round, an asteroid, a bot ram and a boss ram. Each copy checks the
+shield, spends it or takes a life, counts the hurt, and ends the game at zero.
+The shield had to be added to three copies and then a fourth, and a fifth way to
+be hit would need a fifth copy that could quietly differ. The copies live
+because `$lives` and `$palive` are locals of `step`; a helper would take the
+lives and return them, the way `$hit_boss` returns points to `step`. The
+level-1-9 replay in the game's README is the check that such a change altered
+nothing.
+
+---
+
+## 3 · Documentation
+
+**One technique the course does not teach yet: a second random stream.** Pixel
+Wave's power-ups roll from `$dropRng`, their own xorshift state, so that a run
+where nothing is collected replays the engine that had no power-ups byte for
+byte — which is what made the change checkable, and why the difficulty table
+needed no re-tuning. The boss makes the related point from the other side: its
+attacks draw nothing at all, so levels 1-9 replay exactly. [Chapter
+8](docs/08-globals-and-state.md) already discusses how `$rng` carries across a
+restart (the section around "`$rng` does not appear in that list"), which makes
+it the natural home: *what you draw a random number from decides what a change
+can disturb.* The game's README has the measurements to quote.
+
+Beyond that, three things are deliberate and should not be "fixed":
 
 - **Chapters 6, 7 and 17 teach from Vector Arena**, which was removed from the
   repository in `e90bc03`. The material stayed because those three techniques —
