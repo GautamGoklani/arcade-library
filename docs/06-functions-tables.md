@@ -192,6 +192,8 @@ gets. Pixel Wave started with fifteen exports; this is all of them now:
 (func $get_clinks      (export "get_clinks")      (result i32))
 (func $get_boss_parts  (export "get_boss_parts")  (result i32))
 (func $get_boss_downs  (export "get_boss_downs")  (result i32))
+(func $get_rounds      (export "get_rounds")      (result i32))
+(func $get_hits        (export "get_hits")        (result i32))
 ;; what the HUD shows of a power-up: seconds left, zero when not in force
 (func $get_rapid_t     (export "get_rapid_t")     (result f32))
 (func $get_spread_t    (export "get_spread_t")    (result f32))
@@ -201,17 +203,18 @@ gets. Pixel Wave started with fifteen exports; this is all of them now:
 (func $get_difficulty  (export "get_difficulty")  (result i32))
 ```
 
-Twenty-eight, for a complete game with 33 enemies, a five-part boss and 160
-bullets in flight — and fourteen of them are one idea repeated. They are **event counters**: one integer
+Thirty, for a complete game with 33 enemies, a five-part boss and 160
+bullets in flight — and sixteen of them are one idea repeated. They are **event counters**: one integer
 per kind of thing that can happen, incremented at the line where the engine
 decides it happened, which the host diffs between frames to decide what to play.
 Pixel Wave was the first title here and for most of its life exported only the
 first nine entries; it was the last in the repository to get counters, and
 [chapter 15](15-game-loop-architecture.md) is why it needed them.
 
-The list has grown three times since, and every time the same way: difficulty
-added a command and its reader, power-ups three counters and three readers, and
-boss waves five counters. None added a callback, and none changed a signature
+The list has grown four times since, and every time the same way: difficulty
+added a command and its reader, power-ups three counters and three readers,
+boss waves five counters, and the game-over screen's accuracy two more — rounds
+that flew and rounds that struck something. None added a callback, and none changed a signature
 already there — a host written against the first fifteen still works, which is
 what keeping the boundary to scalars in and scalars out buys. The boss did not
 need a reader at all for what the widget draws: the boss and its parts are

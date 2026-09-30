@@ -160,6 +160,8 @@
 .td-tool.td-on { border-color: #ffd166; color: #ffd166; background: #241d10; }
 .td-tool.td-poor { opacity: 0.42; }
 .td-tool.td-sell.td-on { border-color: #ff5470; color: #ff5470; background: #2a1015; }
+.td-purge { border-color: #2f7fb8; color: #7cd8ff; }
+.td-purge:hover { border-color: #7cd8ff; }
 .td-go { flex: 1.2; }
 .td-go.td-armed { border-color: #6ee7a8; color: #6ee7a8; }
 
@@ -223,7 +225,10 @@
 @media (max-width: 700px) {
   .td-msg { font-size: 6.5vw; }
   .td-note { font-size: 3.2vw; }
-  .td-hud { gap: 2.2vw; font-size: 2.4vw; padding: 4px 8px; letter-spacing: 1px; }
+  /* Wraps rather than widening the page: with PAUSE and the difficulty button
+     beside SOUND the HUD no longer fits 375px on one line, and a flex row
+     that cannot wrap pushed the whole widget 20-80px past a phone's edge. */
+  .td-hud { flex-wrap: wrap; gap: 2.2vw; row-gap: 4px; font-size: 2.4vw; padding: 4px 8px; letter-spacing: 1px; }
   .td-core-bar { width: 14vw; height: 2vw; }
   .td-mute { font-size: 2.2vw; padding: 2px 5px; }
   .td-tool { font-size: 2.1vw; padding: 1.2vw 0.4vw; }

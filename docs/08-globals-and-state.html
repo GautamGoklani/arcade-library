@@ -363,6 +363,53 @@ then <code>init()</code>, and <code>init</code> copies that setting&#39;s row of
 globals <code>step</code> reads. The choice has to survive the restart it is made for, so
 it stays out of the reset list, and the tuning it selects is re-applied in full
 every time, so an Easy run followed by a Normal one cannot keep any of Easy.</p>
+<h3>A second stream: what you draw from decides what a change can disturb</h3>
+<p>A random-number generator in this style is nothing but a global and a function
+that advances it, which makes a question easy to overlook: <em>which</em> global does a
+new feature draw from? Pixel Wave had to answer it when power-ups arrived, and
+the answer decided whether the change could be checked at all.</p>
+<p>Everything in the engine draws from <code>$rng</code>, in an order the simulation fixes:
+a bot re-picks a wander target, the next asteroid needs a size and a speed, a
+fresh wave needs positions. Each draw advances the stream, so each one moves
+every draw after it. A power-up drop is a roll made when a bot dies. Take that
+roll from <code>$rng</code> and the first kill of a run shifts every wander target and
+asteroid that follows — so a player who never touched a capsule would still be
+playing a different game, and there would be no way to tell a balance change
+from a bug.</p>
+<p>So drops have a stream of their own. It is the same xorshift on a second
+global:</p>
+<pre><code class="language-wat">(global $dropRng (mut i32) (i32.const 362436069))
+
+;; The drop stream: the same xorshift as $rand_f32, on its own state, so
+;; rolling for a drop never moves anything $rng decides.
+(func $drop_rand (result f32)
+  (local $x i32)
+  (local.set $x (global.get $dropRng))
+  (local.set $x (i32.xor (local.get $x) (i32.shl (local.get $x) (i32.const 13))))
+  (local.set $x (i32.xor (local.get $x) (i32.shr_u (local.get $x) (i32.const 17))))
+  (local.set $x (i32.xor (local.get $x) (i32.shl (local.get $x) (i32.const 5))))
+  (global.set $dropRng (local.get $x))
+  (f32.div (f32.convert_i32_u (local.get $x)) (f32.const 4294967296.0)))
+</code></pre>
+<p>Eleven lines and one word of state, and it bought a check. The engine from
+before power-ups and the one after, same seed, same input, were compared frame
+by frame until the first capsule was <em>collected</em> — the point after which they
+are meant to differ. Over 24 seeds × 3 settings, 116,939 frames and 110 drops
+rolled, every byte of the memory that existed before and all eleven old readers
+matched on every frame. A player who ignores the capsules is playing exactly the
+old game, which is also why the difficulty table did not have to be tuned
+again. Roll the drops from <code>$rng</code> and neither claim could have been made.</p>
+<p>The boss that arrived next makes the same point from the other side: its attack
+rotation draws nothing at all. That was a design choice first — a telegraph is
+only worth reading if what it announces can be learned — but it also meant a
+boss level changed nothing before it, and levels 1–9 replayed the previous
+engine exactly.</p>
+<p>The general rule: <strong>a new consumer of randomness should get its own stream
+unless it is meant to perturb the old ones.</strong> The cost is one global. What it
+buys is that the old behaviour survives as a special case of the new — nothing
+collected, no boss reached — which you can test byte for byte instead of by
+eye. (<code>$dropRng</code>, like <code>$rng</code>, is left out of <code>init</code>&#39;s reset list, so it carries
+across a restart for the same reasons given above.)</p>
 <hr>
 <h2>Instance isolation</h2>
 <p>Each <code>WebAssembly.Instance</code> gets its <strong>own</strong> globals and its <strong>own</strong> memory,

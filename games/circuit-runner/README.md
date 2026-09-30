@@ -141,6 +141,11 @@ ahead through a row you have not seen yet.
   row lands a second hit on a runner it has just frozen.
 - **Every row leaves a path, and that path moves by at most one trace.** See
   below; this is a guarantee, not a tendency.
+- **Every 8 km from 4 km, a named gauntlet.** The random rows stop for a
+  hand-shaped stretch — THE SERPENTINE, THE BUS, THE CAPACITOR BANK, in turn —
+  announced by name, with the traces turned copper while it runs. Clear one
+  without a hit for 25 current and 300 score. See
+  [Gauntlets](#gauntlets-october-2026).
 
 ### The four components
 
@@ -218,7 +223,10 @@ in `game.wat` say it is.
 `get_current`, `get_current_max`, `get_dist`, `get_speed`, `get_speed_base`,
 `get_runner_x`, `get_runner_y`, `get_lane`, `get_lanes`, `get_lane_w`,
 `get_stun`, `get_overclock`, `is_game_over`, and the event counters
-`get_switches`, `get_hits`, `get_charges`, `get_boosts`, `get_rows`.
+`get_switches`, `get_hits`, `get_charges`, `get_boosts`, `get_rows`,
+`get_gauntlets`, `get_gauntlet_clears`; and `get_gauntlet`, which gauntlet
+is running (0 for none), for the banner and the copper traces. The names are
+the widget's: the engine numbers them, and a name is presentation.
 
 `get_lanes` and `get_lane_w` exist so the renderer can draw the board without a
 second copy of the lane geometry — the one piece of layout it would otherwise
@@ -300,6 +308,9 @@ trade the game is about.
 | `$ROW_GAP` / `$ROW_GAP_MIN` / `$ROW_GAP_STEP` | distance between rows, its floor, and the taper | 300 / 172 / 8 |
 | `$CAP_PERIOD` | seconds per capacitor flip | 1.35 |
 | `$LANES` / `$LANE_W` | the board | 6 / 160 |
+| `$G_FIRST_KM` / `$G_EVERY_KM` | when gauntlets come | 4 km / 8 km |
+| `$G_SLACK` | clear time a gauntlet row leaves around a trace change | 0.28 s |
+| `$G_REFILL` | current for a gauntlet cleared without a hit | 25 |
 
 The curve is entirely a function of distance travelled:
 
@@ -410,9 +421,108 @@ runs past 26 s. It is one board in 24, and the median opening is as gentle as
 Normal's, but it is the harshest thing the bench found, and it is Hard's hit
 cost doing it.
 
+**Followed up, and it did not recur.** The bench that found it did not record
+how it rewrote the seed, so that board cannot be picked out again. Instead, a
+pilot to the same description was rebuilt. It reproduces the medians above
+within a few seconds (Normal 50 / 47 / 39 s, Hard 40 / 35 / 32 s). It was then
+run on 24 fresh Hard boards at **every reaction time from 150 to 350 ms in
+10 ms steps**, 504 runs in all. None ended before about 20 seconds. Only one
+board ended runs inside 20 s at all: at 7 of the 21 reaction times, with a
+median of 41 s across all 21. So a short Hard run is one board meeting one
+reaction time, and not a kind of board the generator makes: move the reaction
+time by 10 ms and the same board plays out differently. Nothing to change.
+
 **Best scores are kept per setting.** The page shell records Normal under the
 same key as before, so a best set before difficulty existed is still Normal's,
 and Easy and Hard get `circuit-runner:easy` and `circuit-runner:hard`.
+
+## Gauntlets, October 2026
+
+TASKS.md gave this title no boss — there is nothing to shoot and no waves — and
+listed its own idea instead: *a named stretch of board, a gauntlet with a
+recognisable shape*. Every **8 km from 4 km** the random rows stop and one of
+three runs, in turn:
+
+| | Rows | Shape |
+|---|---|---|
+| **THE SERPENTINE** | 8 | one open trace, sweeping side to side a trace a row, turning at the edges; charge on every other row |
+| **THE BUS** | 6 | one straight trace between two walls of chips, with charge along it every third row — the breather |
+| **THE CAPACITOR BANK** | 6 | capacitors either side of a wandering path, chips beyond; the charges sit *in* the capacitor traces, to be taken when the gate is down |
+
+The name goes up the moment one is decided, with a short square sweep, and
+while it runs the unlit traces turn from green to copper. Clear one without a
+hit for **25 current** — the meter is this game's life — and 300 score.
+
+**Every gauntlet keeps the rule the board is built on**: the open path moves
+by at most one trace a row. The Serpentine is the hardest thing that rule
+allows, and it is still passable by construction. Gauntlet rows use the fewest
+parts that block their lanes (chips where two lanes fit, a resistor for one),
+because a row of five single parts, five rows deep, would fill the 24-part pool,
+and a full pool silently drops parts. Here that would open a lane the shape did
+not mean to.
+
+Everything before the first gauntlet is the game it was: identical memory (all
+1,272 bytes) and twelve readers on every frame against the engine without
+gauntlets, on all three settings, until the first one began.
+
+### Three things the bench found
+
+**A bug a pilot found by living too long.** The first version tested "is a
+gauntlet running" with `(i32.and (global.get $gauntlet) ...)`. `i32.and` is
+bitwise, not logical, and the Bus is gauntlet 2, so `2 and 1` is 0. The Bus
+never laid a row and never ended, and from 9 km the board stayed empty. The
+Serpentine (1) and the Capacitor Bank (3) worked only because their numbers
+are odd. It showed up as runs that lasted oddly well while nothing happened.
+Every such test now compares against zero first, and the comment at the spot
+says why. [Chapter 3](../../docs/03-numbers-and-operations.md#booleans-are-i32)
+now teaches it, with this bug as the example.
+
+**The same shape is a different gauntlet at a different speed.** A gauntlet
+leaves one trace open, so every move of the path is forced. A move is safe
+only if the runner crosses the trace boundary while neither row overlaps it.
+That clear stretch is the row gap less 112 px (a part's 60 plus the runner's
+52), and the slide takes 0.18 s. At 14 km, where the first Capacitor Bank lands,
+the board's own gap left 0.15 s of it, less than the slide. The Bank was cleared
+once in nineteen tries while the Serpentine at 4 km was cleared 23 times in 25.
+Same rules, faster board. So **gauntlet rows are spaced for the slide**: 112 px
+plus 0.28 s of board travel, or the board's own gap if that is wider. The Bank
+went from 1 in 19 to 18 in 29. Each gauntlet also opens with one row of empty
+board, because a runner in some other open trace of the last ordinary row can
+be several traces from the path. The slow pilot's hits in the Bus, which never
+moves, were all on the way in.
+
+**At first they were a rest stop.** With gauntlets every 5 km, ten and eight
+rows long, about 70% of the board after 4 km was gauntlet. The quick pilot's
+median run went from 50 s to 94 s. It was living on charge placed in the path.
+Every 8 km, eight and six rows, puts gauntlets at a fraction of the run, and
+the clean-run refill turned out to barely matter either way (0 against 25 moved
+nothing measurable). Charge frequency and gauntlet share were the levers.
+
+### What they cost and pay
+
+The reacting pilot from the Difficulty bench at three reaction times, 24 boards
+on Normal. Median survival, before → after, and gauntlets cleared without a hit:
+
+| | Survived | Serpentine | Bus | Capacitor Bank |
+|---|---|---|---|---|
+| 150 ms | 50 → 60 s | 30 / 32 | 23 / 28 | 12 / 18 |
+| 250 ms | 47 → 49 s | 28 / 32 | 13 / 29 | 6 / 12 |
+| 350 ms | 39 → 48 s | 24 / 24 | 7 / 18 | 0 / 5 |
+
+On Easy and Hard (12 boards each) the medians moved both ways within the noise
+of twelve boards: Easy 120 / 68 / 73 s → 106 / 81 / 62 s, Hard 38 / 34 / 33 s
+→ 45 / 45 / 34 s.
+
+**They lengthen a run a little, and they sort players.** The quick pilot clears
+most of them and lives longer. The slow one clears the Serpentine every time,
+because its moves are regular, and almost never clears the Bank, which asks it
+to read capacitor gates. That is a gauntlet doing what a named stretch should:
+the same shape every time, so a player gets better at *it*. The slow pilot's
+Bus failures are its own. It only ever looks at the nearest row, so it never
+sees the gauntlet coming. A person sees the name and the copper traces a second
+ahead. The one hard corner is **Hard's slow pilot on the Serpentine at 4 km**:
+0 of 12 clean. A forced move every row at 350 ms of lag is at the edge of what
+it can do, and it is the spot to watch if Hard's opening gauntlet feels unfair.
 
 ## Rebuilding the engine
 

@@ -96,13 +96,13 @@ const TITLES = [
     slug: 'worm-chase',
     js: 'worm-chase.js',
     names: ['COLS', 'ROWS', 'GRID_OFF', 'CELL_STRIDE', 'CHASER_OFF',
-            'CHASER_STRIDE', 'MAX_CHASERS'],
+            'CHASER_STRIDE', 'MAX_CHASERS', 'CAPSULE_OFF', 'CAPSULE_STRIDE', 'MAX_CAPSULES'],
   },
   {
     slug: 'asteroid-miner',
     js: 'asteroid-miner.js',
     names: ['ROCKS_OFF', 'ROCK_STRIDE', 'MAX_ROCKS', 'BULLETS_OFF', 'BULLET_STRIDE',
-            'MAX_BULLETS', 'PICKUPS_OFF', 'PICKUP_STRIDE', 'MAX_PICKUPS'],
+            'MAX_BULLETS', 'PICKUPS_OFF', 'PICKUP_STRIDE', 'MAX_PICKUPS', 'RIVAL_OFF'],
   },
   {
     slug: 'circuit-runner',
@@ -126,13 +126,14 @@ const TITLES = [
     slug: 'pulse',
     js: 'pulse.js',
     names: ['BAR_OFF', 'BAR_STRIDE', 'ENEMIES_OFF', 'ENEMY_STRIDE', 'MAX_ENEMIES',
-            'BOLTS_OFF', 'BOLT_STRIDE', 'MAX_BOLTS'],
+            'BOLTS_OFF', 'BOLT_STRIDE', 'MAX_BOLTS', 'CHIMES_OFF', 'CHIME_STRIDE', 'MAX_CHIMES'],
   },
   {
     slug: 'sector-defense',
     js: 'sector-defense.js',
     names: ['ENEMIES_OFF', 'ENEMY_STRIDE', 'MAX_ENEMIES', 'PB_OFF', 'PB_STRIDE',
-            'MAX_PB', 'EB_OFF', 'EB_STRIDE', 'MAX_EB'],
+            'MAX_PB', 'EB_OFF', 'EB_STRIDE', 'MAX_EB', 'CARRIER_OFF', 'MODULE_OFF',
+            'LANDER_OFF'],
   },
 ];
 

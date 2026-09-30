@@ -34,8 +34,13 @@
   ;;                  to ask for more.
   ;;                  ends at 3072 + 3072 = 6144
   ;; chasers @6144  : stride 32, MAX_CHASERS = 8
-  ;;                  cx, cy, pcx, pcy, dx, dy, active, (pad)   — all i32
+  ;;                  cx, cy, pcx, pcy, dx, dy, active, kind    — all i32
+  ;;                  kind 0 = chaser, 1 = hunter
   ;;                  ends at 6144 + 8*32 = 6400
+  ;; capsules @6400 : stride 24, MAX_CAPSULES = 2
+  ;;                  col, row, kind, life, active, (pad)       — all f32
+  ;;                  kind 0 = freeze, 1 = surge; life counts down in seconds
+  ;;                  ends at 6400 + 2*24 = 6448
   ;;
   ;; Everything scalar lives in a global instead of memory. Grid Breaker puts
   ;; its score at a fixed address because its renderer was already walking
@@ -47,7 +52,8 @@
   ;; its stride, or disagrees with the FIELD table at the top of the widget
   ;; — so a field that moves has to move in all three places at once.
   ;; @fields cell   u8 CELL_STRIDE: state hazard mark epoch
-  ;; @fields chaser i32 CHASER_STRIDE: cx cy pcx pcy dx dy active pad
+  ;; @fields chaser i32 CHASER_STRIDE: cx cy pcx pcy dx dy active kind
+  ;; @fields capsule f32 CAPSULE_STRIDE: col row kind life active pad
   ;; ===================================================
 
   (global $COLS i32 (i32.const 32))
@@ -59,6 +65,9 @@
   (global $CHASER_OFF i32 (i32.const 6144))
   (global $CHASER_STRIDE i32 (i32.const 32))
   (global $MAX_CHASERS i32 (i32.const 8))
+  (global $CAPSULE_OFF i32 (i32.const 6400))
+  (global $CAPSULE_STRIDE i32 (i32.const 24))
+  (global $MAX_CAPSULES i32 (i32.const 2))
 
   ;; cell states
   (global $OPEN i32 (i32.const 0))
@@ -97,7 +106,7 @@
   ;;   chaser step (s)         0.34       0.26      0.20
   ;;   ... faster per level    0.009      0.011     0.014
   ;;   ... floor               0.14       0.105     0.085
-  ;;   a new chaser every     3 levels   2 levels  1 level
+  ;;   a new chaser every     3 levels   2 levels  1.5 levels
   ;;   hazards                 2 + 4/lvl  2 + 6/lvl 4 + 8/lvl
   ;;   land to clear a level  26% + 3/lvl 30% + 4  34% + 5
   ;;   ... capped at            60%        72%       80%
@@ -109,7 +118,13 @@
   ;; $difficulty is not reset by init: it is a choice about the next run, so a
   ;; restart has to carry it rather than wipe it — chapter 8's argument for $rng.
   (global $difficulty (mut i32) (i32.const 1))   ;; 0 easy, 1 normal, 2 hard
-  (global $CHASER_EVERY (mut i32) (i32.const 2))
+  ;; In *half*-levels, so Hard can sit between one and two: the count is
+  ;; 1 + 2(level-1)/CHASER_EVERY, which for 6 and 4 is exactly the old
+  ;; every-3 and every-2. Hard was 1 — a chaser every level — and benching a
+  ;; pilot that plays properly found the wall that made: from level 6 (six
+  ;; chasers) it cleared nothing and spent 25-75% of each level waiting at home
+  ;; for a loop the pack could not reach first. See "Past level 1" in the README.
+  (global $CHASER_EVERY (mut i32) (i32.const 4))
   (global $HAZ_BASE (mut i32) (i32.const 2))
   (global $HAZ_STEP (mut i32) (i32.const 6))
   (global $TARGET_BASE (mut i32) (i32.const 30))
@@ -121,6 +136,25 @@
   (global $SCORE_CELL f32 (f32.const 4.0))
   (global $SCORE_HAZARD f32 (f32.const 20.0))
   (global $SCORE_CHASER f32 (f32.const 150.0))
+
+  ;; ---- the hunter ----
+  ;; Every HUNTER_EVERY-th level one of the pack is a hunter. It is this game's
+  ;; boss, and it asks the question the rest of the pack does not. A chaser
+  ;; homes on the worm's head, so it is beaten by being quick. The hunter homes
+  ;; on the trail — the trail cell nearest itself — so it is beaten by being
+  ;; *short*: a long, lazy loop is exactly what it punishes, and a chaser's
+  ;; answer (run for home) does not help when the trail it is heading for is
+  ;; behind you. At home it roams like the rest.
+  ;;
+  ;; It is beaten the way this game beats anything: fence it in. That pays
+  ;; SCORE_HUNTER rather than a chaser's 150. It lives in the chaser record's
+  ;; last field, which used to be padding, so no layout moved; and the extra
+  ;; slot it takes is placed from $rng like any chaser, which is why levels
+  ;; without one replay the engine before it byte for byte.
+  (global $HUNTER_EVERY i32 (i32.const 4))
+  (global $SCORE_HUNTER f32 (f32.const 500.0))
+  (global $tgtX (mut i32) (i32.const 0))
+  (global $tgtY (mut i32) (i32.const 0))
   (global $SCORE_LEVEL f32 (f32.const 250.0))
 
   (global $rng (mut i32) (i32.const 2463534242))
@@ -158,6 +192,47 @@
   (global $capCells (mut i32) (i32.const 0))  ;; cells taken by the last capture
   (global $deaths (mut i32) (i32.const 0))
   (global $kills (mut i32) (i32.const 0))
+  (global $drops (mut i32) (i32.const 0))        ;; a capsule appeared
+  (global $grabs (mut i32) (i32.const 0))        ;; a capsule was collected
+  (global $hunters (mut i32) (i32.const 0))      ;; a hunter joined the pack
+  (global $hunterKills (mut i32) (i32.const 0))  ;; a hunter fenced in
+
+  ;; ---- power-ups ----------------------------------------------------------
+  ;; Capsules appear on open ground on a timer, and last CAPSULE_LIFE seconds.
+  ;; The worm takes one by driving over it — which means laying trail out to
+  ;; it — or by **enclosing it**, which is how this game already pays for
+  ;; hazards and chasers: whatever a capture seals off is yours. So a capsule
+  ;; is a lure. It sits on the open board, where every loop is a risk, and it
+  ;; asks the question the whole game asks: how far out are you willing to go?
+  ;;
+  ;;   freeze   the chasers' clock stops for FREEZE_TIME. A frozen chaser is
+  ;;            still deadly to touch; it just stops closing on the trail.
+  ;;   surge    the worm ticks SURGE_TICK times as long — faster — for
+  ;;            SURGE_TIME, so a loop closes before the pack can reach it.
+  ;;
+  ;; Both are the same answer in two shapes: more worm-time per chaser-time.
+  ;; Neither is a shield or a life, because this game's lives are not the thing
+  ;; a good player runs short of; time outside territory is.
+  ;;
+  ;; **Capsules draw from their own random stream, $dropRng** — chapter 8's
+  ;; argument, the same one Pixel Wave's drops made first. Everything else here
+  ;; draws from $rng in an order the simulation fixes; placing a capsule from it
+  ;; would shift every chaser's roam after the first drop, and a run that never
+  ;; touched a capsule would still be a different run. On their own stream it is
+  ;; not, and the check that this change is only what it says is that such a
+  ;; run replays the previous engine byte for byte. See the README.
+  (global $DROP_FIRST f32 (f32.const 6.0))       ;; seconds into a level
+  (global $DROP_GAP_MIN f32 (f32.const 9.0))
+  (global $DROP_GAP_MAX f32 (f32.const 15.0))
+  (global $CAPSULE_LIFE f32 (f32.const 12.0))
+  (global $FREEZE_SHARE f32 (f32.const 0.55))
+  (global $FREEZE_TIME f32 (f32.const 4.0))
+  (global $SURGE_TIME f32 (f32.const 5.0))
+  (global $SURGE_TICK f32 (f32.const 0.6))
+  (global $dropRng (mut i32) (i32.const 1234567891))
+  (global $dropT (mut f32) (f32.const 6.0))
+  (global $freezeT (mut f32) (f32.const 0.0))
+  (global $surgeT (mut f32) (f32.const 0.0))
 
   ;; ---------------- helpers ----------------
 
@@ -206,6 +281,24 @@
   (func $rand_below (param $n i32) (result i32)
     (i32.rem_u (call $rand_u) (local.get $n)))
 
+  ;; The capsule stream: the same xorshift as $rand_u on its own state, so
+  ;; placing a capsule never moves anything $rng decides. See "power-ups".
+  (func $drop_u (result i32)
+    (local $x i32)
+    (local.set $x (global.get $dropRng))
+    (local.set $x (i32.xor (local.get $x) (i32.shl (local.get $x) (i32.const 13))))
+    (local.set $x (i32.xor (local.get $x) (i32.shr_u (local.get $x) (i32.const 17))))
+    (local.set $x (i32.xor (local.get $x) (i32.shl (local.get $x) (i32.const 5))))
+    (global.set $dropRng (local.get $x))
+    (i32.and (local.get $x) (i32.const 2147483647)))
+
+  (func $drop_frac (result f32)
+    (f32.div (f32.convert_i32_u (call $drop_u)) (f32.const 2147483648.0)))
+
+  (func $drop_gap (result f32)
+    (f32.add (global.get $DROP_GAP_MIN)
+      (f32.mul (call $drop_frac) (f32.sub (global.get $DROP_GAP_MAX) (global.get $DROP_GAP_MIN)))))
+
   (func $clampf (param $v f32) (param $lo f32) (param $hi f32) (result f32)
     (local $r f32)
     (local.set $r (local.get $v))
@@ -221,11 +314,17 @@
     (local.get $r))
 
   (func $tick_len (result f32)
-    (call $clampf
+    (local $t f32)
+    (local.set $t (call $clampf
       (f32.sub (global.get $TICK_BASE)
         (f32.mul (f32.convert_i32_s (i32.sub (global.get $level) (i32.const 1)))
                  (global.get $TICK_STEP)))
       (global.get $TICK_MIN) (global.get $TICK_BASE)))
+    ;; a surge shortens the tick; behind a branch, not a multiply by 1.0, so a
+    ;; run without one computes exactly what the engine before capsules did
+    (if (f32.gt (global.get $surgeT) (f32.const 0.0))
+      (then (local.set $t (f32.mul (local.get $t) (global.get $SURGE_TICK)))))
+    (local.get $t))
 
   (func $chase_len (result f32)
     (call $clampf
@@ -234,8 +333,9 @@
                  (global.get $CHASE_STEP)))
       (global.get $CHASE_MIN) (global.get $CHASE_BASE)))
 
-  ;; How much of the board a level asks for, as a cell count. It opens at 45%
-  ;; and climbs to 72%; past that the last few cells are a search problem
+  ;; How much of the board a level asks for, as a cell count: TARGET_BASE plus
+  ;; TARGET_STEP a level, so Normal asks 34% on level 1 (it opened at 45%
+  ;; before the opening was retuned) and climbs to 72%; past that the last few cells are a search problem
   ;; rather than a driving problem, and the level stops being fun well before
   ;; it stops being possible.
   (func $target_cells (result i32)
@@ -317,19 +417,28 @@
 
   (func $spawn_chasers
     (local $i i32) (local $n i32) (local $a i32) (local $c i32) (local $r i32) (local $tries i32)
+    (local $hunt i32)
     ;; One chaser on level 1, then one more every second level. Two at the
     ;; start read as a pack rather than a hazard, and the first level has to
     ;; teach the loop-and-claim rule before it starts punishing it.
     (local.set $n
       (call $clampi
-        (i32.add (i32.const 1) (i32.div_s (i32.sub (global.get $level) (i32.const 1)) (global.get $CHASER_EVERY)))
+        (i32.add (i32.const 1) (i32.div_s (i32.mul (i32.sub (global.get $level) (i32.const 1)) (i32.const 2)) (global.get $CHASER_EVERY)))
         (i32.const 1) (global.get $MAX_CHASERS)))
+    ;; a hunter level adds one to the pack, and the last of it is the hunter
+    (local.set $hunt (i32.eqz (i32.rem_s (global.get $level) (global.get $HUNTER_EVERY))))
+    (if (local.get $hunt)
+      (then
+        (local.set $n (call $clampi (i32.add (local.get $n) (i32.const 1)) (i32.const 1) (global.get $MAX_CHASERS)))
+        (global.set $hunters (i32.add (global.get $hunters) (i32.const 1)))))
     (local.set $i (i32.const 0))
     (block $done
       (loop $lp
         (br_if $done (i32.ge_s (local.get $i) (global.get $MAX_CHASERS)))
         (local.set $a (call $chaser_addr (local.get $i)))
         (i32.store offset=24 (local.get $a) (i32.const 0))
+        (i32.store offset=28 (local.get $a)
+          (i32.and (local.get $hunt) (i32.eq (local.get $i) (i32.sub (local.get $n) (i32.const 1)))))
         (if (i32.lt_s (local.get $i) (local.get $n))
           (then
             (local.set $tries (i32.const 0))
@@ -382,6 +491,137 @@
     (global.set $acc (f32.const 0.0))
     (global.set $chaseAcc (f32.const 0.0)))
 
+  ;; ---------------- capsules ----------------
+
+  (func $capsule_addr (param $i i32) (result i32)
+    (i32.add (global.get $CAPSULE_OFF) (i32.mul (local.get $i) (global.get $CAPSULE_STRIDE))))
+
+  (func $clear_capsules
+    (local $i i32)
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $lp
+        (br_if $done (i32.ge_s (local.get $i) (global.get $MAX_CAPSULES)))
+        (f32.store offset=16 (call $capsule_addr (local.get $i)) (f32.const 0.0))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $lp))))
+
+  ;; Which capsule, if any, sits on (c, r): its slot, or -1.
+  (func $capsule_on (param $c i32) (param $r i32) (result i32)
+    (local $i i32) (local $a i32)
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $lp
+        (br_if $done (i32.ge_s (local.get $i) (global.get $MAX_CAPSULES)))
+        (local.set $a (call $capsule_addr (local.get $i)))
+        (if (i32.and (f32.gt (f32.load offset=16 (local.get $a)) (f32.const 0.0))
+              (i32.and (i32.eq (i32.trunc_f32_s (f32.load offset=0 (local.get $a))) (local.get $c))
+                       (i32.eq (i32.trunc_f32_s (f32.load offset=4 (local.get $a))) (local.get $r))))
+          (then (return (local.get $i))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $lp)))
+    (i32.const -1))
+
+  ;; Open ground only: not owned (it would be free), not trail, not a hazard,
+  ;; not under a chaser, not on another capsule, and at least four cells from
+  ;; the head, so it is something to go out for rather than a step sideways.
+  (func $spawn_capsule
+    (local $i i32) (local $a i32) (local $c i32) (local $r i32) (local $tries i32)
+    (local $j i32) (local $ca i32) (local $ok i32)
+    (local.set $i (i32.const 0))
+    (block $found
+      (loop $lp
+        (br_if $found (i32.ge_s (local.get $i) (global.get $MAX_CAPSULES)))
+        (br_if $found (f32.eq (f32.load offset=16 (call $capsule_addr (local.get $i))) (f32.const 0.0)))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $lp)))
+    (if (i32.ge_s (local.get $i) (global.get $MAX_CAPSULES)) (then (return)))
+    (local.set $tries (i32.const 0))
+    (block $placed
+      (loop $plp
+        (br_if $placed (i32.gt_s (local.get $tries) (i32.const 60)))
+        (local.set $tries (i32.add (local.get $tries) (i32.const 1)))
+        (local.set $c (i32.rem_u (call $drop_u) (global.get $COLS)))
+        (local.set $r (i32.rem_u (call $drop_u) (global.get $ROWS)))
+        (br_if $plp (i32.ne (call $state_at (local.get $c) (local.get $r)) (global.get $OPEN)))
+        (br_if $plp (i32.ne (call $hazard_at (local.get $c) (local.get $r)) (i32.const 0)))
+        (br_if $plp (i32.ge_s (call $capsule_on (local.get $c) (local.get $r)) (i32.const 0)))
+        (br_if $plp (i32.lt_s
+          (i32.add (call $abs_i (i32.sub (local.get $c) (global.get $px)))
+                   (call $abs_i (i32.sub (local.get $r) (global.get $py))))
+          (i32.const 4)))
+        (local.set $ok (i32.const 1))
+        (local.set $j (i32.const 0))
+        (block $cdone
+          (loop $clp
+            (br_if $cdone (i32.ge_s (local.get $j) (global.get $MAX_CHASERS)))
+            (local.set $ca (call $chaser_addr (local.get $j)))
+            (if (i32.and (i32.ne (i32.load offset=24 (local.get $ca)) (i32.const 0))
+                  (i32.and (i32.eq (i32.load offset=0 (local.get $ca)) (local.get $c))
+                           (i32.eq (i32.load offset=4 (local.get $ca)) (local.get $r))))
+              (then (local.set $ok (i32.const 0))))
+            (local.set $j (i32.add (local.get $j) (i32.const 1)))
+            (br $clp)))
+        (br_if $plp (i32.eqz (local.get $ok)))
+        (local.set $a (call $capsule_addr (local.get $i)))
+        (f32.store offset=0 (local.get $a) (f32.convert_i32_s (local.get $c)))
+        (f32.store offset=4 (local.get $a) (f32.convert_i32_s (local.get $r)))
+        (f32.store offset=8 (local.get $a)
+          (if (result f32) (f32.lt (call $drop_frac) (global.get $FREEZE_SHARE))
+            (then (f32.const 0.0)) (else (f32.const 1.0))))
+        (f32.store offset=12 (local.get $a) (global.get $CAPSULE_LIFE))
+        (f32.store offset=16 (local.get $a) (f32.const 1.0))
+        (global.set $drops (i32.add (global.get $drops) (i32.const 1))))))
+
+  ;; Taking a kind already in force restarts its clock rather than stacking it.
+  (func $collect_capsule (param $i i32)
+    (local $a i32)
+    (local.set $a (call $capsule_addr (local.get $i)))
+    (if (f32.eq (f32.load offset=8 (local.get $a)) (f32.const 0.0))
+      (then (global.set $freezeT (global.get $FREEZE_TIME)))
+      (else (global.set $surgeT (global.get $SURGE_TIME))))
+    (f32.store offset=16 (local.get $a) (f32.const 0.0))
+    (global.set $grabs (i32.add (global.get $grabs) (i32.const 1))))
+
+  ;; After a capture: a capsule whose cell is owned now was just sealed off.
+  (func $collect_enclosed
+    (local $i i32) (local $a i32)
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $lp
+        (br_if $done (i32.ge_s (local.get $i) (global.get $MAX_CAPSULES)))
+        (local.set $a (call $capsule_addr (local.get $i)))
+        (if (i32.and (f32.gt (f32.load offset=16 (local.get $a)) (f32.const 0.0))
+              (i32.eq (call $state_at (i32.trunc_f32_s (f32.load offset=0 (local.get $a)))
+                                      (i32.trunc_f32_s (f32.load offset=4 (local.get $a))))
+                      (global.get $OWNED)))
+          (then (call $collect_capsule (local.get $i))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $lp))))
+
+  ;; Clocks: capsules fade, effects run down, and the next drop comes due.
+  (func $step_capsules (param $d f32)
+    (local $i i32) (local $a i32)
+    (global.set $freezeT (f32.max (f32.sub (global.get $freezeT) (local.get $d)) (f32.const 0.0)))
+    (global.set $surgeT (f32.max (f32.sub (global.get $surgeT) (local.get $d)) (f32.const 0.0)))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $lp
+        (br_if $done (i32.ge_s (local.get $i) (global.get $MAX_CAPSULES)))
+        (local.set $a (call $capsule_addr (local.get $i)))
+        (if (f32.gt (f32.load offset=16 (local.get $a)) (f32.const 0.0))
+          (then
+            (f32.store offset=12 (local.get $a) (f32.sub (f32.load offset=12 (local.get $a)) (local.get $d)))
+            (if (f32.le (f32.load offset=12 (local.get $a)) (f32.const 0.0))
+              (then (f32.store offset=16 (local.get $a) (f32.const 0.0))))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $lp)))
+    (global.set $dropT (f32.sub (global.get $dropT) (local.get $d)))
+    (if (f32.le (global.get $dropT) (f32.const 0.0))
+      (then
+        (call $spawn_capsule)
+        (global.set $dropT (call $drop_gap)))))
+
   (func $build_level
     (global.set $owned (i32.const 0))
     (global.set $trailLen (i32.const 0))
@@ -391,6 +631,11 @@
     (call $scatter_hazards)
     (call $spawn_chasers)
     (global.set $target (call $target_cells))
+    ;; a fresh board starts with no capsules and nothing in force
+    (call $clear_capsules)
+    (global.set $freezeT (f32.const 0.0))
+    (global.set $surgeT (f32.const 0.0))
+    (global.set $dropT (global.get $DROP_FIRST))
     (call $respawn))
 
   ;; Copy one column of the difficulty table into the globals the rest of the
@@ -404,7 +649,7 @@
         (global.set $CHASE_BASE (f32.const 0.340))
         (global.set $CHASE_STEP (f32.const 0.009))
         (global.set $CHASE_MIN (f32.const 0.140))
-        (global.set $CHASER_EVERY (i32.const 3))
+        (global.set $CHASER_EVERY (i32.const 6))
         (global.set $HAZ_BASE (i32.const 2))
         (global.set $HAZ_STEP (i32.const 4))
         (global.set $TARGET_BASE (i32.const 26))
@@ -417,7 +662,7 @@
             (global.set $CHASE_BASE (f32.const 0.200))
             (global.set $CHASE_STEP (f32.const 0.014))
             (global.set $CHASE_MIN (f32.const 0.085))
-            (global.set $CHASER_EVERY (i32.const 1))
+            (global.set $CHASER_EVERY (i32.const 3))
             (global.set $HAZ_BASE (i32.const 4))
             (global.set $HAZ_STEP (i32.const 8))
             (global.set $TARGET_BASE (i32.const 34))
@@ -428,7 +673,7 @@
             (global.set $CHASE_BASE (f32.const 0.260))
             (global.set $CHASE_STEP (f32.const 0.011))
             (global.set $CHASE_MIN (f32.const 0.105))
-            (global.set $CHASER_EVERY (i32.const 2))
+            (global.set $CHASER_EVERY (i32.const 4))
             (global.set $HAZ_BASE (i32.const 2))
             (global.set $HAZ_STEP (i32.const 6))
             (global.set $TARGET_BASE (i32.const 30))
@@ -456,6 +701,10 @@
     (global.set $capCells (i32.const 0))
     (global.set $deaths (i32.const 0))
     (global.set $kills (i32.const 0))
+    (global.set $drops (i32.const 0))
+    (global.set $grabs (i32.const 0))
+    (global.set $hunters (i32.const 0))
+    (global.set $hunterKills (i32.const 0))
     (call $build_level))
 
   ;; ---------------- input ----------------
@@ -613,6 +862,7 @@
         (br $lp)))
 
     (global.set $owned (i32.add (global.get $owned) (local.get $gained)))
+    (call $collect_enclosed)
     (global.set $capCells (local.get $gained))
     (global.set $capCount (i32.add (global.get $capCount) (i32.const 1)))
     (global.set $trailLen (i32.const 0))
@@ -633,7 +883,11 @@
               (then
                 (i32.store offset=24 (local.get $ca) (i32.const 0))
                 (global.set $kills (i32.add (global.get $kills) (i32.const 1)))
-                (call $add_score (global.get $SCORE_CHASER))))))
+                (call $add_score (global.get $SCORE_CHASER))
+                (if (i32.load offset=28 (local.get $ca))
+                  (then
+                    (global.set $hunterKills (i32.add (global.get $hunterKills) (i32.const 1)))
+                    (call $add_score (f32.sub (global.get $SCORE_HUNTER) (global.get $SCORE_CHASER)))))))))
         (local.set $j (i32.add (local.get $j) (i32.const 1)))
         (br $clp))))
 
@@ -689,6 +943,9 @@
 
   (func $die
     (global.set $deaths (i32.add (global.get $deaths) (i32.const 1)))
+    ;; a new life starts with nothing in force; capsules on the board stay
+    (global.set $freezeT (f32.const 0.0))
+    (global.set $surgeT (f32.const 0.0))
     (call $clear_trail)
     (global.set $lives (f32.sub (global.get $lives) (f32.const 1.0)))
     (if (f32.le (global.get $lives) (f32.const 0.0))
@@ -707,7 +964,7 @@
   ;; ---------------- simulation ----------------
 
   (func $tick_worm
-    (local $nc i32) (local $nr i32) (local $a i32)
+    (local $nc i32) (local $nr i32) (local $a i32) (local $k i32)
     ;; Take the queued direction unless it is a straight reversal, which would
     ;; drive the head into the cell the worm just left.
     (if (i32.or (i32.ne (global.get $wantX) (i32.const 0)) (i32.ne (global.get $wantY) (i32.const 0)))
@@ -737,6 +994,8 @@
 
     (global.set $px (local.get $nc))
     (global.set $py (local.get $nr))
+    (local.set $k (call $capsule_on (local.get $nc) (local.get $nr)))
+    (if (i32.ge_s (local.get $k) (i32.const 0)) (then (call $collect_capsule (local.get $k))))
 
     (if (i32.eq (i32.load8_u offset=0 (local.get $a)) (global.get $OWNED))
       (then
@@ -749,6 +1008,33 @@
   ;; Can a chaser stand here? Owned territory is closed to them, which is what
   ;; makes captured ground worth having and gives a cornered player somewhere
   ;; to run to.
+  ;; The hunter's target: the trail cell nearest (c, r), into $tgtX/$tgtY. MVP
+  ;; functions return one value, so the pair travels in two globals. With no
+  ;; trail it falls back to the head, which only happens on the tick a loop
+  ;; closes.
+  (func $nearest_trail (param $c i32) (param $r i32)
+    (local $i i32) (local $best i32) (local $d i32) (local $x i32) (local $y i32)
+    (global.set $tgtX (global.get $px))
+    (global.set $tgtY (global.get $py))
+    (local.set $best (i32.const 100000))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $lp
+        (br_if $done (i32.ge_s (local.get $i) (global.get $CELLS)))
+        (if (i32.eq (i32.load8_u offset=0 (call $idx_addr (local.get $i))) (global.get $TRAIL))
+          (then
+            (local.set $x (i32.rem_u (local.get $i) (global.get $COLS)))
+            (local.set $y (i32.div_u (local.get $i) (global.get $COLS)))
+            (local.set $d (i32.add (call $abs_i (i32.sub (local.get $x) (local.get $c)))
+                                   (call $abs_i (i32.sub (local.get $y) (local.get $r)))))
+            (if (i32.lt_s (local.get $d) (local.get $best))
+              (then
+                (local.set $best (local.get $d))
+                (global.set $tgtX (local.get $x))
+                (global.set $tgtY (local.get $y))))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $lp))))
+
   (func $chaser_can (param $c i32) (param $r i32) (result i32)
     (if (i32.eqz (call $in_bounds (local.get $c) (local.get $r))) (then (return (i32.const 0))))
     (i32.ne (call $state_at (local.get $c) (local.get $r)) (global.get $OWNED)))
@@ -813,6 +1099,12 @@
             ;; perfectly would make leaving home pointless.
             (local.set $dx (i32.sub (global.get $px) (local.get $c)))
             (local.set $dy (i32.sub (global.get $py) (local.get $r)))
+            ;; the hunter goes for the trail, not the head
+            (if (i32.load offset=28 (local.get $a))
+              (then
+                (call $nearest_trail (local.get $c) (local.get $r))
+                (local.set $dx (i32.sub (global.get $tgtX) (local.get $c)))
+                (local.set $dy (i32.sub (global.get $tgtY) (local.get $r)))))
             (local.set $sx (i32.const 0))
             (local.set $sy (i32.const 0))
             (if (i32.gt_s (call $abs_i (local.get $dx)) (call $abs_i (local.get $dy)))
@@ -936,7 +1228,10 @@
     ;; The chasers' clock always runs. Standing still is a decision the player
     ;; is allowed to make, not a pause button — and a worm that stops halfway
     ;; round a loop should feel the pack closing on the trail it left behind.
-    (global.set $chaseAcc (f32.add (global.get $chaseAcc) (local.get $d)))
+    ;; Frozen, the chasers' clock does not run at all, so they resume from
+    ;; exactly where they stopped rather than catching up on the lost time.
+    (if (f32.le (global.get $freezeT) (f32.const 0.0))
+      (then (global.set $chaseAcc (f32.add (global.get $chaseAcc) (local.get $d)))))
     (local.set $guard (i32.const 0))
     (block $cdone
       (loop $clp
@@ -950,6 +1245,8 @@
         (br $clp)))
 
     (if (i32.ne (global.get $gameOver) (i32.const 0)) (then (return)))
+
+    (call $step_capsules (local.get $d))
 
     (if (i32.ge_s (global.get $owned) (global.get $target))
       (then (call $next_level))))
@@ -980,4 +1277,11 @@
   (func $get_capture_cells (export "get_capture_cells") (result i32) (global.get $capCells))
   (func $get_deaths (export "get_deaths") (result i32) (global.get $deaths))
   (func $get_kills (export "get_kills") (result i32) (global.get $kills))
+  (func $get_drops (export "get_drops") (result i32) (global.get $drops))
+  (func $get_grabs (export "get_grabs") (result i32) (global.get $grabs))
+  (func $get_hunters (export "get_hunters") (result i32) (global.get $hunters))
+  (func $get_hunter_kills (export "get_hunter_kills") (result i32) (global.get $hunterKills))
+  ;; seconds of each effect left, zero when not in force
+  (func $get_freeze_t (export "get_freeze_t") (result f32) (global.get $freezeT))
+  (func $get_surge_t (export "get_surge_t") (result f32) (global.get $surgeT))
 )

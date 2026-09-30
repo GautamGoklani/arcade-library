@@ -251,7 +251,10 @@
 @media (max-width: 700px) {
   .pl-msg { font-size: 6.5vw; }
   .pl-note { font-size: 3.2vw; }
-  .pl-hud { gap: 2.2vw; font-size: 2.4vw; padding: 4px 8px; letter-spacing: 1px; }
+  /* Wraps rather than widening the page: with PAUSE and the difficulty button
+     beside SOUND the HUD no longer fits 375px on one line, and a flex row
+     that cannot wrap pushed the whole widget 20-80px past a phone's edge. */
+  .pl-hud { flex-wrap: wrap; gap: 2.2vw; row-gap: 4px; font-size: 2.4vw; padding: 4px 8px; letter-spacing: 1px; }
   .pl-bar { width: 15vw; height: 2vw; }
   .pl-mute { font-size: 2.2vw; padding: 2px 5px; }
 }

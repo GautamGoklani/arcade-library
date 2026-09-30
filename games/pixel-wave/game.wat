@@ -276,6 +276,17 @@
   ;; engine that had no bosses, byte for byte.
   (global $BOSS_EVERY i32 (i32.const 10))
   (global $BOSS_Y f32 (f32.const 130.0))
+  ;; **The boss enters; it does not appear.** It used to be written straight
+  ;; to (600, 130), and the ship is often right there: the last bot of level 9
+  ;; is chased through the upper half, which is where the boss's parts sit.
+  ;; Benched from level 1, so that runs arrive as players do, 17 of 54 boss
+  ;; arrivals on Easy cost a life inside half a second — rammed by a boss that
+  ;; had not existed a frame before, the one hit in the fight nobody could see
+  ;; coming. Now it descends from above the arena, cannot ram anything on the
+  ;; way down, and starts its attack clock only on arrival: 1.5 s in plain
+  ;; sight to get out from under it, the same fairness its wind-ups give.
+  (global $BOSS_ENTRY_Y f32 (f32.const -80.0))   ;; every part above the top edge
+  (global $BOSS_DESCENT f32 (f32.const 140.0))   ;; px/s: 210 px in 1.5 s
   (global $BOSS_SPEED f32 (f32.const 70.0))      ;; px/s, side to side
   (global $BOSS_SPEED_STEP f32 (f32.const 10.0))  ;; faster each boss
   ;; The pause between attacks, and the rounds each part takes, are one budget:
@@ -323,6 +334,15 @@
   (global $clinks (mut i32) (i32.const 0))       ;; the armoured core stopped a round
   (global $bossParts (mut i32) (i32.const 0))    ;; a section shot off
   (global $bossDowns (mut i32) (i32.const 0))    ;; a boss destroyed
+  ;; The two the game-over screen's accuracy is made of. $shots cannot be the
+  ;; denominator: a spread volley is three rounds and one entry on it, so
+  ;; kills over shots passes 100% the moment spread is picked up. And kills plus
+  ;; rocks cannot be the numerator: a round that takes a boss section down to
+  ;; 3 hp, or ticks off the plated core, hit what it was aimed at and kills
+  ;; nothing, so a boss fight would read as a spell of missing. Neither counter
+  ;; is read by the simulation, so adding them changed no frame of it.
+  (global $rounds (mut i32) (i32.const 0))       ;; a player round was spawned
+  (global $hits (mut i32) (i32.const 0))         ;; a player round struck something
 
   ;; ---------------- helpers ----------------
 
@@ -433,6 +453,10 @@
             (f32.store offset=12 (local.get $a) (local.get $vy))
             (f32.store offset=16 (local.get $a) (f32.convert_i32_s (local.get $owner)))
             (f32.store offset=20 (local.get $a) (f32.const 1.0))
+            ;; counted here rather than at the trigger, because a full pool
+            ;; drops the round and a round that never flew cannot miss
+            (if (i32.eqz (local.get $owner))
+              (then (global.set $rounds (i32.add (global.get $rounds) (i32.const 1)))))
             (br $done)))
         (local.set $i (i32.add (local.get $i) (i32.const 1)))
         (br $lp))))
@@ -562,7 +586,7 @@
     (local.set $core (f32.add (global.get $CORE_HP)
       (f32.mul (f32.sub (local.get $num) (f32.const 1.0)) (global.get $CORE_HP_STEP))))
     (f32.store offset=0 (local.get $b) (f32.mul (global.get $WORLD_W) (f32.const 0.5)))
-    (f32.store offset=4 (local.get $b) (global.get $BOSS_Y))
+    (f32.store offset=4 (local.get $b) (global.get $BOSS_ENTRY_Y))
     (f32.store offset=8 (local.get $b) (f32.add (global.get $BOSS_SPEED)
       (f32.mul (f32.sub (local.get $num) (f32.const 1.0)) (global.get $BOSS_SPEED_STEP))))
     (f32.store offset=12 (local.get $b) (f32.const 0.0))              ;; state: idle
@@ -687,10 +711,36 @@
     (call $part_fire (i32.const 0) (i32.const 2) (local.get $px) (local.get $py)))
 
   ;; Move, count down, wind up, fire.
+  ;; Still coming down: above its patrol line.
+  (func $boss_entering (result i32)
+    (f32.lt (f32.load offset=4 (global.get $BOSS_OFF)) (global.get $BOSS_Y)))
+
+  ;; hit flashes are the engine's, like everything else the widget draws
+  (func $fade_part_flashes (param $dt f32)
+    (local $i i32) (local $a i32)
+    (local.set $i (i32.const 0))
+    (block $fd
+      (loop $fl
+        (br_if $fd (i32.ge_s (local.get $i) (global.get $MAX_PARTS)))
+        (local.set $a (call $part_addr (local.get $i)))
+        (f32.store offset=20 (local.get $a)
+          (f32.max (f32.sub (f32.load offset=20 (local.get $a)) (local.get $dt)) (f32.const 0.0)))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $fl))))
+
   (func $step_boss (param $dt f32) (param $px f32) (param $py f32)
-    (local $b i32) (local $x f32) (local $vx f32) (local $t f32) (local $i i32) (local $a i32) (local $pat i32)
+    (local $b i32) (local $x f32) (local $vx f32) (local $t f32) (local $pat i32)
     (local.set $b (global.get $BOSS_OFF))
     (if (i32.eqz (call $boss_active)) (then (return)))
+    ;; the entrance: straight down, nothing else moving or counting until it
+    ;; lands, but hit flashes still fade — it can be shot on the way in
+    (if (call $boss_entering)
+      (then
+        (f32.store offset=4 (local.get $b)
+          (f32.min (f32.add (f32.load offset=4 (local.get $b)) (f32.mul (global.get $BOSS_DESCENT) (local.get $dt)))
+                   (global.get $BOSS_Y)))
+        (call $fade_part_flashes (local.get $dt))
+        (return)))
     (local.set $x (f32.add (f32.load offset=0 (local.get $b))
                            (f32.mul (f32.load offset=8 (local.get $b)) (local.get $dt))))
     (local.set $vx (f32.load offset=8 (local.get $b)))
@@ -700,16 +750,7 @@
       (then (local.set $x (f32.const 1020.0)) (local.set $vx (f32.neg (f32.abs (local.get $vx))))))
     (f32.store offset=0 (local.get $b) (local.get $x))
     (f32.store offset=8 (local.get $b) (local.get $vx))
-    ;; hit flashes are the engine's, like everything else the widget draws
-    (local.set $i (i32.const 0))
-    (block $fd
-      (loop $fl
-        (br_if $fd (i32.ge_s (local.get $i) (global.get $MAX_PARTS)))
-        (local.set $a (call $part_addr (local.get $i)))
-        (f32.store offset=20 (local.get $a)
-          (f32.max (f32.sub (f32.load offset=20 (local.get $a)) (local.get $dt)) (f32.const 0.0)))
-        (local.set $i (i32.add (local.get $i) (i32.const 1)))
-        (br $fl)))
+    (call $fade_part_flashes (local.get $dt))
     (local.set $t (f32.sub (f32.load offset=16 (local.get $b)) (local.get $dt)))
     (if (f32.le (local.get $t) (f32.const 0.0))
       (then
@@ -779,6 +820,8 @@
   (func $boss_touch (param $px f32) (param $py f32) (result i32)
     (local $i i32) (local $a i32) (local $dx f32) (local $dy f32) (local $r f32)
     (if (i32.eqz (call $boss_active)) (then (return (i32.const 0))))
+    ;; a boss on its way in passes over the ship rather than through it
+    (if (call $boss_entering) (then (return (i32.const 0))))
     (local.set $r (f32.add (global.get $PART_R) (global.get $SHIP_R)))
     (local.set $i (i32.const 0))
     (block $done
@@ -797,6 +840,30 @@
         (local.set $i (i32.add (local.get $i) (i32.const 1)))
         (br $lp)))
     (i32.const 0))
+
+  ;; Every way the ship can be hurt — an enemy round, an asteroid, a bot ram,
+  ;; a boss ram — ends here. A shield in force takes the hit and is spent;
+  ;; otherwise a life goes, and the last one ends the game.
+  ;;
+  ;; This was written out four times inline, once per way of being hit, and
+  ;; the shield had to be added to three copies and then a fourth. The copies
+  ;; lived because $lives is a local of step(); the helper takes it and hands it
+  ;; back, the way $hit_boss hands step() the points it has to add, and the
+  ;; caller clears its own $palive when $gameOver comes back set — MVP has one
+  ;; result per function, so the second answer travels in the global that was
+  ;; going to carry it anyway. Proven a no-op: the replay in the README's
+  ;; "Losing a life" section was identical byte for byte.
+  (func $take_hit (param $lives f32) (result f32)
+    (if (f32.gt (global.get $shieldT) (f32.const 0.0))
+      (then
+        (global.set $shieldT (f32.const 0.0))
+        (global.set $blocks (i32.add (global.get $blocks) (i32.const 1)))
+        (return (local.get $lives))))
+    (local.set $lives (f32.sub (local.get $lives) (f32.const 1.0)))
+    (global.set $hurts (i32.add (global.get $hurts) (i32.const 1)))
+    (if (f32.le (local.get $lives) (f32.const 0.0))
+      (then (global.set $gameOver (i32.const 1))))
+    (local.get $lives))
 
   ;; Wave size: 1 + level, capped at 24. Was 3 + level capped at MAX_BOTS (33),
   ;; which opened on four enemies and saturated the screen by level 30. The
@@ -908,6 +975,8 @@
     (global.set $clinks (i32.const 0))
     (global.set $bossParts (i32.const 0))
     (global.set $bossDowns (i32.const 0))
+    (global.set $rounds (i32.const 0))
+    (global.set $hits (i32.const 0))
     (f32.store offset=24 (global.get $BOSS_OFF) (f32.const 0.0))
     (global.set $rotDir (f32.const 0.0))
     (global.set $astTimer (f32.const 2.5))
@@ -970,6 +1039,8 @@
   (func $get_clinks (export "get_clinks") (result i32) (global.get $clinks))
   (func $get_boss_parts (export "get_boss_parts") (result i32) (global.get $bossParts))
   (func $get_boss_downs (export "get_boss_downs") (result i32) (global.get $bossDowns))
+  (func $get_rounds (export "get_rounds") (result i32) (global.get $rounds))
+  (func $get_hits (export "get_hits") (result i32) (global.get $hits))
   ;; Seconds left on each effect, for the HUD. Zero when not in force.
   (func $get_rapid_t (export "get_rapid_t") (result f32) (global.get $rapidT))
   (func $get_spread_t (export "get_spread_t") (result f32) (global.get $spreadT))
@@ -1298,7 +1369,10 @@
                                     (global.set $rocks (i32.add (global.get $rocks) (i32.const 1)))
                                     (br $donechk2)))))
                             (local.set $i (i32.add (local.get $i) (i32.const 1)))
-                            (br $lpchk2))))))
+                            (br $lpchk2)))))
+                    ;; a bot, a rock, a section or the plated core: all hits
+                    (if (local.get $hit)
+                      (then (global.set $hits (i32.add (global.get $hits) (i32.const 1))))))
                   (else
                     ;; bot bullet vs player
                     (if (f32.gt (local.get $palive) (f32.const 0.0))
@@ -1309,18 +1383,8 @@
                                     (f32.mul (global.get $BULLET_HIT_R) (global.get $BULLET_HIT_R)))
                           (then
                             (local.set $hit (i32.const 1))
-                            ;; a shield in force takes the hit instead, and is spent
-                            (if (f32.gt (global.get $shieldT) (f32.const 0.0))
-                              (then
-                                (global.set $shieldT (f32.const 0.0))
-                                (global.set $blocks (i32.add (global.get $blocks) (i32.const 1))))
-                              (else
-                                (local.set $lives (f32.sub (local.get $lives) (f32.const 1.0)))
-                                (global.set $hurts (i32.add (global.get $hurts) (i32.const 1)))
-                                (if (f32.le (local.get $lives) (f32.const 0.0))
-                                  (then
-                                    (local.set $palive (f32.const 0.0))
-                                    (global.set $gameOver (i32.const 1))))))))))))
+                            (local.set $lives (call $take_hit (local.get $lives)))
+                            (if (global.get $gameOver) (then (local.set $palive (f32.const 0.0))))))))))
                 (if (i32.ne (local.get $hit) (i32.const 0)) (then (local.set $active (f32.const 0.0))))))
 
             (f32.store offset=0 (local.get $b) (local.get $ox))
@@ -1357,17 +1421,8 @@
                                 (f32.mul (f32.add (local.get $astR) (global.get $SHIP_R)) (f32.add (local.get $astR) (global.get $SHIP_R))))
                       (then
                         (local.set $active (f32.const 0.0))
-                        (if (f32.gt (global.get $shieldT) (f32.const 0.0))
-                          (then
-                            (global.set $shieldT (f32.const 0.0))
-                            (global.set $blocks (i32.add (global.get $blocks) (i32.const 1))))
-                          (else
-                            (local.set $lives (f32.sub (local.get $lives) (f32.const 1.0)))
-                            (global.set $hurts (i32.add (global.get $hurts) (i32.const 1)))
-                            (if (f32.le (local.get $lives) (f32.const 0.0))
-                              (then
-                                (local.set $palive (f32.const 0.0))
-                                (global.set $gameOver (i32.const 1))))))))))))
+                        (local.set $lives (call $take_hit (local.get $lives)))
+                        (if (global.get $gameOver) (then (local.set $palive (f32.const 0.0))))))))))
             (f32.store offset=0 (local.get $a) (local.get $ox))
             (f32.store offset=4 (local.get $a) (local.get $oy))
             (f32.store offset=20 (local.get $a) (local.get $active))))
@@ -1396,17 +1451,8 @@
                 (f32.store offset=20 (local.get $a) (f32.const 0.0))
                 ;; a shield absorbs a ram too; the bot is lost either way, and
                 ;; still scores nothing
-                (if (f32.gt (global.get $shieldT) (f32.const 0.0))
-                  (then
-                    (global.set $shieldT (f32.const 0.0))
-                    (global.set $blocks (i32.add (global.get $blocks) (i32.const 1))))
-                  (else
-                    (local.set $lives (f32.sub (local.get $lives) (f32.const 1.0)))
-                    (global.set $hurts (i32.add (global.get $hurts) (i32.const 1)))
-                    (if (f32.le (local.get $lives) (f32.const 0.0))
-                      (then
-                        (local.set $palive (f32.const 0.0))
-                        (global.set $gameOver (i32.const 1))))))))))
+                (local.set $lives (call $take_hit (local.get $lives)))
+                (if (global.get $gameOver) (then (local.set $palive (f32.const 0.0))))))))
         (local.set $i (i32.add (local.get $i) (i32.const 1)))
         (br $lpram)))
 
@@ -1420,17 +1466,8 @@
         (local.set $py (f32.add (f32.load offset=4 (global.get $BOSS_OFF)) (f32.const 150.0)))
         (f32.store offset=4 (i32.const 0) (local.get $py))
         (f32.store offset=12 (i32.const 0) (f32.const 260.0))
-        (if (f32.gt (global.get $shieldT) (f32.const 0.0))
-          (then
-            (global.set $shieldT (f32.const 0.0))
-            (global.set $blocks (i32.add (global.get $blocks) (i32.const 1))))
-          (else
-            (local.set $lives (f32.sub (local.get $lives) (f32.const 1.0)))
-            (global.set $hurts (i32.add (global.get $hurts) (i32.const 1)))
-            (if (f32.le (local.get $lives) (f32.const 0.0))
-              (then
-                (local.set $palive (f32.const 0.0))
-                (global.set $gameOver (i32.const 1))))))))
+        (local.set $lives (call $take_hit (local.get $lives)))
+        (if (global.get $gameOver) (then (local.set $palive (f32.const 0.0))))))
 
     ;; ===== pickups: fall, fade, collect =====
     (local.set $j (i32.const 0))

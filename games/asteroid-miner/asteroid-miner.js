@@ -28,6 +28,7 @@
   var ROCKS_OFF = 24, ROCK_STRIDE = 32, MAX_ROCKS = 28;
   var BULLETS_OFF = 920, BULLET_STRIDE = 24, MAX_BULLETS = 24;
   var PICKUPS_OFF = 1496, PICKUP_STRIDE = 32, MAX_PICKUPS = 40;
+  var RIVAL_OFF = 2784;
   // Field positions inside each record, in f32 slots — the `@fields` lines in
   // game.wat, copied. Every read goes through this table rather than a bare
   // `f32[a + 6]`, so scripts/check-layout.mjs can see a field that moved.
@@ -37,6 +38,7 @@
     bullet: { x: 0, y: 1, vx: 2, vy: 3, life: 4, active: 5 },
     pickup: { x: 0, y: 1, vx: 2, vy: 3, life: 4, kind: 5, active: 6, phase: 7 },
     depot: { x: 0, y: 1 },
+    rival: { x: 0, y: 1, vx: 2, vy: 3, active: 4, cargo: 5, stun: 6, drill: 7, tx: 8, ty: 9 },
   };
   var SHIP_R = 12;
   var PXS = 3; // chunky pixel scale for the ASCII sprites
@@ -45,7 +47,7 @@
   // period would recognise — and makes one sprite pixel exactly PXS world px.
   var LOW_SCALE = 3;
 
-  var WASM_B64 = "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";
+  var WASM_B64 = "AGFzbQEAAAABaBJgAX0BfWABfwF/YAABfWACfX0BfWADfX19AX1gA39/fwF/YAR9fX19AX1gAX8BfWABfQBgBX19f319AGAAAX9gAABgA319fwBgAn19AGABfwBgAn19AX9gBH9/f38AYAZ9f39/fX8AAhcCA2VudgRzaW5mAAADZW52BGNvc2YAAANfXgEBAQICAwQFAwAEBgcCCAICCQoLDA0LCwgICg0OCA4IBAsLCwsIDwgIAQcLCxALCw4KCwsRCAICCgICAgIKCgIKAgICAgoKCgoKCgoKCgICAgoKCgoKCgoKCgoKAgIFAwEAAQbXBn9/AEEAC38AQRgLfwBBIAt/AEEcC38AQZgHC38AQRgLfwBBGAt/AEHYCwt/AEEgC38AQSgLfwBB2BULfwBB4BULfQBDAABwRAt9AEMAADREC30AQ9sPSUALfQBD2w/JQAt9AEMAAEBBC30AQ5qZWUALfQBDAACHQwt9AEMAAJZDC30AQz0K1z4LfQBDrkdhPgt9AEMAAOtDC30AQzMzkz8LfQBDzcwMQAt9AUMAAMhCC30BQwAACEELfQBDAAAYQgt9AUMAALBBC30AQwAAQEALfQBDAABgQQt9AUMAAEBBC30AQ65H4T0LfQBDAABQQgt9AEMAAChCC30AQwAAyEELfQBDAABgQQt9AUMAANBBC30BQwAAgEALfQBDAAA4Qgt9AEMAAIhBC30AQwAAEEELfQBDAADQQQt9AEMAAGBAC30AQ4/CdT0LfQBDAABAQQt9AEMAACBBC30AQwAAPkMLfQBDAABwQwt9AEMAAEhCC30AQwAAgEALfQBDAAAMQgt/AEECC38AQQgLfwBBEAt/AEEMC38AQQgLfwBBAwt9AEMAAKBAC30AQwAAFkMLfQBDAACCQwt9AEMAALRDC30AQwAA8EILfQBDzcyMPwt9AEMAACBBC30AQwAAgEELfQBDAAAgQAt9AEOamZk/C38AQQMLfQBDAAAWQwt/AEEFC30AQwAAoEALfQBDAABwQQt9AEMAAMhBC30AQwAASEMLfQFDAACAQAt/AUEBC38BQQILfwFBAwt/AUEKC38BQQMLfwFBAwt/AUHtnJmOBAt/AUG198j4AQt9AUMAAAAAC30BQwAAAAALfwFBAQt/AUEAC30BQwAAAAALfQFDAACAQAt9AUMAAMhCC30BQwAAAAALfwFBAAt/AUEIC38BQQALfwFBAAt/AUEAC38BQQALfwFBAAt9AUMAAIC/C38BQQALfwFBAAt9AUMAAAAAC38BQQALfwFBAAt/AUEAC30BQwAAAAALfwFBAAt9AUMAAAAAC30BQwAAAAALfQFDAAAAAAt9AUMAAAAAC38BQQALfwFBAAt/AUEAC38BQQALfwFBAAt/AUEAC38BQQALfwFBAAt/AUEAC38BQQALfwFBAAt/AUEAC38BQQALfwFBAAt/AUEACwetBTEGbWVtb3J5AgALcm9ja3NfYWxpdmUAHA5nZXRfcmVmaXRfY29zdAArDmdldF9yZWZpdF9uZXh0ACwOc2V0X2RpZmZpY3VsdHkAMg5nZXRfZGlmZmljdWx0eQAzBGluaXQANAlzZXRfaW5wdXQANgRzdGVwADcJZ2V0X3Njb3JlADgJZ2V0X2xpdmVzADkJZ2V0X2xldmVsADoIZ2V0X2Z1ZWwAOwxnZXRfZnVlbF9tYXgAPAlnZXRfY2FyZ28APQ1nZXRfY2FyZ29fbWF4AD4NZ2V0X2RlbGl2ZXJlZAA/CWdldF9xdW90YQBAC2dldF9oZWFkaW5nAEENZ2V0X3RocnVzdGluZwBCCmdldF9pbnZ1bG4AQwtnZXRfZGVwb3RfeABEC2dldF9kZXBvdF95AEULZ2V0X2RlcG90X3IARgxpc19nYW1lX292ZXIARwlnZXRfc2hvdHMASAhnZXRfaGl0cwBJCWdldF9ncmFicwBKCWdldF9mdWVscwBLCWdldF9kcm9wcwBMCmdldF9kZWF0aHMATQ9nZXRfcG93ZXJfZHJvcHMATgpnZXRfcG93ZXJzAE8KZ2V0X21hZ25ldABQCWdldF9kcmlsbABRDGdldF9tYWduZXRfcgBSCmdldF9jcmVkaXQAUw1nZXRfaG9sZF90aWVyAFQNZ2V0X3RhbmtfdGllcgBVCmdldF9kb2NrZWQAVgpnZXRfcmVmaXRzAFcKZ2V0X3JpdmFscwBYDmdldF9yaXZhbF9oaXRzAFkPZ2V0X3JpdmFsX3Rha2VzAFoPZ2V0X3JpdmFsX3JvdXRzAFsRZ2V0X3JpdmFsX2VzY2FwZXMAXAxnZXRfcml2YWxfaHAAXQ1nZXRfcml2YWxfY2FwAF4PZ2V0X3JpdmFsX2RyaWxsAF8K9C1eCgAjASAAIwJs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";
 
   // ============================================================
   // PIXEL SPRITES (ASCII grids -> offscreen canvases)
@@ -81,6 +83,20 @@
     'HBBGGBBH',
     'HBD..DBH',
     'D.D..D.D',
+  ];
+
+  // The rival: a heavier hull in the violet no other thing on the field uses,
+  // so it is never mistaken for the player's own ship in a crowd.
+  var RIVAL_PAL = { H: '#e2c9ff', B: '#8b5cf6', D: '#3b1f73', G: '#ff5470' };
+  var rivalRows = [
+    '..HHHH..',
+    '.HBBBBH.',
+    'HBBGGBBH',
+    'HBBBBBBH',
+    'HBDBBDBH',
+    '.HBBBBH.',
+    'HD.DD.DH',
+    'D..DD..D',
   ];
 
   var FLAME_PAL = { Y: '#fff2a8', O: '#ffb02e', R: '#ff5470' };
@@ -133,6 +149,28 @@
     'OYDDYO',
     'OYYYYO',
     '.OOOO.',
+  ];
+
+  // The two power-ups, as capsules the size of a gem, each drawn as the tool
+  // it is: a horseshoe magnet in red and white, a drill bit in brass. Neither
+  // colour is used for anything else on the field.
+  var MAG_PAL = { R: '#ff5470', W: '#f4f4f4', D: '#7a1628' };
+  var magnetRows = [
+    'RR..RR',
+    'RR..RR',
+    'RR..RR',
+    'RD..DR',
+    '.RRRR.',
+    'WW..WW',
+  ];
+  var DRILL_PAL = { B: '#e0b64a', L: '#fff0b0', D: '#6e5214' };
+  var drillRows = [
+    '.BBBB.',
+    'BLLLLB',
+    '.BDDB.',
+    '..BD..',
+    '..BD..',
+    '...D..',
   ];
 
   var STAR_COLORS = ['#8899bb', '#c9d6ee', '#5d6a8a'];
@@ -199,6 +237,11 @@
       cell:  function () { tone(420, 880, 0.13, 'triangle', 0.055); },
       // Each gem unloaded is one step up a scale, so a full hold sounds like a
       // full hold — the drip in $dock is what makes that possible.
+      refit: function () { tone(330, 660, 0.08, 'square', 0.04); tone(660, 1320, 0.16, 'square', 0.035); },
+      rival:  function () { tone(180, 360, 0.35, 'sawtooth', 0.04); tone(360, 180, 0.5, 'sawtooth', 0.03); },
+      rivalHit: function () { noise(0.12, 0.07); tone(520, 260, 0.12, 'square', 0.04); },
+      rivalGone: function () { tone(700, 1400, 0.4, 'triangle', 0.04); },
+      power: function () { tone(660, 990, 0.1, 'square', 0.04); tone(990, 1320, 0.14, 'triangle', 0.04); },
       drop:  function (n) { tone(520 + (n % 8) * 55, 900 + (n % 8) * 55, 0.07, 'triangle', 0.05); },
       die:   function () { noise(0.5, 0.13); tone(300, 50, 0.6, 'sawtooth', 0.08); },
       level: function () { tone(520, 1040, 0.3, 'triangle', 0.06); },
@@ -228,6 +271,8 @@
         '<span class="am-gauge">FUEL <span class="am-bar" data-am="bar"><i data-am="fuel"></i></span></span>' +
         '<span>HOLD <b data-am="cargo">0/12</b></span>' +
         '<span>QUOTA <b class="am-a" data-am="quota">0/6</b></span>' +
+        '<span>BANK <b class="am-g" data-am="bank">0</b></span>' +
+        '<span class="am-power" data-am="power"></span>' +
         '<button type="button" class="am-mute" data-am="mute">SOUND ON</button>' +
         '<button type="button" class="am-mute am-pause" data-am="pause">PAUSE</button>' +
         '<button type="button" class="am-mute am-diff" data-am="diff">NORMAL</button>' +
@@ -245,13 +290,20 @@
         '</div>' +
         '<div class="am-scan" aria-hidden="true"></div>' +
         '<div class="am-overlay am-note" data-am="note">DOCKED</div>' +
+        '<div class="am-overlay am-shop" data-am="shop">' +
+          '<span class="am-shop-credit" data-am="credit">BANK 0</span>' +
+          '<button type="button" data-buy="1"></button>' +
+          '<button type="button" data-buy="2"></button>' +
+          '<button type="button" data-buy="3"></button>' +
+        '</div>' +
         '<div class="am-overlay am-banner" data-am="banner">LEVEL 1</div>' +
         '<div class="am-overlay am-msg" data-am="msg">GAME OVER<small data-am="msgsmall">PRESS R TO RESTART</small></div>' +
         '<div class="am-overlay am-msg am-paused" data-am="paused">PAUSED<small data-am="pausedsmall">PRESS P TO RESUME</small></div>' +
       '</div>' +
       '<div class="am-help" data-am="help">' +
         '[&larr;][&rarr;] TURN &nbsp; [&uarr;] THRUST &nbsp; [SPACE] MINE &nbsp; ' +
-        'FILL THE HOLD, FLY IT HOME &nbsp; [P] PAUSE &nbsp; [R] RESTART &nbsp; [M] MUTE</div>';
+        'FILL THE HOLD, FLY IT HOME &nbsp; [1][2][3] REFIT, DOCKED &nbsp; ' +
+        '[P] PAUSE &nbsp; [R] RESTART &nbsp; [M] MUTE</div>';
     container.appendChild(root);
 
     var q = function (name) { return root.querySelector('[data-am="' + name + '"]'); };
@@ -280,7 +332,9 @@
     g.imageSmoothingEnabled = false;
     var stage = root.querySelector('.am-stage');
     var hudScore = q('score'), hudLives = q('lives'), hudLevel = q('level');
-    var hudCargo = q('cargo'), hudQuota = q('quota');
+    var hudCargo = q('cargo'), hudQuota = q('quota'), hudPower = q('power'), hudBank = q('bank');
+    var shopEl = q('shop'), shopCredit = q('credit');
+    var shopBtns = [null].concat([].slice.call(shopEl.querySelectorAll('button')));
     var fuelBar = q('bar'), fuelFill = q('fuel');
     var msgEl = q('msg'), bannerEl = q('banner'), noteEl = q('note'), helpEl = q('help');
     var muteBtn = q('mute');
@@ -296,7 +350,7 @@
     function enableTouchUI() {
       if (root.classList.contains('am-is-touch')) return;
       root.classList.add('am-is-touch');
-      helpEl.textContent = 'LEFT STICK AIMS • THR TO BURN • FIRE TO MINE • FLY THE HOLD HOME • TAP GAME OVER TO RESTART';
+      helpEl.textContent = 'LEFT STICK AIMS • THR TO BURN • FIRE TO MINE • FLY THE HOLD HOME • TAP TO REFIT, DOCKED • TAP GAME OVER TO RESTART';
       q('msgsmall').textContent = 'TAP TO RESTART';
       q('pausedsmall').textContent = 'TAP TO RESUME';
     }
@@ -318,7 +372,7 @@
     // nothing latches the way a missed keyup can.
     var PAD_DEADZONE = 0.28;   // a resting stick reads up to about 0.15 on a worn pad
     var pad = { rot: 0, thrust: false, fire: false };
-    var padPrev = { pause: false, restart: false, mute: false };
+    var padPrev = { pause: false, restart: false, mute: false, pick: false, buy: false };
     var stick = { active: false, ox: 0, oy: 0, on: 0, ang: 0 };
     var touch = { thrust: false, fire: false };
     var sound = createSound();
@@ -326,14 +380,23 @@
     var particles = [];
     var shake = 0, flash = 0;
     var prevLevel = 1, prevHits = 0, prevShots = 0, prevGrabs = 0;
-    var prevFuels = 0, prevDrops = 0, prevDeaths = 0, prevOver = 0;
+    var prevFuels = 0, prevDrops = 0, prevDeaths = 0, prevOver = 0, prevPowers = 0;
     var bannerT = 0, noteT = 0, warnT = 0;
+    // The refit. `buyReq` is a press waiting for the next frame's set_input,
+    // sent once and cleared, so the engine sees each press exactly once however
+    // it arrived. `shopPick` is the gamepad's cursor over the three items.
+    var buyReq = 0, shopPick = 1, prevRefits = 0, shopKey = '';
+    var prevRivals = 0, prevRivalHits = 0, prevRivalRouts = 0, prevRivalEscapes = 0;
+    var SHOP_NAMES = [null, 'HOLD', 'TANK', 'SHIP'];
 
     // ---------- sprites ----------
     var sprShip = makeSprite(shipRows, SHIP_PAL, PXS);
     var sprFlame = [makeSprite(flameRows, FLAME_PAL, PXS), makeSprite(flameRows2, FLAME_PAL, PXS)];
     var sprGem = makeSprite(gemRows, GEM_PAL, PXS);
+    var sprMagnet = makeSprite(magnetRows, MAG_PAL, PXS);
+    var sprDrill = makeSprite(drillRows, DRILL_PAL, PXS);
     var sprCell = makeSprite(cellRows, CELL_PAL, PXS);
+    var sprRival = makeSprite(rivalRows, RIVAL_PAL, PXS);
     // One rock bitmap per size, pre-scaled, so the frame loop never scales.
     var sprRock = [null,
       makeSprite(rockRows, ROCK_PAL, 3),
@@ -374,6 +437,7 @@
       var k = KEY_MAP[e.key];
       if (k) { keys[k] = true; stick.on = 0; e.preventDefault(); return; }
       if (e.key === 'r' || e.key === 'R') restart();
+      if ((e.key === '1' || e.key === '2' || e.key === '3') && !e.repeat) buyReq = +e.key;
       if (e.key === 'm' || e.key === 'M') toggleMute();
       // A held key auto-repeats, and a toggle on every repeat would flicker.
       if ((e.key === 'p' || e.key === 'P' || e.key === 'Escape') && !e.repeat) {
@@ -556,13 +620,28 @@
       pad.thrust = btn(0) || btn(7) || btn(12);
       pad.fire = btn(2) || btn(6) || btn(1);
 
-      var pausePress = btn(9), restartPress = btn(8) || btn(3), mutePress = btn(4) || btn(5);
+      // Docked, the d-pad's down picks a refit item and Y buys it; away from
+      // the depot Y restarts, as it always did. Back restarts everywhere, so
+      // nothing is lost by lending Y to the menu for the seconds it is open.
+      var docked = !!(wasm && wasm.exports.get_docked() && !wasm.exports.is_game_over());
+      var pausePress = btn(9), mutePress = btn(4) || btn(5);
+      var restartPress = btn(8) || (btn(3) && !docked);
+      var buyPress = btn(3) && docked, pickPress = btn(13) && docked;
       if (pausePress && !padPrev.pause) setPaused(!paused);
       if (restartPress && !padPrev.restart) restart();
       if (mutePress && !padPrev.mute) toggleMute();
+      if (pickPress && !padPrev.pick) shopPick = shopPick % 3 + 1;
+      if (buyPress && !padPrev.buy) buyReq = shopPick;
       padPrev.pause = pausePress; padPrev.restart = restartPress; padPrev.mute = mutePress;
+      padPrev.pick = pickPress; padPrev.buy = buyPress;
     }
     muteBtn.addEventListener('click', function () { toggleMute(); muteBtn.blur(); });
+    shopEl.addEventListener('click', function (e) {
+      var b = e.target.closest ? e.target.closest('button') : null;
+      if (!b || b.disabled) return;
+      buyReq = +b.getAttribute('data-buy');
+      b.blur();
+    });
     msgEl.addEventListener('click', function () { restart(); });
 
     // ---------- particles ----------
@@ -677,15 +756,18 @@
     function drawBullets() {
       // No glow. A blur is the giveaway that a picture was made after about
       // 1995; brightness on this hardware came from picking a brighter colour.
+      // Drill rounds are brass and white: a shot that will mine a rock out
+      // whole should not look like one that will only crack it.
+      var drilling = wasm.exports.get_drill() > 0;
       for (var i = 0; i < MAX_BULLETS; i++) {
         var a = (BULLETS_OFF + i * BULLET_STRIDE) >> 2;
         if (f32[a + FIELD.bullet.active] <= 0) continue;
         drawWrapped(f32[a + FIELD.bullet.x], f32[a + FIELD.bullet.y], 6, function (x, y) {
           var bx = Math.round(x / LOW_SCALE) * LOW_SCALE;
           var by = Math.round(y / LOW_SCALE) * LOW_SCALE;
-          g.fillStyle = '#ffb02e';
+          g.fillStyle = drilling ? '#e0b64a' : '#ffb02e';
           g.fillRect(bx - LOW_SCALE, by - LOW_SCALE, LOW_SCALE * 2, LOW_SCALE * 2);
-          g.fillStyle = '#fff2a8';
+          g.fillStyle = drilling ? '#ffffff' : '#fff2a8';
           g.fillRect(bx - LOW_SCALE, by - LOW_SCALE, LOW_SCALE, LOW_SCALE);
         });
       }
@@ -698,7 +780,7 @@
         if (f32[a + P.active] <= 0) continue;
         var kind = f32[a + P.kind] | 0;
         var life = f32[a + P.life];
-        var spr = kind === 1 ? sprCell : sprGem;
+        var spr = kind === 3 ? sprDrill : kind === 2 ? sprMagnet : kind === 1 ? sprCell : sprGem;
         var bob = Math.sin(tGlobal * 3.4 + f32[a + P.phase]) * 3;
         // The last three seconds blink, because a gem that simply vanished
         // would read as the game taking it rather than the player being late.
@@ -707,6 +789,53 @@
         drawWrapped(f32[a + P.x], f32[a + P.y] + bob, 14, function (x, y) {
           drawSpriteAt(spr, x, y, 0);
         });
+      }
+    }
+
+    /**
+     * The rival, its cutting beam, and how full its hold is. The beam is a
+     * dotted line to the rock it is cutting that fills in as the cut goes,
+     * so how long you have before that rock pays it is on screen. The pips
+     * over it are its hold against its capacity, which is the question the
+     * whole thing asks: shoot it now, or let it fill up first.
+     */
+    function drawRival() {
+      var V = FIELD.rival, b = RIVAL_OFF >> 2, e = wasm.exports;
+      var act = f32[b + V.active];
+      if (act <= 0) return;
+      var x = f32[b + V.x], y = f32[b + V.y], s = LOW_SCALE;
+      if (act > 1.5) {
+        // warping out: the hull strobes and a ring closes on it
+        if (Math.floor(tGlobal * 20) % 2) drawWrapped(x, y, 20, function (px, py) { drawSpriteAt(sprRival, px, py, 0); });
+        var rr = 10 + f32[b + V.stun] * 40;
+        g.fillStyle = '#e2c9ff';
+        for (var k = 0; k < 16; k++) {
+          var t = k / 16 * Math.PI * 2;
+          g.fillRect(Math.round((x + Math.cos(t) * rr) / s) * s, Math.round((y + Math.sin(t) * rr) / s) * s, s, s);
+        }
+        return;
+      }
+      var drill = f32[b + V.drill];
+      if (drill > 0) {
+        var dx = f32[b + V.tx] - x, dy = f32[b + V.ty] - y;
+        if (dx > WORLD_W / 2) dx -= WORLD_W; if (dx < -WORLD_W / 2) dx += WORLD_W;
+        if (dy > WORLD_H / 2) dy -= WORLD_H; if (dy < -WORLD_H / 2) dy += WORLD_H;
+        var len = Math.sqrt(dx * dx + dy * dy) || 1, steps = Math.floor(len / (s * 2));
+        var lit = Math.floor(steps * Math.min(1, drill / e.get_rival_drill()));
+        for (var i = 1; i < steps; i++) {
+          g.fillStyle = i <= lit ? '#ff5470' : 'rgba(226,201,255,0.5)';
+          g.fillRect(Math.round((x + dx * i / steps) / s) * s, Math.round((y + dy * i / steps) / s) * s, s, s);
+        }
+      }
+      var stunned = f32[b + V.stun] > 0;
+      if (stunned && Math.sin(tGlobal * 30) < 0) return;
+      var ang = Math.atan2(f32[b + V.vx], -f32[b + V.vy]);
+      drawWrapped(x, y, 20, function (px, py) { drawSpriteAt(sprRival, px, py, ang); });
+      var cap = e.get_rival_cap(), n = f32[b + V.cargo] | 0;
+      var x0 = Math.round((x - cap * s) / s) * s, y0 = Math.round((y - 24) / s) * s;
+      for (var p = 0; p < cap; p++) {
+        g.fillStyle = p < n ? '#6cf0ff' : '#3b1f73';
+        g.fillRect(x0 + p * s * 2, y0, s, s);
       }
     }
 
@@ -719,6 +848,19 @@
       if (inv > 0 && Math.sin(inv * 26) < -0.1) return;
       var thrusting = wasm.exports.get_thrusting();
       var frame = ((tGlobal * 22) | 0) & 1;
+      // The magnet's reach, at the radius the engine checks, dotted so it reads
+      // as a field rather than a wall; it blinks through its last two seconds.
+      var mag = wasm.exports.get_magnet();
+      if (mag > 0 && (mag > 2 || Math.sin(mag * 16) > 0)) {
+        var mr = wasm.exports.get_magnet_r();
+        g.fillStyle = 'rgba(255,84,112,0.45)';
+        for (var k = 0; k < 36; k++) {
+          var t = k / 36 * Math.PI * 2 + tGlobal * 0.8;
+          g.fillRect(Math.round((f32[a + FIELD.ship.x] + Math.cos(t) * mr) / LOW_SCALE) * LOW_SCALE,
+                     Math.round((f32[a + FIELD.ship.y] + Math.sin(t) * mr) / LOW_SCALE) * LOW_SCALE,
+                     LOW_SCALE, LOW_SCALE);
+        }
+      }
       drawWrapped(f32[a + FIELD.ship.x], f32[a + FIELD.ship.y], 26, function (x, y) {
         if (thrusting) {
           g.save();
@@ -771,6 +913,42 @@
       }
 
       var level = e.get_level();
+      var powers = e.get_powers();
+      if (powers > prevPowers) {
+        sound.power();
+        // whichever timer was just set is the one that is full
+        bannerEl.textContent = e.get_drill() > e.get_magnet() ? 'DRILL' : 'MAGNET';
+        bannerT = 1.0;
+        prevPowers = powers;
+      }
+
+      // The rival: its arrival, a round that spilled its hold, and the two
+      // ways it leaves — driven off, or away with what it took.
+      var rv = e.get_rivals();
+      if (rv > prevRivals) { sound.rival(); bannerEl.textContent = 'RIVAL'; bannerT = 1.2; prevRivals = rv; }
+      var rb = RIVAL_OFF >> 2;
+      var rh = e.get_rival_hits();
+      if (rh > prevRivalHits) {
+        sound.rivalHit();
+        burst(f32[rb + FIELD.rival.x], f32[rb + FIELD.rival.y], 16, '#8b5cf6', 180);
+        prevRivalHits = rh;
+      }
+      var ro = e.get_rival_routs();
+      if (ro > prevRivalRouts) { bannerEl.textContent = 'DRIVEN OFF'; bannerT = 1.1; prevRivalRouts = ro; }
+      var re = e.get_rival_escapes();
+      if (re > prevRivalEscapes) {
+        sound.rivalGone();
+        bannerEl.textContent = 'RIVAL GOT AWAY';
+        bannerT = 1.1;
+        prevRivalEscapes = re;
+      }
+
+      var refits = e.get_refits();
+      if (refits > prevRefits) {
+        sound.refit();
+        prevRefits = refits;
+      }
+
       if (level !== prevLevel) {
         sound.level();
         bannerEl.textContent = 'LEVEL ' + level;
@@ -820,7 +998,9 @@
           (keys.thrust || touch.thrust || pad.thrust) ? 1 : 0,
           (keys.fire || touch.fire || pad.fire) ? 1 : 0,
           stick.on,
-          stick.ang);
+          stick.ang,
+          buyReq);
+        buyReq = 0;
 
         wasm.exports.step(dt);
         pollEvents(dt);
@@ -845,6 +1025,7 @@
       drawDepot();
       drawPickups();
       drawRocks();
+      drawRival();
       drawBullets();
       drawShip();
       stepParticles(dt);
@@ -866,7 +1047,7 @@
       if (bannerT > 0) { bannerT -= dt; bannerEl.style.opacity = bannerT > 0 ? '1' : '0'; }
       var cargo = wasm.exports.get_cargo();
       var cmax = wasm.exports.get_cargo_max();
-      var docked = isDocked();
+      var docked = !!wasm.exports.get_docked();
       if (docked && cargo > 0) { noteEl.textContent = 'UNLOADING'; noteT = 0.2; }
       else if (docked) { noteEl.textContent = 'REFUELLING'; noteT = 0.2; }
       else if (cargo >= cmax) { noteEl.textContent = 'HOLD FULL — FLY HOME'; noteT = 0.2; }
@@ -880,6 +1061,13 @@
       hudLevel.textContent = wasm.exports.get_level();
       hudCargo.textContent = Math.round(cargo) + '/' + Math.round(cmax);
       hudQuota.textContent = wasm.exports.get_delivered() + '/' + wasm.exports.get_quota();
+      // The running power-ups and their seconds; empty, and hidden by the
+      // stylesheet, when nothing is running.
+      var pm = wasm.exports.get_magnet(), pd = wasm.exports.get_drill(), pw = '';
+      if (pm > 0) pw += 'MAGNET ' + Math.ceil(pm);
+      if (pd > 0) pw += (pw ? ' \u00b7 ' : '') + 'DRILL ' + Math.ceil(pd);
+      if (hudPower.textContent !== pw) hudPower.textContent = pw;
+      drawShop(docked && !wasm.exports.is_game_over());
       fuelFill.style.width = Math.max(0, Math.min(100, fuel / fmax * 100)) + '%';
       if (fuel < fmax * 0.22) fuelBar.classList.add('am-low');
       else fuelBar.classList.remove('am-low');
@@ -887,14 +1075,38 @@
       rafId = requestAnimationFrame(loop);
     }
 
-    function isDocked() {
-      var a = SHIP_OFF >> 2;
-      var dx = f32[a + FIELD.ship.x] - wasm.exports.get_depot_x();
-      var dy = f32[a + FIELD.ship.y] - wasm.exports.get_depot_y();
-      if (dx > WORLD_W / 2) dx -= WORLD_W; if (dx < -WORLD_W / 2) dx += WORLD_W;
-      if (dy > WORLD_H / 2) dy -= WORLD_H; if (dy < -WORLD_H / 2) dy += WORLD_H;
-      var r = wasm.exports.get_depot_r() + SHIP_R;
-      return dx * dx + dy * dy < r * r;
+    /**
+     * The refit menu, drawn from the engine's own prices: get_refit_cost says
+     * what an item costs now, or -1 when it cannot be bought, so the widget
+     * never restates a price or a tier limit. Rebuilt only when something it
+     * shows has changed — a DOM write every frame would restyle three buttons
+     * sixty times a second to show the same text.
+     */
+    function drawShop(open) {
+      var e = wasm.exports, credit = e.get_credit();
+      if (hudBank.textContent !== String(credit)) hudBank.textContent = credit;
+      if (!open) { if (shopKey !== '') { shopEl.classList.remove('am-open'); shopKey = ''; } return; }
+      var touchUI = root.classList.contains('am-is-touch');
+      var key = credit + ':' + e.get_refit_cost(1) + ':' + e.get_refit_cost(2) + ':' + e.get_refit_cost(3) +
+        ':' + e.get_cargo_max() + ':' + e.get_fuel_max() + ':' + shopPick + ':' + touchUI;
+      if (key === shopKey) return;
+      shopKey = key;
+      shopEl.classList.add('am-open');
+      shopCredit.textContent = 'BANK ' + credit;
+      // What each item becomes, not what it is now: "HOLD 16" is the hold you
+      // are buying. The engine says what that is, so the label follows the
+      // table if a step moves.
+      var next = [null,
+        'HOLD ' + e.get_refit_next(1),
+        'TANK ' + e.get_refit_next(2),
+        '+1 SHIP'];
+      for (var k = 1; k <= 3; k++) {
+        var cost = e.get_refit_cost(k), b = shopBtns[k];
+        var label = cost < 0 ? (k === 3 ? 'SHIPS FULL' : SHOP_NAMES[k] + ' MAX') : next[k] + ' · ' + cost;
+        b.textContent = (touchUI ? '' : '[' + k + '] ') + label;
+        b.disabled = cost < 0 || cost > credit;
+        b.classList.toggle('am-pick', k === shopPick && !touchUI);
+      }
     }
 
     function restart() {
@@ -913,6 +1125,13 @@
       prevFuels = wasm.exports.get_fuels();
       prevDrops = wasm.exports.get_drops();
       prevDeaths = wasm.exports.get_deaths();
+      prevPowers = wasm.exports.get_powers();
+      prevRefits = wasm.exports.get_refits();
+      prevRivals = wasm.exports.get_rivals();
+      prevRivalHits = wasm.exports.get_rival_hits();
+      prevRivalRouts = wasm.exports.get_rival_routs();
+      prevRivalEscapes = wasm.exports.get_rival_escapes();
+      buyReq = 0; shopKey = '-';
       prevOver = 0;
       setPaused(false);
       msgEl.style.display = 'none';
@@ -964,6 +1183,7 @@
           cargo: wasm.exports.get_cargo(),
           delivered: wasm.exports.get_delivered(),
           quota: wasm.exports.get_quota(),
+          credit: wasm.exports.get_credit(),
           gameOver: !!wasm.exports.is_game_over(),
           paused: paused,
           difficulty: DIFFICULTIES[wasm.exports.get_difficulty()],

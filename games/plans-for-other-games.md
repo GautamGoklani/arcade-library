@@ -22,15 +22,15 @@ for the reasoning behind keeping designs original.
 
 | Title | Concept | Engine |
 |---|---|---|
-| **[Pixel Wave](pixel-wave/)** | Retro wave shooter: the swarm patrols the upper half of the arena, asteroids fall, every cleared level adds an enemy. | 4.5 KB |
-| **[Grid Breaker](grid-breaker/)** | Ball-and-paddle destruction with chain-reaction bomb tiles and physics-bending power-ups. | 5.2 KB |
-| **[Worm Chase](worm-chase/)** | Grid territory capture: leave your land, loop back, and everything the loop sealed off becomes yours. Hazards, and chasers that cannot follow you home. | 4.1 KB |
-| **[Asteroid Miner](asteroid-miner/)** | Mine a drifting rock field for gems. Rocks split when shot; fuel and cargo make every run a round trip. | 4.4 KB |
-| **[Sector Defense](sector-defense/)** | Wave defence on one axis. Attackers with individual intent, a shield that regenerates only out of contact, and a decaying combo. | 4.0 KB |
-| **[Circuit Runner](circuit-runner/)** | Endless lane runner on a circuit board. Nothing to shoot, one draining meter, and a board generated so it is always passable. | 3.1 KB |
-| **[Starfield Runner](starfield-runner/)** | Free flight through a debris field. Nothing to shoot and nothing to collect: close passes are the only score and the only repair. | 3.3 KB |
-| **[Tower Defense Lite](tower-defense/)** | A generated route, a core at the end, and twenty-eight tower slots. Guns overheat; a vent shoots nothing and cools its eight neighbours. | 5.2 KB |
-| **[Pulse](pulse/)** | A rhythm tube shooter whose engine is the sequencer: it owns the tempo, the bar and the pattern, and a shot on the beat hits three times as hard. | 3.5 KB |
+| **[Pixel Wave](pixel-wave/)** | Retro wave shooter: the swarm patrols the upper half of the arena, asteroids fall, every cleared level adds an enemy. | 7.6 KB |
+| **[Grid Breaker](grid-breaker/)** | Ball-and-paddle destruction with chain-reaction bomb tiles and physics-bending power-ups. | 6.2 KB |
+| **[Worm Chase](worm-chase/)** | Grid territory capture: leave your land, loop back, and everything the loop sealed off becomes yours. Hazards, and chasers that cannot follow you home. | 5.5 KB |
+| **[Asteroid Miner](asteroid-miner/)** | Mine a drifting rock field for gems. Rocks split when shot; fuel and cargo make every run a round trip. | 7.5 KB |
+| **[Sector Defense](sector-defense/)** | Wave defence on one axis. Attackers with individual intent, a shield that regenerates only out of contact, and a decaying combo. | 6.2 KB |
+| **[Circuit Runner](circuit-runner/)** | Endless lane runner on a circuit board. Nothing to shoot, one draining meter, and a board generated so it is always passable. | 3.9 KB |
+| **[Starfield Runner](starfield-runner/)** | Free flight through a debris field. Nothing to shoot and nothing to collect: close passes are the only score and the only repair. | 4.5 KB |
+| **[Tower Defense Lite](tower-defense/)** | A generated route, a core at the end, and twenty-eight tower slots. Guns overheat; a vent shoots nothing and cools its eight neighbours. | 6.5 KB |
+| **[Pulse](pulse/)** | A rhythm tube shooter whose engine is the sequencer: it owns the tempo, the bar and the pattern, and a shot on the beat hits three times as hard. | 4.9 KB |
 
 ---
 
@@ -146,15 +146,19 @@ will inherit pieces of:
   used to pick each sprite. Power-ups arrived as the plan described them — the
   four kinds, a new pool — with one addition it did not anticipate: drops draw
   from a random stream of their own, so a player who ignores them plays the
-  same game as before.*
+  same game as before. The run-stats screen arrived last, and needed two more
+  counters than the plan assumed: accuracy is rounds that struck something
+  over rounds that flew, because kills over trigger presses passes 100% under
+  spread fire and scores a boss fight as a spell of missing.*
 - **Medium term:** boss waves every 10 levels, distinct per-species enemy
   behaviour, screen shake/hit-stop, gamepad support, difficulty settings. *All
-  shipped except screen shake and hit-stop, which are open in
-  [`../TASKS.md`](../TASKS.md) with the near term's run-stats screen. Boss waves
-  arrived last, as the plan described them — a multi-part enemy with
-  destructible sections and telegraphed attacks — with the attacks on a fixed
-  rotation rather than random, since a telegraph is only worth reading if what
-  it announces can be learned.*
+  shipped. Boss waves arrived as the plan described them — a multi-part enemy
+  with destructible sections and telegraphed attacks — with the attacks on a
+  fixed rotation rather than random, since a telegraph is only worth reading if
+  what it announces can be learned. Screen shake and hit-stop arrived together,
+  in the widget, with the events that earn them chosen by measuring how often
+  each happens: a kill gets neither, because kills come too close together for
+  a stop to read as anything but a stutter.*
 - **Long term:** local co-op and online versus multiplayer (lockstep WASM), a
   level editor, achievements/unlockable skins.
 

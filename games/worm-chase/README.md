@@ -190,6 +190,17 @@ finger or pen always does, and `(pointer: coarse)` only chooses what is
   at home they roam; the moment you lay a trail they hunt.
 - **Enclosing is a reward.** Hazards caught inside a capture are cleared (+20
   each) and chasers fenced in are destroyed (+150 each).
+- **The hunter.** Every fourth level one of the pack is a violet, horned
+  **hunter**. Chasers go for your head; the hunter goes for your *trail*, the
+  cell of it nearest to itself, so a long loop is what it punishes. Fence it in
+  for 500. See [The hunter](#the-hunter-september-2026).
+- **Capsules.** Every so often a capsule appears on open ground and fades after
+  twelve seconds. Drive over it or **enclose it** to take it. The pale blue
+  star is **freeze**: the chasers stop where they are for four seconds (a
+  frozen chaser still kills on contact). The yellow bolt is **surge**: the worm
+  moves 40% faster for five. Effects in force show as coloured squares beside
+  LIVES, and end if you lose a life. See
+  [Capsules](#capsules-september-2026).
 - A level ends when you hold enough of the board. The share needed starts at
   **34%** and climbs 4 points a level to a ceiling of 72%.
 - Every level is a fresh board: a 5×5 home block in the middle, hazards
@@ -256,7 +267,8 @@ would round away keeps one low-res pixel. The engine did not change.
 |---------|--------|--------|-------|--------|
 | grid    | 0      | 4 B    | 768   | `state`, `hazard`, `mark`, `epoch` — one byte each; cell (c,r) at `(r*32 + c)*4` |
 | queue   | 3072   | 4 B    | 768   | the flood fill's BFS frontier, one `i32` cell index per slot |
-| chasers | 6144   | 32 B   | 8     | cx, cy, pcx, pcy, dx, dy, active (all `i32`) |
+| chasers | 6144   | 32 B   | 8     | cx, cy, pcx, pcy, dx, dy, active, kind (0 chaser, 1 hunter) (all `i32`) |
+| capsules | 6400  | 24 B   | 2     | col, row, kind (0 freeze, 1 surge), life, active (all `f32`) |
 
 `state` is 0 open, 1 owned, 2 trail. `hazard` is 0 or 1. `mark` is flood-fill
 scratch and is meaningless between steps. `epoch` is 1–6, cycling, stamped on
@@ -278,14 +290,17 @@ address instead, but its renderer was already walking memory for the tile grid.
 `get_score`, `get_lives`, `get_level`, `get_owned`, `get_target`, `get_total`,
 `get_trail_len`, `is_game_over`, `get_head_x`, `get_head_y`, `get_prev_x`,
 `get_prev_y`, `get_dir_x`, `get_dir_y`, `get_tick_frac`, `get_chase_frac`,
-`get_capture_count`, `get_capture_cells`, `get_deaths`, `get_kills`.
+`get_capture_count`, `get_capture_cells`, `get_deaths`, `get_kills`,
+`get_drops`, `get_grabs`, `get_hunters`, `get_hunter_kills`, `get_freeze_t`,
+`get_surge_t`.
 
 `get_prev_*` and `get_tick_frac` exist for one reason: the worm advances a whole
 cell per tick, roughly seven times a second, and drawing it only where the
 engine says it is would animate at 7 fps on a 60 fps canvas. The renderer
 interpolates between the previous cell and the current one instead.
 
-The last four are **event counters**. The engine never calls out — it has no
+`get_capture_count` through `get_hunter_kills` are **event counters** (`get_capture_cells`
+is the size of the last capture, read alongside its counter). The engine never calls out — it has no
 imports at all — so a monotonic counter is the whole notification channel:
 JavaScript diffs them between frames to decide what to play and what to shake.
 
@@ -321,9 +336,9 @@ applies it, so a setting never changes halfway through a run.
 | Chaser step | 0.34 s | 0.26 s | 0.20 s |
 | ... faster per level | 0.009 | 0.011 | 0.014 |
 | ... floor | 0.14 s | 0.105 s | 0.085 s |
-| A new chaser every | 3 levels | 2 levels | 1 level |
+| A new chaser every | 3 levels | 2 levels | 1.5 levels (was 1; see [Past level 1](#past-level-1)) |
 | Hazards | 2, +4 a level | 2, +6 a level | 4, +8 a level |
-| Land to clear a level | 26% +3 a level, cap 60% | 30% +4, cap 72% | 34% +5, cap 80% |
+| Land to clear a level | 29% on level 1, +3 a level, cap 60% | 34%, +4, cap 72% | 39%, +5, cap 80% |
 
 **The worm's own clock is not in the table.** `$TICK_BASE` and its ramp are the
 feel of the controls rather than the challenge, and a worm that crawled on Easy
@@ -347,15 +362,196 @@ to bank a claim — so whatever land it takes, it takes by accident. 24 runs eac
 | Normal | 13 / 18 / 29 s | 19.2 s | 2 | 39 |
 | Hard | 6 / 10 / 17 s | 10.3 s | 1 | 31 |
 
-**What that bench does not cover:** this pilot never clears level 1, so the
-per-level parts of the table — how fast a new chaser arrives, how the hazard
-count grows, how the target tightens — are untested by it. What is measured is
-the chaser's speed, the hazard floor and the starting lives. A player who clears
-levels is testing the rest, and nobody has yet.
+### Past level 1
+
+That pilot never clears level 1, so the per-level half of the table (a new
+chaser every few levels, hazards growing, the target tightening, chasers
+speeding up) was benched with a pilot that plays properly. At home it looks at
+every rectangular loop it could run out from its territory and back. It takes
+the one that encloses most per step, *if* every chaser would need longer to
+reach any cell of it than the worm needs to close it, with 30% to spare. Out on
+a trail, it runs home by the shortest safe path the moment a chaser gets closer
+to the trail than it is to home. It sees chasers 150 ms late. It never wanders.
+
+From level 1 with the usual lives, 15-minute cap, 8 runs each:
+
+| | Level reached: worst / median / best | Survived (median) |
+|---|---|---|
+| Easy | 15 / **16** / 19 | 523 s |
+| Normal | 7 / **10** / 11 | 572 s |
+| Hard | 3 / **5** / 6 | 316 s |
+| Hard, after the change below | 4 / **5** / 6 | 367 s |
+
+And from engine builds that start at level *L* with full lives, 24 runs each:
+levels cleared, median time to clear, median lives lost in it:
+
+| Level | 1 | 2 | 3 | 4 | 6 | 8 | 10 | 12 |
+|---|---|---|---|---|---|---|---|---|
+| Easy | 24 · 16 s · 0 | 24 · 18 s · 0 | 24 · 17 s · 0 | 24 · 26 s · 0 | 24 · 25 s · 0 | 24 · 38 s · 0 | 24 · 43 s · 1 | 24 · 42 s · 0 |
+| Normal | 24 · 21 s · 0 | 24 · 24 s · 0 | 24 · 40 s · 0 | 24 · 46 s · 0 | 24 · 64 s · 1 | 24 · 90 s · 2 | 21 · 115 s · 2 | 14 · 124 s · 4 |
+| Hard, a chaser every level (as first shipped) | 12 · 33 s · 0 | 12 · 57 s · 0 | 11 · 79 s · 1 | 10 · 124 s · 1 | 0 · — · 3 | 0 · — · 3 | 0 · — · 3 | 0 · — · 3 |
+| **Hard, every 1.5 levels (now)** | 12 · 33 s · 0 | 12 · 35 s · 0 | 12 · 68 s · 0 | 12 · 101 s · 1 | **5** · 159 s · 3 | 0 · — · 3 | 0 · — · 3 | 0 · — · 3 |
+
+(Hard: 12 runs a level, and a 3-minute cap rather than 10; see below.)
+
+**The per-level half of the table works, and the columns separate by where
+they break.** On Normal every level clears, and what grows is the *cost*: time
+to clear goes from 21 s to 124 s by level 12, and lives lost from 0 to 4. The
+break comes around level 10-12, and that is where the from-level-1 runs end
+(median level 10). Easy does not break inside twelve levels for this pilot:
+every level clears, and lives lost stays at 0-1. That is the same shape at a
+different point, and an easy setting that a careful player can keep playing is
+what Easy is for.
+
+**Hard had a wall at level 6, and it was the chaser count.** Hard added a
+chaser every level, so level 6 had six, against three on Normal and two on
+Easy. From there this pilot cleared nothing. It spent **25% of level 6 at home,
+54% of level 8 and 75% of level 10**, looking for a loop that no chaser could
+reach first and not finding one; runs that did not die sat there until the
+cap. (That cap is 3 minutes and level 4 already took a median 124 s, so some of
+those runs might have cleared given longer, but the median run still lost all
+three lives.) After level 5, Hard was less a harder game than a game with
+nothing safe to do, which is close to what CLAUDE.md's dead-time rule is about.
+
+**So Hard now adds a chaser every level and a half**, 4 at level 6 rather than
+6. The engine stores the interval in half-levels (`$CHASER_EVERY` is 6, 4, 3),
+so Easy and Normal compute exactly what they did before: replayed against the
+previous engine from every start level 1-12, they were byte-identical, and Hard
+differed at exactly levels 2-11. The wall moved two levels deeper rather than
+going away. Level 6 now clears in 5 of 12 runs, with 5% of it spent waiting,
+and the stall starts at level 8 (29% waiting, then 67% at 10). Hard still
+reaches its cap of eight chasers at level 12, as before. The table's other
+Hard numbers did not move.
+
+**The good pilot and the bad one bracket Normal's opening.** The bad pilot
+above dies on level 1 in 18 seconds. This one clears it in 21 without a
+scratch. Level 1 punishes wandering and rewards the loop-and-claim rule, which
+is what finding 3 below retuned it to do.
 
 **Best scores are kept per setting.** The page shell records Normal under the
 same key as before, so a best set before difficulty existed is still Normal's,
 and Easy and Hard get `worm-chase:easy` and `worm-chase:hard`.
+
+## Capsules, September 2026
+
+The first item from the menu of features for the other eight titles: power-ups,
+fitted to this game. Every 9–15 seconds of a level (the first at six), a capsule
+appears on open ground at least four cells from the head. It lasts twelve
+seconds, and there are never more than two.
+
+| Kind | Share | Effect |
+|---|---|---|
+| **Freeze** (pale blue star) | 55% | the chasers' clock stops for 4 s: they hold still, and a frozen chaser still kills on contact |
+| **Surge** (yellow bolt) | 45% | the worm ticks at 60% of its usual interval, 40% faster, for 5 s |
+
+**You take one by driving over it or by enclosing it.** Enclosing is how this
+game already pays for hazards and chasers: whatever a capture seals off is
+yours. So a capsule is a lure onto the open board, and it asks the question the
+whole game asks: how far out will you go, and how much will you fence? Both
+kinds are the same answer in two shapes: more worm-time per chaser-time. Neither
+is a shield or an extra life. Lives are not what a good player runs short of
+here; time outside territory is. Taking a kind already in force restarts its
+clock rather than stacking it. Effects end when a life is lost or a level
+begins.
+
+### On a random stream of their own
+
+Capsules are placed from **`$dropRng`**, a second xorshift state, which is
+[chapter 8](../../docs/08-globals-and-state.md)'s argument and the same move
+Pixel Wave's power-ups made first. Placed from `$rng`, the first capsule would
+shift every chaser's roam after it, and a run that never touched one would still
+be a different run. On their own stream it is not. The previous engine and this
+one, same seed and same input, were compared byte for byte over the whole old
+layout (6,400 bytes) and every old reader: **144 replays from every start level
+1–12 on all three settings, 86,790 frames**, identical in every run up to its
+first collection. Surge sits behind a branch in `$tick_len` rather than a
+multiply by 1.0 for the same reason: a run without one computes exactly what the
+old engine did.
+
+### Tuning the rate
+
+The planning pilot from [Past level 1](#past-level-1) was taught to value a loop
+that runs through or encloses a capsule as if it held 30 more cells. It was
+flown from level 1 with a 15-minute cap. The medians below are level reached
+and capsules taken a game, 8 runs each:
+
+| | No capsules | Every 5–9 s | **Every 9–15 s** | Every 16–26 s |
+|---|---|---|---|---|
+| Easy | 16 · 0 | 17 · 26 | **17 · 18** | 16 · 12 |
+| Normal | 9 · 0 | 9 · 17 | **9 · 11** | 9 · 7 |
+| Hard | 5 · 0 | 6 · 12 | **6 · 7** | 6 · 4 |
+
+And at 24 runs, Easy and Normal, level reached worst / median / best:
+
+| | No capsules | Ignores them | Goes for them |
+|---|---|---|---|
+| Easy | 10 / 15 / 18 | 11 / 15 / 20 | **13 / 16 / 18** |
+| Normal | 6 / 9 / 11 | 6 / 9 / 11 | 7 / 9 / 11 |
+
+**It is a modest help, and it helps the bottom most.** Going for capsules adds
+about a level on Easy and Hard and lifts the worst run by three levels on Easy.
+It moves nothing on Normal's median. A pilot that ignores them still takes 4–9
+a game by accident, just by enclosing ground, and plays the same game as
+before: at 24 runs its levels match the engine without capsules. (At 8 runs it
+looked a level worse on Easy and Normal, and that was noise. Neither effect can
+cost a life by itself: freeze only stops chasers, and surge only makes the worm
+faster.) Every 9–15 s is about one capsule per level on Normal's pace. That is
+often enough to be part of the game, and rare enough that a player is never
+choosing between capsules.
+
+**What this bench cannot price.** The pilot takes a capsule and then plays
+exactly as before. Its safety test still assumes the chasers are moving and
+the worm is at normal speed, so it never runs the long loop a freeze makes safe.
+Those four seconds are the whole point for a person, so the numbers above are
+a floor on what capsules are worth, not an estimate.
+
+## The hunter, September 2026
+
+This game's entry on the menu of features for the other eight titles was the
+same idea twice: a boss wave, *"a hunter chaser every few levels that cuts the
+trail rather than chasing the head"*, and its own idea, *"a hunter that cuts
+your trail"*. It is built as that.
+
+On every fourth level one more chaser joins the pack, and it is a **hunter**:
+violet, horned, with a split jaw, so it reads as a different animal by shape
+and not only by colour. While the worm is home it roams like the others. Once a
+trail exists, a chaser homes on the head, and the hunter homes on **the trail
+cell nearest to itself**. A chaser is beaten by being quick: run for home and
+it follows you there. The hunter is beaten by being *short*, because the trail
+it is heading for is behind you. It punishes exactly the long, lazy loop that a
+game with only chasers lets you get away with.
+
+It is beaten the way this game beats anything: **fence it in**, for 500 rather
+than a chaser's 150. It lives in the chaser record's last field, which used to
+be padding, so no layout moved, and the extra slot it takes is placed from
+`$rng` like any chaser. Levels without one therefore replay the engine before it
+byte for byte: 144 replays from every start level 1-12 on all three settings
+differed at exactly levels 4, 8 and 12 and nowhere else.
+
+### What it costs
+
+The planning pilot from [Past level 1](#past-level-1), 12 runs a level, before
+and after, shown as levels cleared · median time. Every level without a hunter
+came out identical, row for row, as the replay says it must.
+
+| Level | Easy, before → with | Normal, before → with | Hard, before → with |
+|---|---|---|---|
+| 4 | 12 · 27 s → 12 · **35 s** | 12 · 46 s → 12 · **56 s** | 12 · 101 s → **9** · 119 s |
+| 8 | 12 · 34 s → 12 · 38 s | 12 · 89 s → **10** · 95 s | 0 → 0 |
+| 12 | 12 · 43 s → 12 · 46 s | 6 · 128 s → **4** · 160 s | 0 → 0 |
+
+**A hunter level is a step, not a wall.** On Easy it costs a few seconds. On
+Normal it costs about a fifth more time, and a couple of runs at level 8 and
+up. On Hard it takes level 4 from certain to three in four. Hard's levels 8 and
+12 were already beyond this pilot before the hunter (see [Past level
+1](#past-level-1)), and remain so.
+
+**What the bench does not measure: fencing it.** This pilot's safety test
+already assumes any chaser could head for any cell of a loop, which is what the
+hunter actually does, so the pilot is not surprised by it. That is why the cost
+is modest. But it never plans a loop *around* the hunter, so it almost never
+collects the 500. A player who treats the hunter as a target is playing a part
+of the game no pilot here does.
 
 ---
 

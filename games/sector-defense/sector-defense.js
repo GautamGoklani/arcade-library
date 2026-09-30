@@ -28,6 +28,9 @@
   var ENEMIES_OFF = 16, ENEMY_STRIDE = 40, MAX_ENEMIES = 24;
   var PB_OFF = 976, PB_STRIDE = 24, MAX_PB = 20;
   var EB_OFF = 1456, EB_STRIDE = 24, MAX_EB = 30;
+  var CARRIER_OFF = 2176;
+  var MODULE_OFF = 2208;
+  var LANDER_OFF = 2224;
   // Field positions inside each record, in f32 slots — the `@fields` lines in
   // game.wat, copied. Every read goes through this table rather than a bare
   // `f32[a + 6]`, so scripts/check-layout.mjs can see a field that moved.
@@ -36,6 +39,9 @@
     enemy: { x: 0, y: 1, vx: 2, vy: 3, hp: 4, kind: 5, active: 6, phase: 7, cd: 8, targetX: 9 },
     pbullet: { x: 0, y: 1, vx: 2, vy: 3, life: 4, active: 5 },
     ebullet: { x: 0, y: 1, vx: 2, vy: 3, life: 4, active: 5 },
+    carrier: { x: 0, y: 1, vx: 2, hp: 3, maxHp: 4, active: 5, bay: 6, flash: 7 },
+    module: { x: 0, y: 1, vy: 2, active: 3 },
+    lander: { x: 0, y: 1, landY: 2, hp: 3, active: 4, squad: 5, flash: 6, climbing: 7 },
   };
   var PLAYER_Y = 648;
   var PXS = 3;   // chunky pixel scale for the ASCII sprites
@@ -45,7 +51,7 @@
   // sprites are.
   var LOW_SCALE = 3;
 
-  var WASM_B64 = "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";
+  var WASM_B64 = "AGFzbQEAAAABWxBgAX8Bf2AAAX1gAn19AX1gA319fQF9YAN/f38Bf2AIfX19fX19fX0Bf2ABfwF9YAF9AGAAAX9gAABgA319fwBgAn19AGABfwBgAn19AX9gBH9/f38AYAJ9fwADV1YAAAABAQIDBAUBBgEHAQEIAQgGCAkKBwcJBwcLBwwHBwgICAkHDQgICAkHDQ4JCQwICQkPBwEIAQEBAQEBAQEBCAEBAQgICAgICAgICAgICAgICAgICAUDAQABBvEGfX8AQQALfwBBEAt/AEEoC38AQRgLfwBB0AcLfwBBGAt/AEEUC38AQbALC38AQRgLfwBBHgt/AEGAEQt/AEGgEQt/AEGwEQt9AEMAAHBEC30AQwAANEQLfQBD2w/JQAt9AEMAACJEC30AQwAAsEELfQBDAABgQQt9AEMAANdDC30AQ6RwPT4LfQBDAAAgRAt9AENmZqY/C30AQwAAgEALfQBDAIAsRAt9AUMAAMhCC30AQwAAkEELfQBDAAAgQQt9AEMAAMhCC30AQwAACEILfQBDAAAwQQt9AUNmZiZAC30AQwAAiEELfQBDAABgQQt9AEMAAMBBC30BQwAAsEELfQFDmplZQAt9AUMAAL5CC30AQwAAvkILfQBDAADgQAt9AEOamVlAC30AQwAAekMLfQBDAACAQAt9AEMAAKBAC30AQzMzkz8LfQFDKVwPPQt9AUN7FK4+C30AQwAAOEILfQBDmpkZQAt9AEMAAPBBC30AQwAAoEELfQBDAAAWQwt/AEEFC30AQwAAwEILfQBDAABwwgt9AEMAAPBCC30AQwAAtEILfQBDAACgQgt9AEMAAEBBC30AQwAAwEELfQBDAAAAQQt9AEMAAIBCC30AQwAAsEELfQBDAADwQQt9AEMAAJZDC30AQwAAIEILfwBBAwt9AEMAAEBAC30AQwAAvkMLfQBDAAAgwgt9AEMAABZDC30AQwAAXEMLfQBDAADAQAt9AEMAAABAC38AQQMLfwBBBQt9AEMAAPBBC30AQwAAgEELfQBDAAAWQwt9AEPNzEw9C30AQwAADEMLfQBDAABAQQt9AEMAAEhCC38BQQELfQFDmpkZQAt9AUMzM5NAC30BQwAAQD8LfwFBAQt/AUEAC30BQwAAcEELfwFBGgt/AUGzpqQqC38BQeWr6awBC38BQQELfwFBAAt9AUMAAAAAC30BQwAAyEILfQFDAADIQgt9AUMAAAAAC30BQwAAAAALfQFDAAAAAAt/AUEAC30BQwAAAAALfQFDAAAAAAt9AUMAAAAAC30BQwAAgL8LfQFDAAAAAAt/AUEAC38BQQALfwFBAAt/AUEAC38BQQALfwFBAAt/AUEAC38BQQALfwFBAAt/AUEAC38BQQALfwFBAAt/AUEAC38BQQALfwFBAAt/AUEAC38BQQALfwFBAAsH2QQpBm1lbW9yeQIACGdldF9tdWx0AAsNZW5lbWllc19hbGl2ZQAgDnNldF9kaWZmaWN1bHR5AC8OZ2V0X2RpZmZpY3VsdHkAMARpbml0ADEJc2V0X2lucHV0ADMEc3RlcAA0CWdldF9zY29yZQA1CWdldF9sZXZlbAA2CmdldF9zaGllbGQANw5nZXRfc2hpZWxkX21heAA4CmdldF9zZWN0b3IAOQ5nZXRfc2VjdG9yX21heAA6DGdldF9zZWN0b3JfeQA7CWdldF9jb21ibwA8DmdldF9iZXN0X2NvbWJvAD0PZ2V0X2NvbWJvX3RpbWVyAD4QZ2V0X2NvbWJvX3dpbmRvdwA/DGdldF90b19zcGF3bgBADGdldF9wbGF5ZXJfeABBCGdldF9jYWxtAEIQZ2V0X3NoaWVsZF9kZWxheQBDDGlzX2dhbWVfb3ZlcgBECWdldF9zaG90cwBFCWdldF9raWxscwBGCWdldF9odXJ0cwBHCWdldF9sZWFrcwBIDGdldF9icmVhY2hlcwBJCWdldF93YXZlcwBKDGdldF9jYXJyaWVycwBLEGdldF9jYXJyaWVyX2hpdHMATBFnZXRfY2Fycmllcl9kb3ducwBNDWdldF9iYXlfZHJvcHMATgtnZXRfbGFuZGVycwBPD2dldF9sYW5kZXJfaGl0cwBQEGdldF9sYW5kZXJfZG93bnMAUQxnZXRfbGFuZGluZ3MAUgpnZXRfZGVuaWVkAFMQZ2V0X21vZHVsZV9kcm9wcwBUEmdldF9tb2R1bGVfY2F0Y2hlcwBVCockVgoAIwEgACMCbGoLCgAjBCAAIwVsagsKACMHIAAjCGxqCzMBAX8jWyEAIAAgAEENdHMhACAAIABBEXZzIQAgACAAQQV0cyEAIAAkWyAAs0MAAIBPlQszAQF/I1whACAAIABBDXRzIQAgACAAQRF2cyEA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";
 
   // ============================================================
   // PIXEL SPRITES (ASCII grids -> offscreen canvases)
@@ -124,6 +130,49 @@
     '..A.A.AA.A.A..',
   ];
 
+  // The carrier: the attackers' pixel language at four times the size, with
+  // the bay (the L cells) along its belly. The bay lights blink as a drop comes
+  // due, and the whole hull goes white for a frame when a round lands, drawn
+  // from a second sprite of the same silhouette so the flash never changes
+  // its shape.
+  var CARRIER_PAL = { A: '#c9b6ff', B: '#6a55b8', D: '#241a4a', L: '#3a2e66', Y: '#ffd166' };
+  var carrierRows = [
+    '..............AAAAAAAAAAAAAA..............',
+    '..........AAAABBBBBBBBBBBBBBAAAA..........',
+    '......AAAABBBBBBDDDDDDDDDDBBBBBBAAAA......',
+    '...AAABBBBBBBBBDDYYDDDDYYDDBBBBBBBBBAAA...',
+    '.AABBBBBBBBBBBBBDDDDDDDDDDBBBBBBBBBBBBBAA.',
+    'ABBBBDDBBBBBBBBBBBBBBBBBBBBBBBBBBBBDDBBBBA',
+    'ABBBDDDDBBBBBBBBBBBBBBBBBBBBBBBBBBDDDDBBBA',
+    'ABBBBDDBBBBBBBBBBBBBBBBBBBBBBBBBBBBDDBBBBA',
+    '.ABBBBBBBBBBLLLLLLLLLLLLLLLLLLBBBBBBBBBBA.',
+    '..AABBBBBBBBLLLLLLLLLLLLLLLLLLBBBBBBBBAA..',
+    '....AAABBBBBBBBBBBBBBBBBBBBBBBBBBBBAAA....',
+    '.......AAAA...AA..........AA...AAAA.......',
+    '..............A............A..............',
+    '..............A............A..............',
+  ];
+  var CARRIER_WHITE = { A: '#ffffff', B: '#ffffff', D: '#ffffff', L: '#ffffff', Y: '#ffffff' };
+  // The bay's lights when a drop is close: the same cells, lit.
+  var CARRIER_BAY = { A: CARRIER_PAL.A, B: CARRIER_PAL.B, D: CARRIER_PAL.D, L: '#ff8fa3', Y: CARRIER_PAL.Y };
+
+  // The lander: squat and hot-coloured, the one enemy craft in orange, because
+  // it is the one that has to be noticed the moment it appears. Legs down, so
+  // it reads as something that means to touch down.
+  var LANDER_PAL = { A: '#ffb86b', B: '#c2571a', D: '#4a1d05', Y: '#ffe08a' };
+  var landerRows = [
+    '......AAAAAAAA......',
+    '....AABBBBBBBBAA....',
+    '..AABBBDDYYDDBBBAA..',
+    'AABBBBBBBBBBBBBBBBAA',
+    'ABBDDBBBBBBBBBBDDBBA',
+    '.AABBBBBBBBBBBBBBAA.',
+    '...A.AA......AA.A...',
+    '..A...A......A...A..',
+    '.A....A......A....A.',
+  ];
+  var LANDER_WHITE = { A: '#ffffff', B: '#ffffff', D: '#ffffff', Y: '#ffffff' };
+
   function base64ToBytes(b64) {
     var bin = atob(b64);
     var bytes = new Uint8Array(bin.length);
@@ -192,6 +241,23 @@
       leak:   function () { noise(0.26, 0.1); tone(220, 60, 0.28, 'sawtooth', 0.06); },
       breach: function () { tone(160, 50, 0.42, 'sawtooth', 0.075); noise(0.3, 0.09); },
       wave:   function () { tone(520, 1040, 0.3, 'triangle', 0.06); },
+      // The carrier's arrival is the one low, slow sound in the game; a round
+      // on its hull is a dull knock, so hitting it is heard as progress
+      // without being mistaken for a kill; a drop from the bay is a short,
+      // falling thunk, heard as something arriving.
+      carrierArrive: function () { tone(98, 98, 0.4, 'sawtooth', 0.06); tone(73, 73, 0.6, 'sawtooth', 0.05); },
+      carrierHit:    function () { tone(200, 150, 0.05, 'square', 0.025); },
+      bayDrop:       function () { tone(300, 120, 0.12, 'triangle', 0.04); },
+      // A module is the shield's colour and the shield's sound: a soft
+      // two-note chime when one falls, so it is heard even while you are
+      // looking at the attackers, and a rising sweep when it lands on you.
+      moduleDrop:    function () { tone(880, 880, 0.08, 'triangle', 0.03); tone(1320, 1320, 0.1, 'triangle', 0.025); },
+      moduleCatch:   function () { tone(330, 990, 0.3, 'triangle', 0.06); },
+      landerLaunch:  function () { tone(880, 330, 0.35, 'square', 0.035); },
+      landerHit:     function () { tone(330, 260, 0.04, 'square', 0.025); },
+      landing:       function () { noise(0.2, 0.08); tone(160, 110, 0.25, 'square', 0.05); },
+      landerDown:    function () { noise(0.45, 0.11); tone(260, 60, 0.5, 'sawtooth', 0.06); },
+      carrierDown:   function () { noise(0.8, 0.13); tone(140, 30, 1.0, 'sawtooth', 0.08); },
       over:   function () { tone(240, 50, 0.95, 'sawtooth', 0.085); },
       setMuted: function (m) { muted = m; },
       close: function () { if (ctx && ctx.close) { try { ctx.close(); } catch (e) {} } ctx = null; },
@@ -298,6 +364,9 @@
     var shake = 0, flash = 0;
     var prevLevel = 1, prevShots = 0, prevKills = 0, prevHurts = 0;
     var prevLeaks = 0, prevBreaches = 0, prevOver = 0;
+    var prevCarriers = 0, prevCarrierHits = 0, prevCarrierDowns = 0, prevBayDrops = 0;
+    var prevLanders = 0, prevLanderHits = 0, prevLanderDowns = 0, prevLandings = 0;
+    var prevModDrops = 0, prevModCatches = 0;
     var bannerT = 0;
     // Remembered so a kill can throw particles from where the attacker was:
     // the engine deactivates the record, so by the time the counter is read
@@ -306,6 +375,11 @@
 
     // ---------- sprites ----------
     var sprPlayer = makeSprite(playerRows, PLAYER_PAL, PXS);
+    var sprCarrier = makeSprite(carrierRows, CARRIER_PAL, PXS);
+    var sprCarrierBay = makeSprite(carrierRows, CARRIER_BAY, PXS);
+    var sprCarrierWhite = makeSprite(carrierRows, CARRIER_WHITE, PXS);
+    var sprLander = makeSprite(landerRows, LANDER_PAL, PXS);
+    var sprLanderWhite = makeSprite(landerRows, LANDER_WHITE, PXS);
     var sprEnemy = [
       makeSprite(drifterRows, DRIFTER_PAL, PXS),
       makeSprite(weaverRows, WEAVER_PAL, PXS),
@@ -605,6 +679,78 @@
       }
     }
 
+    function drawCarrier() {
+      var C = FIELD.carrier, c = CARRIER_OFF >> 2;
+      if (f32[c + C.active] <= 0) return;
+      var x = f32[c + C.x], y = f32[c + C.y];
+      var spr = f32[c + C.flash] > 0 ? sprCarrierWhite
+              : (f32[c + C.bay] < 0.6 && Math.floor(tGlobal * 10) % 2 ? sprCarrierBay : sprCarrier);
+      drawSpriteAt(spr, x, y);
+      // what is left of it, in a bar under the hull: the one number the
+      // decision to keep shooting it turns on
+      var w = 120, x0 = Math.round((x - w / 2) / LOW_SCALE) * LOW_SCALE;
+      var y0 = Math.round((y + 30) / LOW_SCALE) * LOW_SCALE;
+      g.fillStyle = '#241a4a';
+      g.fillRect(x0, y0, w, LOW_SCALE * 2);
+      g.fillStyle = '#c9b6ff';
+      g.fillRect(x0, y0, Math.round(w * f32[c + C.hp] / f32[c + C.maxHp] / LOW_SCALE) * LOW_SCALE, LOW_SCALE * 2);
+    }
+
+    /**
+     * The lander, and while it is still loaded, the spot it will land on:
+     * four corner brackets at `landY`, blinking. The spot is the engine's
+     * decision, made at launch, so the marker is a fact rather than a guess —
+     * the player has the whole dive to choose between getting under it and
+     * getting ready for what it brings. Its hits left show as pips, one a
+     * round, because six to twelve is a count and not a proportion.
+     */
+    function drawLander() {
+      var L = FIELD.lander, b = LANDER_OFF >> 2;
+      if (f32[b + L.active] <= 0) return;
+      var x = f32[b + L.x], y = f32[b + L.y], s = LOW_SCALE;
+      if (f32[b + L.squad] > 0) {
+        if (Math.floor(tGlobal * 6) % 2) {
+          var lx = Math.round(x / s) * s, ly = Math.round((f32[b + L.landY] + 24) / s) * s;
+          g.fillStyle = '#ffb86b';
+          for (var cx = -1; cx <= 1; cx += 2) {
+            for (var cy = -1; cy <= 1; cy += 2) {
+              // corners 12 by 5 low-res pixels out from the spot
+              var ox = lx + cx * 12 * s, oy = ly + cy * 5 * s;
+              g.fillRect(ox - (cx > 0 ? s * 3 : 0), oy, s * 3, s);
+              g.fillRect(ox - (cx > 0 ? s : 0), oy - (cy > 0 ? s * 2 : 0), s, s * 3);
+            }
+          }
+        }
+        var n = f32[b + L.hp] | 0, x0 = Math.round((x - n * s) / s) * s;
+        var y0 = Math.round((y + 22) / s) * s;
+        g.fillStyle = '#ffe08a';
+        for (var k = 0; k < n; k++) g.fillRect(x0 + k * s * 2, y0, s, s);
+      }
+      drawSpriteAt(f32[b + L.flash] > 0 ? sprLanderWhite : sprLander, x, y);
+    }
+
+    /**
+     * The shield module: a capsule in the shield's own cyan with a bright
+     * core, and a tick on the defender's line directly below it. It falls
+     * straight down, so the tick is exactly where it will land — the whole
+     * decision is whether to be there, and that should not need guessing.
+     */
+    function drawModule() {
+      var M = FIELD.module, m = MODULE_OFF >> 2;
+      if (f32[m + M.active] <= 0) return;
+      var x = Math.round(f32[m + M.x] / LOW_SCALE) * LOW_SCALE;
+      var y = Math.round(f32[m + M.y] / LOW_SCALE) * LOW_SCALE;
+      g.fillStyle = '#66e2ff';
+      g.fillRect(x - LOW_SCALE * 3, y - LOW_SCALE * 4, LOW_SCALE * 6, LOW_SCALE * 8);
+      g.fillStyle = '#1b5f73';
+      g.fillRect(x - LOW_SCALE * 3, y - LOW_SCALE * 4, LOW_SCALE * 6, LOW_SCALE);
+      g.fillRect(x - LOW_SCALE * 3, y + LOW_SCALE * 3, LOW_SCALE * 6, LOW_SCALE);
+      g.fillStyle = Math.floor(tGlobal * 6) % 2 ? '#ffffff' : '#c9f6ff';
+      g.fillRect(x - LOW_SCALE, y - LOW_SCALE * 2, LOW_SCALE * 2, LOW_SCALE * 4);
+      g.fillStyle = 'rgba(102,226,255,0.55)';
+      g.fillRect(x - LOW_SCALE * 3, Math.round((PLAYER_Y + 20) / LOW_SCALE) * LOW_SCALE, LOW_SCALE * 6, LOW_SCALE);
+    }
+
     function drawBullets() {
       for (var i = 0; i < MAX_PB; i++) {
         var a = (PB_OFF + i * PB_STRIDE) >> 2;
@@ -637,7 +783,8 @@
       // player is actually looking.
       var sh = wasm.exports.get_shield() / wasm.exports.get_shield_max();
       if (sh <= 0) return;
-      var regen = wasm.exports.get_calm() > 2.6;
+      // the pause comes from the engine: the difficulty table moves it
+      var regen = wasm.exports.get_calm() > wasm.exports.get_shield_delay();
       g.globalAlpha = 0.3 + sh * 0.55;
       g.fillStyle = regen ? '#a8f0ff' : '#66e2ff';
       var w = 30, px = Math.round((x - w) / LOW_SCALE) * LOW_SCALE;
@@ -687,10 +834,65 @@
         prevBreaches = breaches;
       }
 
+      // The carrier. Its arrival and the new wave land in the same frame, so
+      // by the time the banner is written a carrier wave already has one.
+      var carriers = e.get_carriers();
+      if (carriers > prevCarriers) { sound.carrierArrive(); prevCarriers = carriers; }
+      var cHits = e.get_carrier_hits();
+      if (cHits > prevCarrierHits) { sound.carrierHit(); prevCarrierHits = cHits; }
+      var drops = e.get_bay_drops();
+      if (drops > prevBayDrops) { sound.bayDrop(); prevBayDrops = drops; }
+      var md = e.get_module_drops();
+      if (md > prevModDrops) { sound.moduleDrop(); prevModDrops = md; }
+      var mc = e.get_module_catches();
+      if (mc > prevModCatches) {
+        sound.moduleCatch();
+        burst(e.get_player_x(), PLAYER_Y - 10, 18, '#66e2ff', 160);
+        prevModCatches = mc;
+      }
+
+      // The lander: launch, rounds, the landing, or the kill that denied it.
+      var lnd = e.get_landers();
+      if (lnd > prevLanders) {
+        sound.landerLaunch();
+        bannerEl.textContent = 'LANDER';
+        bannerT = 1.0;
+        prevLanders = lnd;
+      }
+      var lHits = e.get_lander_hits();
+      if (lHits > prevLanderHits) { sound.landerHit(); prevLanderHits = lHits; }
+      var lb = LANDER_OFF >> 2;
+      var landings = e.get_landings();
+      if (landings > prevLandings) {
+        sound.landing();
+        shake = Math.max(shake, 0.25);
+        burst(f32[lb + FIELD.lander.x], f32[lb + FIELD.lander.y] + 24, 16, '#ffb86b', 140);
+        prevLandings = landings;
+      }
+      var lDowns = e.get_lander_downs();
+      if (lDowns > prevLanderDowns) {
+        sound.landerDown();
+        shake = Math.max(shake, 0.4);
+        burst(f32[lb + FIELD.lander.x], f32[lb + FIELD.lander.y], 30, '#ffb86b', 230);
+        burst(f32[lb + FIELD.lander.x], f32[lb + FIELD.lander.y], 16, '#ffe08a', 180);
+        prevLanderDowns = lDowns;
+      }
+
+      var downs = e.get_carrier_downs();
+      if (downs > prevCarrierDowns) {
+        var cc = CARRIER_OFF >> 2;
+        sound.carrierDown();
+        shake = Math.max(shake, 0.6);
+        burst(f32[cc + FIELD.carrier.x], f32[cc + FIELD.carrier.y], 40, '#c9b6ff', 260);
+        burst(f32[cc + FIELD.carrier.x], f32[cc + FIELD.carrier.y], 24, '#ffd166', 200);
+        prevCarrierDowns = downs;
+      }
+
       var level = e.get_level();
       if (level !== prevLevel) {
         sound.wave();
-        bannerEl.textContent = 'WAVE ' + level;
+        bannerEl.textContent = 'WAVE ' + level +
+          (f32[(CARRIER_OFF >> 2) + FIELD.carrier.active] > 0 ? ' \u00b7 CARRIER' : '');
         bannerT = 1.3;
         prevLevel = level;
       }
@@ -744,6 +946,9 @@
 
       drawStars();
       drawSectorLine();
+      drawCarrier();
+      drawLander();
+      drawModule();
       drawEnemies();
       drawBullets();
       drawPlayer();
@@ -800,6 +1005,16 @@
       prevHurts = wasm.exports.get_hurts();
       prevLeaks = wasm.exports.get_leaks();
       prevBreaches = wasm.exports.get_breaches();
+      prevCarriers = wasm.exports.get_carriers();
+      prevCarrierHits = wasm.exports.get_carrier_hits();
+      prevCarrierDowns = wasm.exports.get_carrier_downs();
+      prevLanders = wasm.exports.get_landers();
+      prevLanderHits = wasm.exports.get_lander_hits();
+      prevLanderDowns = wasm.exports.get_lander_downs();
+      prevLandings = wasm.exports.get_landings();
+      prevModDrops = wasm.exports.get_module_drops();
+      prevModCatches = wasm.exports.get_module_catches();
+      prevBayDrops = wasm.exports.get_bay_drops();
       setPaused(false);
       prevOver = 0;
       msgEl.style.display = 'none';

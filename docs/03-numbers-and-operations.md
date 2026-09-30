@@ -86,6 +86,27 @@ conditional treats "nonzero" as true.
 `i32.eqz` tests for zero and doubles as logical NOT. There is no `!=` against
 zero — the idiom is just to use the value directly.
 
+**There is no logical AND either**, and the obvious stand-in is a trap.
+`i32.and` is *bitwise*. It gives the right answer for two comparisons, because
+each is exactly `0` or `1`, and the wrong one for anything else that is merely
+"nonzero":
+
+```wat
+;; WRONG — $gauntlet is 0, 1, 2 or 3
+(if (i32.and (global.get $gauntlet) (local.get $rowsLeft)) …)
+;; 2 and 1 is 0: gauntlet 2 reads as "not running"
+
+;; right — turn the value into a 0/1 first
+(if (i32.and (i32.ne (global.get $gauntlet) (i32.const 0)) (local.get $rowsLeft)) …)
+```
+
+That is not hypothetical. Circuit Runner's first gauntlet build wrote the
+first form, and gauntlets 1 and 3 worked while gauntlet 2 never laid a row and
+never ended, leaving the board empty from 9 km on. Nothing failed to validate.
+A bench pilot that lived oddly long doing nothing is what found it. The rule:
+**`i32.and` only ever sees comparisons.** Anything else goes through
+`i32.ne … 0` or `i32.eqz` first.
+
 The engines here mostly store booleans in linear memory as **`f32` 0.0 / 1.0** — the
 `alive` and `active` fields of every entity. That is unusual and deliberate: the
 entity records are otherwise all `f32`, and keeping one uniform type means the

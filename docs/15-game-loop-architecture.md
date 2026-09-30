@@ -53,7 +53,8 @@ it is worth *keeping* even where a clock is available:
 - **Replay.** A run is a function of the inputs and the `dt` sequence.
 - **Slow motion, fast-forward, pause** are all "pass a different `dt`", or none.
   Pixel Wave's pause is its widget not calling `step`, and there is no pause code
-  in the engine at all.
+  in the engine at all. Its hit-stop — a tenth of a second of frozen world when
+  a life is lost — is the same move made for a shorter time.
 - **Portability.** The engine does not care whether it is driven by
   `requestAnimationFrame`, a fixed-rate worker, or a headless test loop.
 

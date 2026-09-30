@@ -28,12 +28,15 @@
   ;;                  x, y, vx, vy, kind, active
   ;;                  ends at 208 + 8*24 = 400
   ;; tiles    @400  : stride 8, COLS*ROWS = 15*12 = 180 cells
-  ;;                  hp, kind    (hp 0 = empty, hp <0 = indestructible)
+  ;;                  hp, kind    (hp 0 = empty, hp <0 = indestructible;
+  ;;                  an empty cell keeps its kind, and kind -1 marks a cell
+  ;;                  that was never built — see the warden)
   ;;                  cell (col,row) is at 400 + (row*COLS + col)*8
   ;;                  ends at 400 + 180*8 = 1840
   ;; score @1840  lives @1844  level @1848  tilesLeft @1852
   ;;
-  ;; tile kinds: 0 = plain, 1 = tough (2 hp), 2 = bomb, 3 = solid
+  ;; tile kinds: 0 = plain, 1 = tough (2 hp), 2 = bomb, 3 = solid,
+  ;;             4 = warden, 5 = patch (a cell the warden rebuilt)
   ;; powerup kinds: 0 = WIDE, 1 = MULTI, 2 = SLOW, 3 = STICKY
   ;;
   ;; The field lists above, once more, in the form scripts/check-layout.mjs
@@ -137,6 +140,41 @@
 
   (global $START_LIVES (mut f32) (f32.const 5.0))
 
+  ;; ---- the warden ---------------------------------------------------------
+  ;; Every fourth level the wall has a boss in it: an armoured tile, centre of
+  ;; the wall's bottom row, that rebuilds the broken cells around it until it
+  ;; is broken itself. It is the one tile in the game that argues with the
+  ;; order you dig in — leave it for last and you are clearing its reach
+  ;; twice. It sits on the bottom row so it is always in reach of a ball from
+  ;; below: a boss the ball cannot get at would be a timer, not a fight.
+  ;;
+  ;; What it rebuilds is a *patch* (kind 5): one hit, worth little, and it
+  ;; never drops a capsule. Rebuilding the cell's own kind was the first
+  ;; thought and the wrong one — a warden restoring bombs beside itself is a
+  ;; warden that can be farmed for blasts, and one restoring tough tiles can
+  ;; be farmed for chip score. A patch is only ever in the way.
+  (global $WARDEN_EVERY i32 (i32.const 4))
+  (global $WARDEN_HP_BASE f32 (f32.const 4.0))   ;; + one per boss level so far
+  (global $WARDEN_HP_CAP f32 (f32.const 8.0))
+  ;; Seconds between rebuilds, and how far it reaches: a square of this
+  ;; radius, so two cells either side and two rows up from the bottom row.
+  ;;
+  ;; Not in the difficulty table, because the bench said it would not be a
+  ;; setting. A pilot that aims at the warden broke it in 13-53s at 1.6, 2.4
+  ;; and 3.2 alike — what ends the fight is hits, not the rebuild rate — and
+  ;; a pilot that ignores it paid in patches afterwards (about 25 of them at
+  ;; 2.4), which is the cost of ignoring it, as intended. 2.4 is roughly one
+  ;; rebuild per ball round trip, so a gap you open is usually still open when
+  ;; the ball comes back to use it.
+  (global $REPAIR_EVERY f32 (f32.const 2.4))
+  (global $REPAIR_REACH i32 (i32.const 2))
+  ;; The cell about to be rebuilt is chosen this long before it is, so the
+  ;; widget can show it coming — a tile that appears unannounced in front of
+  ;; the ball reads as the game cheating.
+  (global $REPAIR_WARN f32 (f32.const 0.6))
+  (global $SCORE_WARDEN f32 (f32.const 150.0))
+  (global $SCORE_PATCH f32 (f32.const 5.0))
+
   ;; ---- difficulty ---------------------------------------------------------
   ;; Easy / Normal / Hard. The widget calls set_difficulty(d) and then init();
   ;; init() copies one column of this table into the globals above, and nothing
@@ -203,6 +241,17 @@
   ;; scalar is enough because the widget plays one brick note a frame however
   ;; many broke — a bomb chain is the boom, not twenty bricks.
   (global $lastBreakRow (mut i32) (i32.const 0))
+  (global $repairs (mut i32) (i32.const 0))     ;; a cell rebuilt by the warden
+  (global $wardenHits (mut i32) (i32.const 0))  ;; the warden struck and survived
+  (global $wardenFalls (mut i32) (i32.const 0)) ;; the warden broken
+
+  ;; Warden state. $wardenC is -1 when there is no live warden, which is also
+  ;; the whole of "is this a boss level" as far as the rest of the step knows.
+  (global $wardenC (mut i32) (i32.const -1))
+  (global $wardenR (mut i32) (i32.const 0))
+  (global $wardenMax (mut f32) (f32.const 0.0))
+  (global $repairTimer (mut f32) (f32.const 0.0))
+  (global $repairCell (mut i32) (i32.const -1))   ;; row*COLS+col, or -1
 
   ;; ---------------- helpers ----------------
 
@@ -334,20 +383,50 @@
   ;; $explode_at, so a cell can never be blasted twice; depth is bounded by
   ;; the 180 cells in the grid.
 
+  ;; One hit on the warden, from a ball or a blast alike. It is armoured
+  ;; against blasts on purpose: a bomb beside it would otherwise end the boss
+  ;; in one frame, and which bombs land beside it is the dice, not the player.
+  (func $strike_warden (param $c i32) (param $r i32) (param $a i32)
+    (local $hp f32)
+    (local.set $hp (f32.sub (f32.load offset=0 (local.get $a)) (f32.const 1.0)))
+    (if (f32.gt (local.get $hp) (f32.const 0.0))
+      (then
+        (f32.store offset=0 (local.get $a) (local.get $hp))
+        (global.set $wardenHits (i32.add (global.get $wardenHits) (i32.const 1)))
+        (call $add_score (global.get $SCORE_CHIP))
+        (return)))
+    (f32.store offset=0 (local.get $a) (f32.const 0.0))
+    (i32.store (global.get $LEFT_OFF)
+      (i32.sub (i32.load (global.get $LEFT_OFF)) (i32.const 1)))
+    (call $add_score (global.get $SCORE_WARDEN))
+    (global.set $breaks (i32.add (global.get $breaks) (i32.const 1)))
+    (global.set $lastBreakRow (local.get $r))
+    (global.set $wardenFalls (i32.add (global.get $wardenFalls) (i32.const 1)))
+    (global.set $wardenC (i32.const -1))
+    (global.set $repairCell (i32.const -1))
+    (call $maybe_drop (local.get $c) (local.get $r)))
+
   ;; Destroy a cell outright, whatever its hp — this is a blast, not a hit.
-  ;; Solid cells (hp < 0) and empty cells are left alone.
+  ;; Solid cells (hp < 0) and empty cells are left alone, and the warden takes
+  ;; it as one hit.
   (func $blast (param $c i32) (param $r i32)
     (local $a i32) (local $kind i32)
     (local.set $a (call $tile_addr (local.get $c) (local.get $r)))
     (if (f32.le (f32.load offset=0 (local.get $a)) (f32.const 0.0)) (then (return)))
     (local.set $kind (i32.trunc_f32_s (f32.load offset=4 (local.get $a))))
+    (if (i32.eq (local.get $kind) (i32.const 4))
+      (then
+        (call $strike_warden (local.get $c) (local.get $r) (local.get $a))
+        (return)))
     (f32.store offset=0 (local.get $a) (f32.const 0.0))
     (i32.store (global.get $LEFT_OFF)
       (i32.sub (i32.load (global.get $LEFT_OFF)) (i32.const 1)))
     (call $add_score (global.get $SCORE_BOMB))
     (global.set $breaks (i32.add (global.get $breaks) (i32.const 1)))
     (global.set $lastBreakRow (local.get $r))
-    (call $maybe_drop (local.get $c) (local.get $r))
+    ;; a patch never drops — see $SCORE_PATCH
+    (if (i32.ne (local.get $kind) (i32.const 5))
+      (then (call $maybe_drop (local.get $c) (local.get $r))))
     (if (i32.eq (local.get $kind) (i32.const 2))
       (then (call $explode_at (local.get $c) (local.get $r)))))
 
@@ -386,6 +465,10 @@
     (if (f32.lt (local.get $hp) (f32.const 0.0)) (then (return (i32.const 1))))
 
     (local.set $kind (i32.trunc_f32_s (f32.load offset=4 (local.get $a))))
+    (if (i32.eq (local.get $kind) (i32.const 4))
+      (then
+        (call $strike_warden (local.get $c) (local.get $r) (local.get $a))
+        (return (i32.const 1))))
     (local.set $hp (f32.sub (local.get $hp) (f32.const 1.0)))
     (f32.store offset=0 (local.get $a) (local.get $hp))
 
@@ -399,10 +482,13 @@
             (then (global.get $SCORE_TOUGH))
             (else (if (result f32) (i32.eq (local.get $kind) (i32.const 2))
                     (then (global.get $SCORE_BOMB))
-                    (else (global.get $SCORE_PLAIN))))))
+                    (else (if (result f32) (i32.eq (local.get $kind) (i32.const 5))
+                            (then (global.get $SCORE_PATCH))
+                            (else (global.get $SCORE_PLAIN))))))))
         (global.set $breaks (i32.add (global.get $breaks) (i32.const 1)))
         (global.set $lastBreakRow (local.get $r))
-        (call $maybe_drop (local.get $c) (local.get $r))
+        (if (i32.ne (local.get $kind) (i32.const 5))
+          (then (call $maybe_drop (local.get $c) (local.get $r))))
         (if (i32.eq (local.get $kind) (i32.const 2))
           (then (call $explode_at (local.get $c) (local.get $r)))))
       (else
@@ -470,7 +556,9 @@
         (local.set $a (i32.add (global.get $TILES_OFF)
                         (i32.mul (local.get $i) (global.get $TILE_STRIDE))))
         (f32.store offset=0 (local.get $a) (f32.const 0.0))
-        (f32.store offset=4 (local.get $a) (f32.const 0.0))
+        ;; never built — the warden rebuilds only cells that held a tile, so
+        ;; it cannot plug the pockets a pattern leaves on purpose
+        (f32.store offset=4 (local.get $a) (f32.const -1.0))
         (local.set $i (i32.add (local.get $i) (i32.const 1)))
         (br $lp))))
 
@@ -565,7 +653,34 @@
             (local.set $c (i32.add (local.get $c) (i32.const 1)))
             (br $clp)))
         (local.set $r (i32.add (local.get $r) (i32.const 1)))
-        (br $rlp))))
+        (br $rlp)))
+    (call $place_warden (local.get $rows)))
+
+  ;; On a boss level, set the warden into the centre of the wall's bottom row,
+  ;; over whatever the pattern put there. Otherwise make sure none is live.
+  ;;
+  ;; Its hit points grow with the boss levels, not the level number, so the
+  ;; second warden is one tougher than the first however the levels between
+  ;; them went: 5, 6, 7, 8 and then no further.
+  (func $place_warden (param $rows i32)
+    (local $a i32) (local $hp f32)
+    (global.set $wardenC (i32.const -1))
+    (global.set $repairCell (i32.const -1))
+    (if (i32.rem_s (global.get $level) (global.get $WARDEN_EVERY)) (then (return)))
+    (global.set $wardenC (i32.div_s (global.get $COLS) (i32.const 2)))
+    (global.set $wardenR (i32.sub (local.get $rows) (i32.const 1)))
+    (local.set $hp (f32.min (global.get $WARDEN_HP_CAP)
+      (f32.add (global.get $WARDEN_HP_BASE)
+        (f32.convert_i32_s (i32.div_s (global.get $level) (global.get $WARDEN_EVERY))))))
+    (global.set $wardenMax (local.get $hp))
+    (local.set $a (call $tile_addr (global.get $wardenC) (global.get $wardenR)))
+    ;; the pattern may have left this cell empty; if so it is one more to clear
+    (if (f32.eq (f32.load offset=0 (local.get $a)) (f32.const 0.0))
+      (then (i32.store (global.get $LEFT_OFF)
+              (i32.add (i32.load (global.get $LEFT_OFF)) (i32.const 1)))))
+    (f32.store offset=0 (local.get $a) (local.get $hp))
+    (f32.store offset=4 (local.get $a) (f32.const 4.0))
+    (global.set $repairTimer (global.get $REPAIR_EVERY)))
 
   ;; ---------------- resets ----------------
 
@@ -669,6 +784,9 @@
     (global.set $hurts (i32.const 0))
     (global.set $clears (i32.const 0))
     (global.set $lastBreakRow (i32.const 0))
+    (global.set $repairs (i32.const 0))
+    (global.set $wardenHits (i32.const 0))
+    (global.set $wardenFalls (i32.const 0))
 
     (f32.store offset=0 (i32.const 0) (f32.mul (global.get $WORLD_W) (f32.const 0.5)))
     (f32.store offset=4 (i32.const 0) (global.get $PADDLE_Y))
@@ -1003,6 +1121,110 @@
         (local.set $i (i32.add (local.get $i) (i32.const 1)))
         (br $lp))))
 
+  ;; ---------------- the warden ----------------
+
+  ;; Does any live ball overlap cell (c,r)? A cell is never rebuilt around a
+  ;; ball: the ball would be inside a tile, and which way it bounced out would
+  ;; be an accident of the sub-step order.
+  (func $ball_in_cell (param $c i32) (param $r i32) (result i32)
+    (local $i i32) (local $a i32) (local $x0 f32) (local $y0 f32) (local $br f32)
+    (local.set $x0 (f32.add (global.get $GRID_X)
+      (f32.mul (f32.convert_i32_s (local.get $c)) (global.get $TILE_W))))
+    (local.set $y0 (f32.add (global.get $GRID_Y)
+      (f32.mul (f32.convert_i32_s (local.get $r)) (global.get $TILE_H))))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $lp
+        (br_if $done (i32.ge_s (local.get $i) (global.get $MAX_BALLS)))
+        (local.set $a (call $ball_addr (local.get $i)))
+        (if (f32.gt (f32.load offset=20 (local.get $a)) (f32.const 0.0))
+          (then
+            (local.set $br (f32.load offset=16 (local.get $a)))
+            (if (i32.and
+                  (i32.and
+                    (f32.gt (f32.add (f32.load offset=0 (local.get $a)) (local.get $br)) (local.get $x0))
+                    (f32.lt (f32.sub (f32.load offset=0 (local.get $a)) (local.get $br))
+                            (f32.add (local.get $x0) (global.get $TILE_W))))
+                  (i32.and
+                    (f32.gt (f32.add (f32.load offset=4 (local.get $a)) (local.get $br)) (local.get $y0))
+                    (f32.lt (f32.sub (f32.load offset=4 (local.get $a)) (local.get $br))
+                            (f32.add (local.get $y0) (global.get $TILE_H)))))
+              (then (return (i32.const 1))))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $lp)))
+    (i32.const 0))
+
+  ;; The broken cell in reach nearest the warden, or -1 if there is none.
+  ;; Nearest first, so it re-shields itself before it rebuilds anything else —
+  ;; the cell you just broke to get at it is the one that comes back.
+  ;; Ties go to scan order, which keeps the choice deterministic without a
+  ;; draw from $rng: every level without a warden stays the level it was.
+  (func $pick_repair (result i32)
+    (local $dc i32) (local $dr i32) (local $c i32) (local $r i32) (local $a i32)
+    (local $d i32) (local $best i32) (local $bestD i32) (local $k i32)
+    (local.set $best (i32.const -1))
+    (local.set $bestD (i32.const 1000))
+    (local.set $k (global.get $REPAIR_REACH))
+    (local.set $dr (i32.sub (i32.const 0) (local.get $k)))
+    (block $rdone
+      (loop $rlp
+        (br_if $rdone (i32.gt_s (local.get $dr) (local.get $k)))
+        (local.set $dc (i32.sub (i32.const 0) (local.get $k)))
+        (block $cdone
+          (loop $clp
+            (br_if $cdone (i32.gt_s (local.get $dc) (local.get $k)))
+            (local.set $c (i32.add (global.get $wardenC) (local.get $dc)))
+            (local.set $r (i32.add (global.get $wardenR) (local.get $dr)))
+            (if (i32.and
+                  (i32.and (i32.ge_s (local.get $c) (i32.const 0))
+                           (i32.lt_s (local.get $c) (global.get $COLS)))
+                  (i32.and (i32.ge_s (local.get $r) (i32.const 0))
+                           (i32.lt_s (local.get $r) (global.get $ROWS))))
+              (then
+                (local.set $a (call $tile_addr (local.get $c) (local.get $r)))
+                (if (i32.and (f32.eq (f32.load offset=0 (local.get $a)) (f32.const 0.0))
+                             (f32.ge (f32.load offset=4 (local.get $a)) (f32.const 0.0)))
+                  (then
+                    (local.set $d (i32.add (i32.mul (local.get $dc) (local.get $dc))
+                                           (i32.mul (local.get $dr) (local.get $dr))))
+                    (if (i32.lt_s (local.get $d) (local.get $bestD))
+                      (then
+                        (local.set $bestD (local.get $d))
+                        (local.set $best (i32.add (i32.mul (local.get $r) (global.get $COLS))
+                                                  (local.get $c)))))))))
+            (local.set $dc (i32.add (local.get $dc) (i32.const 1)))
+            (br $clp)))
+        (local.set $dr (i32.add (local.get $dr) (i32.const 1)))
+        (br $rlp)))
+    (local.get $best))
+
+  ;; The warden's clock. It picks its next cell $REPAIR_WARN before the rebuild
+  ;; so the widget can mark it, and rebuilds it when the clock runs out — as
+  ;; long as the cell is still empty and no ball is in it. A rebuild that is
+  ;; refused is skipped, not retried: the clock starts over either way, so a
+  ;; ball parked in the gap cannot make the warden rebuild the instant it leaves.
+  (func $step_warden (param $dt f32)
+    (local $c i32) (local $r i32) (local $a i32)
+    (if (i32.lt_s (global.get $wardenC) (i32.const 0)) (then (return)))
+    (global.set $repairTimer (f32.sub (global.get $repairTimer) (local.get $dt)))
+    (if (i32.and (f32.le (global.get $repairTimer) (global.get $REPAIR_WARN))
+                 (i32.lt_s (global.get $repairCell) (i32.const 0)))
+      (then (global.set $repairCell (call $pick_repair))))
+    (if (f32.gt (global.get $repairTimer) (f32.const 0.0)) (then (return)))
+    (global.set $repairTimer (global.get $REPAIR_EVERY))
+    (if (i32.lt_s (global.get $repairCell) (i32.const 0)) (then (return)))
+    (local.set $c (i32.rem_s (global.get $repairCell) (global.get $COLS)))
+    (local.set $r (i32.div_s (global.get $repairCell) (global.get $COLS)))
+    (global.set $repairCell (i32.const -1))
+    (local.set $a (call $tile_addr (local.get $c) (local.get $r)))
+    (if (f32.ne (f32.load offset=0 (local.get $a)) (f32.const 0.0)) (then (return)))
+    (if (call $ball_in_cell (local.get $c) (local.get $r)) (then (return)))
+    (f32.store offset=0 (local.get $a) (f32.const 1.0))
+    (f32.store offset=4 (local.get $a) (f32.const 5.0))
+    (i32.store (global.get $LEFT_OFF)
+      (i32.add (i32.load (global.get $LEFT_OFF)) (i32.const 1)))
+    (global.set $repairs (i32.add (global.get $repairs) (i32.const 1))))
+
   (func $lose_life
     (global.set $hurts (i32.add (global.get $hurts) (i32.const 1)))
     (f32.store (global.get $LIVES_OFF)
@@ -1047,6 +1269,7 @@
         (br $lp)))
 
     (call $step_powers (local.get $dt))
+    (call $step_warden (local.get $dt))
 
     ;; Order matters: a level cleared by the shot that also lost the last ball
     ;; should advance, not cost a life.
@@ -1076,4 +1299,17 @@
   (func $get_hurts (export "get_hurts") (result i32) (global.get $hurts))
   (func $get_clears (export "get_clears") (result i32) (global.get $clears))
   (func $get_last_break_row (export "get_last_break_row") (result i32) (global.get $lastBreakRow))
+  (func $get_repairs (export "get_repairs") (result i32) (global.get $repairs))
+  (func $get_warden_hits (export "get_warden_hits") (result i32) (global.get $wardenHits))
+  (func $get_warden_falls (export "get_warden_falls") (result i32) (global.get $wardenFalls))
+  ;; 1 while a warden stands. Its position and hit points are in the tile grid
+  ;; like any other tile's; its starting hit points are here, because the pips
+  ;; the widget draws need a maximum and the engine is what decides it.
+  (func $get_warden_alive (export "get_warden_alive") (result i32)
+    (i32.ge_s (global.get $wardenC) (i32.const 0)))
+  (func $get_warden_max (export "get_warden_max") (result f32) (global.get $wardenMax))
+  ;; The cell the warden will rebuild next, as row*COLS+col, or -1; and the
+  ;; seconds until it does, so a marker can tighten as the moment arrives.
+  (func $get_repair_cell (export "get_repair_cell") (result i32) (global.get $repairCell))
+  (func $get_repair_t (export "get_repair_t") (result f32) (global.get $repairTimer))
 )

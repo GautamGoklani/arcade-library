@@ -37,6 +37,13 @@
   ;; ship went *between* two rocks, which is a **squeeze** — worth much more,
   ;; and the only thing that raises the multiplier.
   ;;
+  ;; Every fourth field also carries a **gate**: two marked posts set exactly
+  ;; far enough apart for the ship with $GATE_CLEAR to spare on each side, out
+  ;; past the corridor. Thread it and both posts settle as a graze in the same
+  ;; frame, and that squeeze pays double. It is the squeeze every other gap
+  ;; on the board is an improvised version of, offered on purpose and priced
+  ;; for the detour — see "the gate" below.
+  ;;
   ;; Resolving on the way out rather than on the way in matters. Scoring the
   ;; moment the ship enters the band would pay for a near miss the player then
   ;; turned into a collision, and would pay repeatedly while the rock slid past.
@@ -55,11 +62,12 @@
 
   ;; ================= MEMORY LAYOUT =================
   ;; ship   @0    : x, vx, alive, invuln              (4 f32 = 16)
-  ;; rocks  @16   : stride 40, MAX_ROCKS = 26
+  ;; rocks  @16   : stride 40, MAX_ROCKS = 48
   ;;                x, y, vx, r, active, near, spin, kind, resolved, path
-  ;;                ends at 16 + 26*40 = 1056
+  ;;                ends at 16 + 48*40 = 1936
   ;;
-  ;; rock kinds: 0 = shard, 1 = boulder, 2 = slab (the one that drifts)
+  ;; rock kinds: 0 = shard, 1 = boulder, 2 = slab (the one that drifts),
+  ;;             3 = leviathan body, 4 = leviathan head, 5 = gate post
   ;;
   ;; `near` is the smallest *surface* clearance this rock has ever had to the
   ;; ship — not centre distance. It starts at $NEAR_NONE, falls as the ship
@@ -89,7 +97,10 @@
   (global $SHIP_OFF i32 (i32.const 0))
   (global $ROCKS_OFF i32 (i32.const 16))
   (global $ROCK_STRIDE i32 (i32.const 40))
-  (global $MAX_ROCKS i32 (i32.const 26))
+  ;; 48, up from 26, for the leviathan: its three walls are about thirty
+  ;; segments on screen at once, on top of whatever fields are still leaving.
+  ;; Nothing lives after the rocks, so growing the pool moves no other offset.
+  (global $MAX_ROCKS i32 (i32.const 48))
 
   (global $WORLD_W f32 (f32.const 960.0))
   (global $WORLD_H f32 (f32.const 720.0))
@@ -186,6 +197,54 @@
   (global $SCORE_SQUEEZE f32 (f32.const 140.0))
   (global $SCORE_OVERCHARGE f32 (f32.const 250.0))
 
+  ;; ---- the leviathan ----
+  ;; The boss, and it is not shot, because nothing here is: it is threaded.
+  ;; Every $LEV_EVERY_KM, starting at $LEV_FIRST_KM, the next three fields are
+  ;; replaced by the leviathan — three walls of body segments across the whole
+  ;; board, laid in a slow wave, head first. Each wall keeps the corridor
+  ;; every field keeps, placed and moved by the same rule, so it is never
+  ;; impassable. And each has one **rib gap**: a slot between two segments
+  ;; exactly wide enough for the ship with $RIB_CLEAR to spare on each side,
+  ;; which is inside the graze band on every setting — thread it and the two
+  ;; segments settle as a squeeze.
+  ;;
+  ;; Get through all three walls without a hit and it banks $LEV_CHARGE: half a
+  ;; plate. That makes the boss a repair, which is this game's scarce thing —
+  ;; and a hit anywhere in it costs the bonus as well as the plate.
+  (global $LEV_FIRST_KM f32 (f32.const 8.0))
+  (global $LEV_EVERY_KM f32 (f32.const 16.0))
+  (global $LEV_WALLS i32 (i32.const 3))
+  (global $SEG_R f32 (f32.const 28.0))
+  (global $SEG_STEP f32 (f32.const 60.0))       ;; centre to centre: 4px apart
+  (global $RIB_CLEAR f32 (f32.const 12.0))      ;; each side of the ship
+  (global $WAVE_AMP f32 (f32.const 36.0))       ;; how far the body bends, in y
+  (global $LEV_CHARGE f32 (f32.const 50.0))
+  (global $SCORE_LEVIATHAN f32 (f32.const 500.0))
+
+  ;; ---- the gate ----
+  ;; The title's own idea from the per-game menu: *a squeeze that scores
+  ;; double*. Every $GATE_EVERY-th field places a pair of posts beside the
+  ;; corridor, on whichever side has more room and at least 110px clear of it —
+  ;; the rib gap's rule, so a gate is a second way through a field, never a
+  ;; wider first one. The posts are $GATE_R and the gap between their surfaces
+  ;; is the ship plus $GATE_CLEAR a side, which is inside the graze band on
+  ;; every setting, so flying through it is always a squeeze. Only a squeeze
+  ;; whose *both* grazes were posts is a gate; that one pays $SCORE_SQUEEZE a
+  ;; second time.
+  ;;
+  ;; Score only. The charge a squeeze banks is the hull's repair, and the
+  ;; repair is what the difficulty table is tuned around; a gate that also
+  ;; healed would be a second leviathan every four fields. What the double
+  ;; buys is the multiplier's worth twice, and the multiplier is only ever
+  ;; high when the player has been taking risks — so a gate is worth most to
+  ;; the player already flying close, which is the right person to tempt.
+  ;;
+  ;; No other rock may sit in the gap, or a gate could arrive plugged; the
+  ;; posts themselves never drift.
+  (global $GATE_EVERY i32 (i32.const 4))
+  (global $GATE_R f32 (f32.const 20.0))
+  (global $GATE_CLEAR f32 (f32.const 12.0))    ;; each side of the ship
+
   ;; ---- difficulty ---------------------------------------------------------
   ;; Easy / Normal / Hard. The widget calls set_difficulty(d) and then init();
   ;; init() copies one column of this table into the globals below, and the rest
@@ -251,6 +310,12 @@
   (global $squeezeT (mut f32) (f32.const 0.0))
   (global $nextField (mut f32) (f32.const 520.0))
   (global $pathX (mut f32) (f32.const 480.0))
+  (global $nextLev (mut f32) (f32.const 8000.0))   ;; distance of the next leviathan
+  (global $levWalls (mut i32) (i32.const 0))       ;; walls still to spawn
+  (global $levOn (mut i32) (i32.const 0))          ;; one is passing
+  (global $levHit (mut i32) (i32.const 0))         ;; the ship was hit during it
+  (global $wavePhase (mut f32) (f32.const 0.0))
+  (global $prevGate (mut i32) (i32.const 0))       ;; the last graze was a post
 
   ;; input, as reported by set_input each frame: -1..1, analogue
   (global $moveIn (mut f32) (f32.const 0.0))
@@ -263,6 +328,9 @@
   (global $hits (mut i32) (i32.const 0))
   (global $patches (mut i32) (i32.const 0))
   (global $fields (mut i32) (i32.const 0))
+  (global $leviathans (mut i32) (i32.const 0))  ;; one arrived
+  (global $threads (mut i32) (i32.const 0))     ;; one passed without a hit
+  (global $gates (mut i32) (i32.const 0))       ;; a gate threaded
 
   ;; ---------------- helpers ----------------
 
@@ -431,20 +499,60 @@
   ;; than fairness, though — a guaranteed *safe* line is what makes every other
   ;; gap on the board a genuine choice. The player is never dodging; they are
   ;; deciding how much of the corridor to give up for a squeeze.
-  (func $spawn_field
-    (local $n i32) (local $placed i32) (local $tries i32)
-    (local $x f32) (local $r f32) (local $kind i32) (local $half f32) (local $idx i32)
-
+  ;; Move the corridor for the next field, by at most $path_step. Every field
+  ;; and every leviathan wall goes through here, which is what makes the
+  ;; reachability guarantee one rule rather than two.
+  (func $move_path
     (global.set $pathX
       (call $clampf
         (f32.add (global.get $pathX)
                  (call $frand (f32.neg (call $path_step)) (call $path_step)))
         (f32.add (global.get $SHIP_MARGIN) (f32.mul (call $corridor) (f32.const 0.5)))
         (f32.sub (f32.sub (global.get $WORLD_W) (global.get $SHIP_MARGIN))
-                 (f32.mul (call $corridor) (f32.const 0.5)))))
+                 (f32.mul (call $corridor) (f32.const 0.5))))))
+
+  (func $spawn_field
+    (local $n i32) (local $placed i32) (local $tries i32)
+    (local $x f32) (local $r f32) (local $kind i32) (local $half f32) (local $idx i32)
+    (local $gx f32) (local $gHalf f32) (local $lo f32) (local $hi f32)
+
+    (call $move_path)
 
     (local.set $half (f32.mul (call $corridor) (f32.const 0.5)))
+
     (local.set $n (call $field_size))
+
+    ;; The gate, first, so the field's own rocks are placed around it. $gx
+    ;; stays far off the board on the fields without one.
+    (local.set $gx (f32.const -1000.0))
+    (local.set $gHalf (f32.add (global.get $SHIP_R) (global.get $GATE_CLEAR)))
+    (if (i32.eq (i32.rem_u (global.get $fields) (global.get $GATE_EVERY))
+                (i32.sub (global.get $GATE_EVERY) (i32.const 1)))
+      (then
+        (if (f32.gt (global.get $pathX) (f32.mul (global.get $WORLD_W) (f32.const 0.5)))
+          (then
+            (local.set $lo (f32.const 80.0))
+            (local.set $hi (f32.sub (f32.sub (global.get $pathX) (local.get $half)) (f32.const 110.0))))
+          (else
+            (local.set $lo (f32.add (f32.add (global.get $pathX) (local.get $half)) (f32.const 110.0)))
+            (local.set $hi (f32.sub (global.get $WORLD_W) (f32.const 80.0)))))
+        ;; A corridor near the middle can leave neither side room for a
+        ;; gate; then this field simply has none.
+        (if (f32.ge (local.get $hi) (local.get $lo))
+          (then
+            (local.set $gx (call $frand (local.get $lo) (local.get $hi)))
+            (drop (call $spawn_rock
+              (f32.sub (local.get $gx) (f32.add (local.get $gHalf) (global.get $GATE_R)))
+              (global.get $GATE_R) (i32.const 5)))
+            (drop (call $spawn_rock
+              (f32.add (local.get $gx) (f32.add (local.get $gHalf) (global.get $GATE_R)))
+              (global.get $GATE_R) (i32.const 5)))
+            ;; The posts stand in for two of the field's rocks rather than
+            ;; joining them. Added on top, they made every fourth field
+            ;; denser, and a pilot that never went near a gate lost 30s of
+            ;; its Easy runs to rocks it was only avoiding.
+            (local.set $n (call $clampi (i32.sub (local.get $n) (i32.const 2))
+                                        (i32.const 1) (local.get $n)))))))
     (local.set $placed (i32.const 0))
     (local.set $tries (i32.const 0))
 
@@ -468,6 +576,9 @@
                                     (if (result f32) (i32.eq (local.get $kind) (i32.const 2))
                                       (then (f32.const 40.0)) (else (f32.const 0.0))))))
         (br_if $lp (call $field_overlaps (local.get $x) (local.get $r)))
+        ;; ... and never in a gate's gap
+        (br_if $lp (f32.lt (f32.abs (f32.sub (local.get $x) (local.get $gx)))
+                           (f32.add (f32.add (local.get $gHalf) (local.get $r)) (f32.const 8.0))))
 
         ;; A full pool means the board is already saturated; stop rather than
         ;; spinning out the try budget placing nothing.
@@ -477,6 +588,126 @@
         (br $lp)))
 
     (global.set $fields (i32.add (global.get $fields) (i32.const 1))))
+
+  ;; One wall of the leviathan: body everywhere except the corridor and one
+  ;; rib gap, each segment a little higher or lower on a sine wave so the wall
+  ;; reads as a body rather than a fence. The rib gap is placed well clear of
+  ;; the corridor, so it is a second way through, not a wider first one.
+  ;;
+  ;; The first version laid segments on a $SEG_STEP grid and skipped any that
+  ;; touched a gap, and a screenshot showed the rib gap coming out nearly 190px
+  ;; wide — the width of the grid slots around it, not the 58 it claimed. The
+  ;; body is now three runs packed from both ends (see $body_run), so the
+  ;; segments beside each gap sit exactly on its edges.
+  (func $spawn_wall (param $head i32)
+    (local $half f32) (local $rib f32) (local $ribHalf f32)
+    (local $lo f32) (local $hi f32) (local $first i32)
+    (local $g0 f32) (local $g1 f32) (local $h0 f32) (local $h1 f32) (local $t f32)
+    (call $move_path)
+    (local.set $half (f32.mul (call $corridor) (f32.const 0.5)))
+    (local.set $ribHalf (f32.add (global.get $SHIP_R) (global.get $RIB_CLEAR)))
+    ;; The rib gap goes on whichever side of the corridor has more room, a
+    ;; random distance into it.
+    (if (f32.gt (global.get $pathX) (f32.mul (global.get $WORLD_W) (f32.const 0.5)))
+      (then
+        (local.set $lo (f32.const 70.0))
+        (local.set $hi (f32.sub (f32.sub (global.get $pathX) (local.get $half)) (f32.const 110.0))))
+      (else
+        (local.set $lo (f32.add (f32.add (global.get $pathX) (local.get $half)) (f32.const 110.0)))
+        (local.set $hi (f32.sub (global.get $WORLD_W) (f32.const 70.0)))))
+    (local.set $rib (call $frand (local.get $lo) (f32.max (local.get $lo) (local.get $hi))))
+
+    ;; Two gaps, as surface intervals: [g0,g1] the nearer the left edge.
+    (local.set $g0 (f32.sub (global.get $pathX) (local.get $half)))
+    (local.set $g1 (f32.add (global.get $pathX) (local.get $half)))
+    (local.set $h0 (f32.sub (local.get $rib) (local.get $ribHalf)))
+    (local.set $h1 (f32.add (local.get $rib) (local.get $ribHalf)))
+    (if (f32.lt (local.get $h0) (local.get $g0))
+      (then
+        (local.set $t (local.get $g0)) (local.set $g0 (local.get $h0)) (local.set $h0 (local.get $t))
+        (local.set $t (local.get $g1)) (local.set $g1 (local.get $h1)) (local.set $h1 (local.get $t))))
+    ;; Three runs of body between the edges and the gaps. Each run is packed
+    ;; from both ends toward its middle, so the segments either side of a gap
+    ;; sit exactly on its edge — a rib gap is the width it claims to be, not
+    ;; that plus whatever the grid left over.
+    (local.set $first (i32.const 1))
+    (local.set $first (call $body_run (f32.const 0.0) (local.get $g0) (local.get $head) (local.get $first)))
+    (local.set $first (call $body_run (local.get $g1) (local.get $h0) (local.get $head) (local.get $first)))
+    (local.set $first (call $body_run (local.get $h1) (global.get $WORLD_W) (local.get $head) (local.get $first)))
+    (global.set $wavePhase (f32.add (global.get $wavePhase) (f32.const 1.3))))
+
+  ;; Fill the surface interval [a,b] with body segments, touching its ends,
+  ;; evenly spaced no wider apart than $SEG_STEP. Returns whether the head is
+  ;; still to be placed. A run too short for one segment is left empty — an
+  ;; edge gap wider than a segment is just more corridor.
+  (func $body_run (param $a f32) (param $b f32) (param $head i32) (param $first i32) (result i32)
+    (local $n i32) (local $k i32) (local $x0 f32) (local $x1 f32) (local $step f32)
+    (local $x f32) (local $idx i32) (local $p i32) (local $r f32)
+    (local.set $r (global.get $SEG_R))
+    (local.set $x0 (f32.add (local.get $a) (local.get $r)))
+    (local.set $x1 (f32.sub (local.get $b) (local.get $r)))
+    (if (f32.lt (local.get $x1) (local.get $x0)) (then (return (local.get $first))))
+    (local.set $n (i32.add (i32.trunc_f32_s
+      (f32.ceil (f32.div (f32.sub (local.get $x1) (local.get $x0)) (global.get $SEG_STEP)))) (i32.const 1)))
+    (local.set $step (if (result f32) (i32.gt_s (local.get $n) (i32.const 1))
+      (then (f32.div (f32.sub (local.get $x1) (local.get $x0)) (f32.convert_i32_s (i32.sub (local.get $n) (i32.const 1)))))
+      (else (f32.const 0.0))))
+    (local.set $k (i32.const 0))
+    (block $done
+      (loop $lp
+        (br_if $done (i32.ge_s (local.get $k) (local.get $n)))
+        (local.set $x (f32.add (local.get $x0) (f32.mul (f32.convert_i32_s (local.get $k)) (local.get $step))))
+        (local.set $idx (call $spawn_rock (local.get $x) (local.get $r) (i32.const 3)))
+        (br_if $done (i32.lt_s (local.get $idx) (i32.const 0)))
+        (local.set $p (call $rock_addr (local.get $idx)))
+        ;; the body bends: each segment is lifted by a slice of the wave
+        (f32.store offset=4 (local.get $p)
+          (f32.sub (f32.load offset=4 (local.get $p))
+            (f32.mul (global.get $WAVE_AMP)
+              (f32.add (f32.const 1.0)
+                (call $sin_approx (f32.add (global.get $wavePhase)
+                                           (f32.mul (local.get $x) (f32.const 0.011))))))))
+        (if (i32.and (local.get $head) (local.get $first))
+          (then
+            (f32.store offset=28 (local.get $p) (f32.const 4.0))
+            (local.set $first (i32.const 0))))
+        (local.set $k (i32.add (local.get $k) (i32.const 1)))
+        (br $lp)))
+    (local.get $first))
+
+  ;; A sine good enough to bend a body by, from the Bhaskara approximation.
+  ;; The engine has no imports and needs no accuracy here: the wave is a
+  ;; drawing of a spine, and the collision uses where the segment *is*.
+  (func $sin_approx (param $t f32) (result f32)
+    (local $x f32) (local $s f32)
+    ;; wrap to [0, 2pi)
+    (local.set $x (f32.sub (local.get $t)
+      (f32.mul (f32.const 6.2831853) (f32.floor (f32.div (local.get $t) (f32.const 6.2831853))))))
+    (local.set $s (f32.const 1.0))
+    (if (f32.gt (local.get $x) (f32.const 3.1415927))
+      (then (local.set $x (f32.sub (local.get $x) (f32.const 3.1415927)))
+            (local.set $s (f32.const -1.0))))
+    (f32.mul (local.get $s)
+      (f32.div (f32.mul (f32.const 16.0) (f32.mul (local.get $x) (f32.sub (f32.const 3.1415927) (local.get $x))))
+               (f32.sub (f32.const 49.348022)
+                        (f32.mul (f32.const 4.0) (f32.mul (local.get $x) (f32.sub (f32.const 3.1415927) (local.get $x))))))))
+
+  ;; Is any part of the leviathan still to be settled up?
+  (func $lev_pending (result i32)
+    (local $i i32) (local $a i32)
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $lp
+        (br_if $done (i32.ge_s (local.get $i) (global.get $MAX_ROCKS)))
+        (local.set $a (call $rock_addr (local.get $i)))
+        (if (i32.and (f32.gt (f32.load offset=16 (local.get $a)) (f32.const 0.0))
+              (i32.and (i32.and (f32.ge (f32.load offset=28 (local.get $a)) (f32.const 3.0))
+                                (f32.lt (f32.load offset=28 (local.get $a)) (f32.const 5.0)))
+                       (f32.eq (f32.load offset=32 (local.get $a)) (f32.const 0.0))))
+          (then (return (i32.const 1))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $lp)))
+    (i32.const 0))
 
   ;; ---------------- the ship ----------------
 
@@ -535,7 +766,7 @@
   ;; clearance; `tight` is that as a 0..1 fraction of the band, so a pass at
   ;; the very edge is worth almost nothing and one at two pixels is worth all
   ;; of it.
-  (func $resolve_graze (param $near f32)
+  (func $resolve_graze (param $near f32) (param $gate i32)
     (local $tight f32)
     (local.set $tight (call $clampf
       (f32.div (f32.sub (global.get $GRAZE_BAND) (local.get $near)) (global.get $GRAZE_BAND))
@@ -556,8 +787,16 @@
         (global.set $squeezes (i32.add (global.get $squeezes) (i32.const 1)))
         (call $add_score (f32.mul (global.get $SCORE_SQUEEZE) (global.get $mult)))
         (global.set $charge (f32.add (global.get $charge) (global.get $CHARGE_SQUEEZE)))
+        ;; Both grazes of this squeeze were posts: a gate. Paid at the
+        ;; multiplier as it stood before this squeeze raised it, the same as
+        ;; the first payment, so a gate is exactly double and not a shade more.
+        (if (i32.and (local.get $gate) (global.get $prevGate))
+          (then
+            (global.set $gates (i32.add (global.get $gates) (i32.const 1)))
+            (call $add_score (f32.mul (global.get $SCORE_SQUEEZE) (global.get $mult)))))
         (global.set $mult (f32.min (f32.add (global.get $mult) (f32.const 1.0))
                                    (global.get $MULT_MAX)))))
+    (global.set $prevGate (local.get $gate))
     ;; Re-armed either way: four rocks the ship threaded is three gaps, not
     ;; one, and the player who managed it should be paid for all three.
     (global.set $squeezeT (global.get $SQUEEZE_WINDOW))
@@ -566,6 +805,7 @@
 
   (func $take_hit (param $a i32)
     (global.set $hits (i32.add (global.get $hits) (i32.const 1)))
+    (if (global.get $levOn) (then (global.set $levHit (i32.const 1))))
     (global.set $hull (f32.sub (global.get $hull) (f32.const 1.0)))
     (f32.store offset=12 (global.get $SHIP_OFF) (global.get $INVULN_TIME))
     ;; The rock is consumed, as in circuit-runner: leaving it live would
@@ -577,6 +817,7 @@
     (global.set $mult (f32.const 1.0))
     (global.set $charge (f32.mul (global.get $charge) (f32.const 0.5)))
     (global.set $squeezeT (f32.const 0.0))
+    (global.set $prevGate (i32.const 0))
     (if (f32.le (global.get $hull) (f32.const 0.0))
       (then
         (global.set $hull (f32.const 0.0))
@@ -642,7 +883,8 @@
                     (local.set $near (f32.load offset=20 (local.get $a)))
                     (if (i32.and (f32.gt (local.get $near) (f32.const 0.0))
                                  (f32.le (local.get $near) (global.get $GRAZE_BAND)))
-                      (then (call $resolve_graze (local.get $near))))))))))
+                      (then (call $resolve_graze (local.get $near)
+                              (f32.eq (f32.load offset=28 (local.get $a)) (f32.const 5.0)))))))))))
         (local.set $i (i32.add (local.get $i) (i32.const 1)))
         (br $lp))))
 
@@ -731,6 +973,15 @@
     (global.set $hits (i32.const 0))
     (global.set $patches (i32.const 0))
     (global.set $fields (i32.const 0))
+    (global.set $leviathans (i32.const 0))
+    (global.set $threads (i32.const 0))
+    (global.set $gates (i32.const 0))
+    (global.set $prevGate (i32.const 0))
+    (global.set $nextLev (f32.mul (global.get $LEV_FIRST_KM) (f32.const 1000.0)))
+    (global.set $levWalls (i32.const 0))
+    (global.set $levOn (i32.const 0))
+    (global.set $levHit (i32.const 0))
+    (global.set $wavePhase (f32.const 0.0))
     (call $clear_pool)
     ;; The first field is a long way off. An endless runner that opens with
     ;; debris on screen is asking for a reaction before the player has found
@@ -769,12 +1020,40 @@
     (if (f32.gt (global.get $cleanPx) (f32.mul (global.get $MULT_DECAY_PX) (f32.const 2.0)))
       (then (global.set $cleanPx (global.get $MULT_DECAY_PX))))
 
+    ;; A leviathan is due: the next three fields are its walls instead.
+    (if (i32.and (f32.ge (global.get $dist) (global.get $nextLev))
+                 (i32.eqz (global.get $levOn)))
+      (then
+        (global.set $nextLev (f32.add (global.get $nextLev)
+                                      (f32.mul (global.get $LEV_EVERY_KM) (f32.const 1000.0))))
+        (global.set $levWalls (global.get $LEV_WALLS))
+        (global.set $levOn (i32.const 1))
+        (global.set $levHit (i32.const 0))
+        (global.set $leviathans (i32.add (global.get $leviathans) (i32.const 1)))))
+
     (if (f32.ge (global.get $dist) (global.get $nextField))
       (then
         (global.set $nextField (f32.add (global.get $nextField) (call $field_gap)))
-        (call $spawn_field)))
+        (if (i32.gt_s (global.get $levWalls) (i32.const 0))
+          (then
+            (call $spawn_wall (i32.eq (global.get $levWalls) (global.get $LEV_WALLS)))
+            (global.set $levWalls (i32.sub (global.get $levWalls) (i32.const 1))))
+          (else (call $spawn_field)))))
 
-    (call $step_rocks (local.get $d)))
+    (call $step_rocks (local.get $d))
+
+    ;; All three walls are down and every segment has passed the ship: the
+    ;; leviathan is behind you. Untouched, it pays half a plate.
+    (if (i32.and (global.get $levOn)
+                 (i32.and (i32.eqz (global.get $levWalls)) (i32.eqz (call $lev_pending))))
+      (then
+        (global.set $levOn (i32.const 0))
+        (if (i32.eqz (global.get $levHit))
+          (then
+            (global.set $threads (i32.add (global.get $threads) (i32.const 1)))
+            (call $add_score (f32.mul (global.get $SCORE_LEVIATHAN) (global.get $mult)))
+            (global.set $charge (f32.add (global.get $charge) (global.get $LEV_CHARGE)))
+            (call $spend_charge))))))
 
   ;; ---------------- readers ----------------
 
@@ -809,4 +1088,9 @@
   (func $get_hits (export "get_hits") (result i32) (global.get $hits))
   (func $get_patches (export "get_patches") (result i32) (global.get $patches))
   (func $get_fields (export "get_fields") (result i32) (global.get $fields))
+  (func $get_leviathans (export "get_leviathans") (result i32) (global.get $leviathans))
+  (func $get_threads (export "get_threads") (result i32) (global.get $threads))
+  (func $get_gates (export "get_gates") (result i32) (global.get $gates))
+  ;; 1 while a leviathan is arriving or passing, for the banner and the HUD.
+  (func $get_lev_on (export "get_lev_on") (result i32) (global.get $levOn))
 )

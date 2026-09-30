@@ -133,8 +133,9 @@ it that way.
   order; the core in the middle is plated, and a round that hits it before
   they are gone just ticks off. Before every attack the parts about to fire
   **flash white** — guns throw a fan straight down, wings an aimed volley, the
-  bare core a ring — so move when you see it. Flying into the boss costs a life
-  and throws you clear. See [Boss waves](#boss-waves-september-2026).
+  bare core a ring — so move when you see it. It descends into place from above
+  the arena, and cannot hurt you on the way down; once it has landed, flying
+  into it costs a life and throws you clear. See [Boss waves](#boss-waves-september-2026).
 - **Levels 1–30:** each cleared wave adds one enemy — on Normal, 2 at level 1,
   capped at 24. Enemy stats stay flat; the pressure is numbers.
 - **Level 31+:** the count holds and the stat ramps start — faster movement,
@@ -147,7 +148,7 @@ it that way.
 
 ## Engine
 
-~1,490 lines of hand-written WAT, 7.6 KB compiled, zero dependencies, zero
+~1,530 lines of hand-written WAT, 7.6 KB compiled, zero dependencies, zero
 runtime network requests.
 
 ### Memory layout
@@ -183,11 +184,12 @@ get_score() · get_lives() · get_level() · is_game_over() · bots_alive_count(
 get_shots() · get_enemy_shots() · get_kills() · get_rocks() · get_hurts() · get_waves()
 get_drops() · get_grabs() · get_blocks()
 get_bosses() · get_warns() · get_clinks() · get_boss_parts() · get_boss_downs()
+get_rounds() · get_hits()
 get_rapid_t() · get_spread_t() · get_shield_t()
 set_difficulty(d: i32) · get_difficulty()
 ```
 
-`get_shots` through `get_boss_downs` are **event counters**: integers that only ever go up, one per
+`get_shots` through `get_hits` are **event counters**: integers that only ever go up, one per
 kind of event, incremented at the line in `game.wat` where the event is
 decided and zeroed by `init()`. The widget diffs them between frames to decide
 what to play and when to flash.
@@ -236,7 +238,8 @@ inside the engine — the opposite of taking the count as a parameter, which
 This title was retrofitted with the library's retro render treatment in
 September 2026. It draws into a **400×250 buffer blown up 3× with smoothing off**,
 with scanlines and a vignette in CSS (`.ss-scan`, dropped under
-`prefers-reduced-motion`) and screen shake that moves in whole low-res pixels.
+`prefers-reduced-motion`) and screen shake that moves in whole low-res pixels
+and is dropped under the same setting.
 The CRT overlay used to be painted onto the canvas every frame; it is CSS now,
 because one-pixel scanlines drawn into the buffer would have become three-pixel
 bars. Rotated sprites — the ship, its bolts, the asteroids — now rotate at the
@@ -272,6 +275,101 @@ npm install
 npm run build:pixel-wave    # game.wat → game.wasm, re-embedded into the .js
 npm run check               # verify the binary matches its source
 ```
+
+---
+
+## Game over, shake and hit-stop, September 2026
+
+The last three items on the title's own roadmap, all in the widget. The engine
+gained two counters and lost three copies of one block; see
+[Losing a life](#losing-a-life-is-one-function) below.
+
+### The run, on the game-over screen
+
+GAME OVER now lists the run under the headline: waves survived, enemies down,
+asteroids, bosses (destroyed / met — the row is left out until a boss has
+arrived, because *0 / 0* reads as a taunt), power-ups taken, and accuracy. Every
+figure is an event counter the engine already keeps, read once when the run
+ends; the widget tallies nothing.
+
+**Accuracy needed two counters the plan did not expect.** The obvious formula,
+kills plus asteroids over `get_shots`, is wrong twice over. A spread volley is
+three rounds and one entry on `get_shots` (that counter means *the trigger
+fired*, and the widget plays one sound for it), so under spread the ratio can
+pass 100%. And a round into a boss section that leaves it standing, or into the
+plated core, kills nothing — so a boss fight read as a long spell of missing.
+Over 72 bench games, the 18 that reached a boss scored a median **14%** by that
+formula and **21%** by the real one. So the engine now counts `get_rounds` (a
+player round was spawned — counted in `$spawn_bullet`, since a full pool drops
+a round and a round that never flew cannot miss) and `get_hits` (a player round
+struck a bot, an asteroid, a boss section or the plated core). Neither is read
+by the simulation, and the replay below shows it did not move.
+
+### Screen shake and hit-stop: what earns them was measured
+
+Every other title shakes on a hit; this one only flashed. The question the
+roadmap left open was which events earn a shake and which a *stop* — a few
+frames of frozen simulation — because a stop that comes too often stops reading
+as weight and starts reading as a stutter. So the bench measured how far apart
+each candidate event comes, 72 games, 24 seeds × 3 settings:
+
+| Event | Gap to the previous one: 10th pct / median / 90th | Shake | Hit-stop |
+|---|---|---|---|
+| Enemy shot down | 0.10 / 0.73 / 2.55 s | — | — |
+| Asteroid shot down | 2.6 / 8.1 / 17.0 s | — | — |
+| Shield takes a hit | (4 in 72 games) | 0.15 | — |
+| **Life lost** | 0.32 / 5.2 / 19.4 s | 0.5 | **110 ms** |
+| **Boss section off** | 0.98 / 2.7 / 7.1 s | 0.3 | **50 ms** |
+| **Boss destroyed** | once in ten levels | 0.7 | **200 ms** |
+
+Kills are the reason this is a table rather than a rule. One in ten comes within
+a tenth of a second of the last, so a stop on every kill would freeze the game
+for most of a busy wave. A section comes off every few seconds in a boss fight,
+four times a fight: 50 ms is long enough to feel and short enough not to tire.
+A blocked hit shakes lightly and does not stop — nothing was lost, and a freeze
+would say otherwise.
+
+**Hit-stop lives in the loop, beside pause, for the same reason pause does.**
+The engine advances by whatever `dt` it is handed, so a moment of frozen
+simulation is the loop not handing it one ([chapter
+15](../../docs/15-game-loop-architecture.md)). There is no hit-stop code in
+`game.wat`. The animation clock stops with it, so explosions freeze too; the
+shake runs on the real clock, so a stopped frame still judders. A second event
+inside a stop takes the longer of the two rather than adding them. One wrinkle:
+the engine only sees a press as fire going 0 → 1 between two steps, so a tap
+that begins and ends inside a stop would vanish. The loop holds it and delivers
+it on the first frame back.
+
+Shake is a whole number of low-res pixels, applied after the frame is cleared
+(so an edge never shows a strip of the last frame) and taken off before the
+full-screen flashes (so they do not shake with it). Under
+`prefers-reduced-motion` the flashes stay and the shake goes, the same call the
+CSS makes about the scanlines.
+
+**What was not measured: how it feels.** The stop lengths are the conventional
+range for the effect, placed by the event spacing above; the preview pane in
+this environment issues no animation frames, so nobody has played them yet.
+They are three numbers in `pollEvents()` in `pixel-wave.js`.
+
+### Losing a life is one function
+
+It used to be written out four times in `step`, once per way of being hit — an
+enemy round, an asteroid, a bot ram, a boss ram — and each copy checked the
+shield, spent it or took a life, counted the hurt and ended the game at zero.
+The shield had to be added to three copies and then a fourth. They lived because
+`$lives` and `$palive` are locals of `step`. Now `$take_hit` takes the lives and
+hands them back, the way `$hit_boss` hands back points, and each caller clears
+its own `$palive` when `$gameOver` comes back set: MVP functions return one
+value, so the second answer travels in the global that was carrying it anyway.
+
+The check is the one this README keeps using. The previous engine and this one,
+same seed and same input, were compared byte for byte over all 6,036 bytes of
+linear memory and every one of the old readers, on every frame, with a pilot
+that chases capsules so the shield path is taken: **72 games, 24 seeds × 3
+settings, 185,680 frames, 18 of them reaching a boss, 397 lives lost and 4
+blocks — identical throughout.** The compiled engine came out 43 bytes smaller
+(7,778 → 7,735) with the two new counters in it; the boss's entrance, added
+after, put 75 back.
 
 ---
 
@@ -359,8 +457,9 @@ enemy with destructible sections and telegraphed attack patterns.*
 | Guns (2) | 4 | a **fan**: five rounds straight down, 0.25 rad apart | 5 |
 | Core | 8, and plated until all four sections are gone | once bare, a **ring** of twelve, alternating with an aimed volley of its own | 20 |
 
-The boss patrols side to side at the top of the arena, quicker each time. It
-idles for 2.6 s, then **winds up** — the parts about to fire flash white for the
+The boss descends into place over 1.5 s, harmless until it lands (see [The fight
+as a run meets it](#the-fight-as-a-run-meets-it)), then patrols side to side at
+the top of the arena, quicker each time. It idles for 2.6 s, then **winds up** — the parts about to fire flash white for the
 setting's wind-up time (1.4 / 1.0 / 0.7 s) — then fires. Guns and wings take
 turns, a pair that has been shot off is skipped, and a bare core alternates its
 ring with an aimed volley. Of each pair, only the one nearer the ship fires.
@@ -432,13 +531,69 @@ one; on Hard it takes the win rate from one in eight to more than half. The
 second boss, two hit points a section tougher and faster, takes those win
 counts down by 13-29% depending on setting and pilot — harder, not a wall.
 
-**What the bench does not cover.** A still pilot sometimes fires at the plated
-core forever — it aims at the nearest part, and learns nothing from the tick —
-and those runs time out (5 of 64 on Easy). A person learns from the tick in a
-shot or two. And no pilot here dodges the way a player does, reading the fan's
-gaps or the ring's spokes; the reader only answers the aimed volley. Every pilot
-also arrives with full lives, where a real one arrives with what the first nine
-levels left it.
+The table above was measured before the boss had an entrance (below). Its
+pilots start at the bottom of the arena, far from where the boss arrives, so
+the only change for them is that the first attack comes 1.5 s later.
+
+A still pilot there sometimes fires at the plated core forever — it aims at the
+nearest part, and learns nothing from the tick — and those runs time out (5 of
+64 on Easy). That is the pilot, not the game: a person learns from the tick in a
+shot or two, and the pilots below aim at sections first.
+
+### The fight as a run meets it
+
+The pilots above all start at level 10 with full lives. A real player arrives
+with whatever nine levels have left them, and possibly somewhere the boss is
+about to be. So the fight was benched again from level 1. There were two
+pilots, identical except for dodging, each with a 250 ms reaction lag on what
+it sees. They lead their targets, hold 260-420 px off and back away inside
+200 px. **Dodges** reads every incoming round's closest approach and gets out
+of the way of any that will pass within 34 px in the next 0.7 s. That covers
+fans and rings as well as aimed volleys, so it answers the question the reader
+above could not. Each lost life is attributed to what took it.
+
+**It found a bug: the boss used to land on the player.** It appeared in place at
+(600, 130). The last bot of level 9 is chased through the upper half, which is
+where the boss's parts sit, so a ship could already be overlapping a boss that
+did not exist a frame earlier. On Easy, **17 of 54 arrivals cost a life inside
+half a second**, and 10 of 13 for the pilot that does not dodge. Nobody could
+have avoided it. Now the boss **descends from above the arena over 1.5 s**. It
+cannot ram anything on the way down, and its attack clock starts only when it
+lands. A ship still under it by then has had 1.5 s of plain sight. Levels 1-9
+still replay the previous engine byte for byte (72 games, 157,627 frames), and
+on the arrival frame only the boss's own record differs.
+
+Easy, 64 runs from level 1 (on Normal and Hard **no pilot reached level 10**
+in 64 runs, so there the boss is content for players better than any pilot
+here):
+
+| | Reached the boss | Lives on arrival, median (of 7) | Won | Rammed within 0.5 s of arrival |
+|---|---|---|---|---|
+| Still, boss appears in place | 13 | 1 | 3 | 10 |
+| Dodges, boss appears in place | 54 | 3 | 32 | 17 |
+| Still, with the entrance | 13 | 1 | 3 | **0** |
+| Dodges, with the entrance | 54 | 3 | 30 | **0** |
+
+Where the dodging pilot's lives went in those 54 fights, with the entrance:
+
+| Aimed volley | Fan | Ring | Flying into the boss | Asteroid | Other |
+|---|---|---|---|---|---|
+| **63** | 4 | 2 | 10 (was 31) | 6 | 7 |
+
+Three things to take from it:
+
+- **A real arrival is much weaker than a full-lives one.** The dodging pilot
+  reaches the boss with a median of 3 of Easy's 7 lives and wins 56% of fights.
+  The reader above won 86% (55 of 64) from full lives.
+- **The fan and the ring can be read, and the aimed volley is the fight.** A
+  pilot that dodges every round it sees coming loses six lives in 54 fights to
+  fans and rings, and 63 to the aimed volley. The volley is three rounds 0.12 rad
+  apart, aimed where the ship *is*, so a sidestep has to beat the spread, and
+  this ship turns before it moves. That matches the design: the volley is the
+  attack the telegraph exists for.
+- **Removing the free ram did not raise the win count** (32 → 30, within noise).
+  The runs that no longer lose a life on arrival go on to meet more volleys.
+  The entrance makes the fight fair, not easier.
 
 ---
 
@@ -515,11 +670,35 @@ lives longer but fewer of its runs reach level 3 (59 → 52), because a detour i
 time not spent shooting, and a capsule dropped near the swarm is flown into the
 swarm to fetch. That is the trade the feature should be.
 
-**What the bench does not cover: rapid fire.** This pilot's aim, not its rate
-of fire, is what limits it — firing four times as often left its survival
-where it was (51 / 25 / 11-12 s either way) — so rapid fire is worth nothing
-to it. Rapid fire pays a player who can already aim, which is the right way
-round, and no pilot here measures how much.
+**Rapid fire is the weak one, and it is weak for every pilot we could build.**
+This pilot's aim, not its rate of fire, is what limits it — firing four times
+as often left its survival where it was (51 / 25 / 11-12 s either way) — so
+the obvious guess was that rapid fire pays a player who can already aim. A
+second pilot was built to test that: it leads its target through three rounds
+of intercept, fires only when lined up, and hits 21-31% of its rounds against
+this one's 15%. It was compared on three engines — rapid fire as shipped, as a
+dud (recovering no faster than normal fire), and **always on**:
+
+| The aiming pilot, 48 runs a setting | Dud | Shipped | Always on |
+|---|---|---|---|
+| Waves: level at 180 s with unlimited lives, Normal | 8 | 8 | 8 |
+| Waves: kills in those 180 s, Normal | 38 | 39 | 38 |
+| Survival from normal lives, median, Normal (64 runs) | 29 s | 31 s | — |
+| First boss: fight length, any setting (64 varied runs) | 7.5 s | — | 6.0 s |
+
+Between waves it is worth nothing even to a good aimer, because the fire rate
+is not what a wave is waiting on. A kill costs this pilot about 4.7 s of turning
+at 143°/s and flying to the next target; rapid fire saves 0.23 s of that. Against
+the boss — a target that stays put and has hit points — it shortens the fight
+by a fifth. But a pilot accurate enough to benefit already beats the first boss
+losing none or one of its lives, so the time saved rarely saves a life.
+
+So rapid fire's 35% share of drops is the largest share going to the kind that
+does least. That is not a bug, and changing it is a design call, not a tuning
+one: making it matter means making fire rate the bottleneck somewhere — tougher
+bots, a boss with more hit points — or moving some of its share to another
+kind. **Decided, September 2026: left as it is.** It is still a visible, satisfying
+pickup, and this section is its honest price tag.
 
 ---
 

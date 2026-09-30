@@ -163,6 +163,15 @@ touchscreen behaves.
 - **Charge patches the hull.** Grazes and squeezes bank charge; 100 of it buys
   a plate back. At full hull it converts to a 250-point bonus instead, so a
   clean run through a dense field is never wasted.
+- **The leviathan.** At 8 km, and every 16 km after, the next three fields
+  are three walls of one huge body swimming across the board. Each keeps the
+  corridor, and each has one **rib gap** exactly wide enough to squeeze through.
+  Get past all three without a hit and it banks half a plate of charge. See
+  [The leviathan](#the-leviathan-september-2026).
+- **Gates.** Every fourth field has a pair of gold posts off to one side of the
+  corridor, exactly far enough apart for the ship with 12px to spare each side.
+  Fly between them and that squeeze **pays double**. See
+  [The gate](#the-gate-october-2026).
 - **Distance scores flat, without the multiplier.** The multiplier is what risk
   buys; letting it apply to the metre count as well would make the best move
   after a squeeze "stop taking any".
@@ -174,6 +183,9 @@ touchscreen behaves.
 | **Shard** | 15–23 | small, and therefore the good ones to thread |
 | **Boulder** | 30–41 | big enough that the corridor has to matter |
 | **Slab** | 24–33 | drifts sideways at up to 34px/s and turns at the walls |
+| **Leviathan body** | 28 | segments of the leviathan's walls; see below |
+| **Leviathan head** | 28 | the first segment of its first wall, with eyes |
+| **Gate post** | 20 | one of a pair, gold, with a blinking cap and a dashed bar across the gap |
 
 A slab is placed a further 40px clear of the corridor than the others, because
 it can wander and a rock that crossed the corridor after placement would undo
@@ -234,9 +246,11 @@ turned into a collision, and would pay again every frame the rock slid past.
 | region | offset | stride | count | fields |
 |--------|--------|--------|-------|--------|
 | ship   | 0      | —      | 1     | x, vx, alive, invuln |
-| rocks  | 16     | 40 B   | 26    | x, y, vx, r, active, near, spin, kind, resolved, path |
+| rocks  | 16     | 40 B   | 48    | x, y, vx, r, active, near, spin, kind, resolved, path |
 
-Total 1,056 bytes of a single 64 KiB page. Score, distance, hull, charge and
+Total 1,936 bytes of a single 64 KiB page. The rock pool was 26 until the
+leviathan, whose walls put about thirty segments on screen at once; nothing
+lives after the rocks, so growing it moved no other offset. Score, distance, hull, charge and
 the multiplier are globals rather than memory, as in the other recent titles:
 the `get_*` readers are the only consumer, and a global is one instruction to
 read.
@@ -261,6 +275,7 @@ get_ship_x() · get_ship_y() · get_ship_vx() · get_ship_r() · get_invuln()
 get_graze_band() · get_corridor() · get_path_step() · get_path_x()
 is_game_over()
 get_grazes() · get_squeezes() · get_hits() · get_patches() · get_fields()
+get_leviathans() · get_threads() · get_lev_on() · get_gates()
 ```
 
 `get_mult_frac()` is how much of the current multiplier step is left before it
@@ -379,6 +394,8 @@ The constants worth touching are all at the top of `game.wat`:
 | `$CORRIDOR` / `$CORRIDOR_MIN` / `$CORRIDOR_STEP` | the guaranteed channel and its taper | 250 / 148 / 1.6 |
 | `$REACH_RATE` / `$PATH_STEP_MAX` | how fast the corridor may wander | 300 / 300 |
 | `$FIELD_GAP` / `$FIELD_GAP_MIN` / `$FIELD_GAP_STEP` | distance between fields, floor, taper | 400 / 268 / 2.6 |
+| `$LEV_FIRST_KM` / `$LEV_EVERY_KM` | when the leviathan comes | 8 km / 16 km |
+| `$RIB_CLEAR` / `$LEV_CHARGE` | the rib gap's spare on each side; what an untouched pass banks | 12 px / 50 |
 | `$HIT_COST` — there isn't one | a hit costs a plate, the multiplier and half the charge | — |
 
 The difficulty curve, per 1000px travelled:
@@ -475,12 +492,43 @@ Easy and Normal cover the *same distance* flying *identically*, and Easy banks
 nearly double the score. That is the band doing precisely what it is supposed
 to, measured rather than asserted.
 
-**What neither pilot covers: the repair loop.** Both reach zero patches on every
-setting — grazing banks charge, but neither pilot sustains enough of it to fill
-the meter and buy a plate back before dying. So the half of the economy that
-makes flying close *worth* the risk is untested by the bench on all three
-settings, and Easy's wider band presumably helps it most. A player who gets
-there is testing it first.
+### The repair loop, measured
+
+Neither pilot above ever patched a plate: grazing banks charge, but neither
+kept enough of it to fill the meter before dying. A third pilot was written for
+that half of the economy. It reads the next row of rocks 150 ms late, predicts
+where each will be when it arrives, and flies to a passing point: a gap's
+midpoint (a squeeze), a rock's edge (a graze) or the corridor. It prefers one
+surface clearance, **P**, and never accepts less than 5 px. Sweeping P changes
+nothing but how close it chooses to fly. 24 runs each:
+
+| | P | Survived (median) | Grazes | Squeezes | Hits | Plates patched (median) | Runs that patched one |
+|---|---|---|---|---|---|---|---|
+| Easy (38 px band) | 10 | **209 s** | 304 | 41 | 12 | **8** | 24 / 24 |
+| | 30 | 132 s | 153 | 11 | 5 | 1 | 17 / 24 |
+| | 60 | 110 s | 8 | 1 | 4 | 0 | 3 / 24 |
+| Normal (30 px) | 10 | **96 s** | 117 | 9 | 4 | 1 | 17 / 24 |
+| | 30 | 86 s | 52 | 4 | 3 | 0 | 4 / 24 |
+| | 60 | 88 s | 5 | 0 | 3 | 0 | 0 / 24 |
+| Hard (24 px) | 10 | 69 s | 77 | 4 | 2 | 0 | **6 / 24** |
+| | 30 | 65 s | 4 | 1 | 2 | 0 | 0 / 24 |
+| | 60 | 61 s | 1 | 0 | 2 | 0 | 0 / 24 |
+
+**The loop works, and it is what the design promised.** Flying close is not
+only worth more score: it is also how you *live longer*, because the charge
+buys the hull back. On Easy the pilot that keeps 10 px off survives nearly twice
+as long as one that keeps 60 px off, despite taking three times as many hits.
+It patches eight plates a run. Safe flying runs out, exactly as finding 2 said.
+
+**It weakens sharply with the setting.** On Normal the close pilot patches a
+median of one plate and lives 10% longer than the wide one. On Hard it patches
+in only 6 of 24 runs. Its peak charge is a median of 99, so it nearly always
+gets there, and then a hit halves the meter and one of its two plates is gone.
+With a 24 px band and two plates, Hard is mostly a game without repair. That
+may be the right shape for Hard, but it is a consequence of the table, not
+something the table chose. Widening Hard's band or charging less for a plate
+there are the levers if it should be otherwise. **Decided, September 2026: left as it
+is.** Hard is the setting without a safety net.
 
 **A bug the setting found.** The HUD built its hull plates once, with a
 hardcoded three, before the engine had even loaded. On Easy that meant a fourth
@@ -496,6 +544,142 @@ wider band pays more for the same flying, so an Easy score and a Normal one are
 different currencies. The page shell records Normal under the same key as
 before, so a best set before difficulty existed is still Normal's, and Easy and
 Hard get `starfield-runner:easy` and `starfield-runner:hard`.
+
+## The leviathan, September 2026
+
+TASKS.md's boss idea for this title was *a leviathan to thread rather than a
+thing to shoot*, and that is the rule: nothing here is shot, so the boss is
+threaded.
+
+At **8 km**, and every **16 km** after, the next three fields are replaced by
+the leviathan: three walls of body segments across the whole board, head first,
+each wall bent on a slow wave so it reads as a body rather than a fence. Its
+arrival has a banner and two long low notes.
+
+- **Every wall keeps the corridor.** It is placed and moved by the same
+  function every field uses (`$move_path`, factored out for this), so the
+  guarantee that the corridor is always reachable holds through the boss
+  exactly as it does outside it.
+- **Every wall has one rib gap**: a slot between two segments exactly wide
+  enough for the ship with 12 px to spare on each side. That is inside the graze
+  band on every setting, so threading it settles the two segments as a
+  **squeeze**, raising the multiplier. It is placed well clear of the corridor,
+  on whichever side has more room, so it is a second way through, not a wider
+  first one.
+- **Get past all three walls without a hit and it banks 50 charge** — half a
+  plate — and 500 × the multiplier. That makes the boss a repair, which is this
+  game's scarce thing, and a hit anywhere in it costs the bonus as well as the
+  plate.
+
+The first version laid segments on a fixed 60 px grid and skipped any that
+touched a gap. The screenshot showed what that did: a "rib gap" nearly 190 px
+wide, because skipping whole grid slots left the gap as wide as the slots
+around it. Each run of body is now packed from both of its ends, so the two
+segments beside a gap sit exactly on its edges, and the gap is the width it
+claims to be.
+
+The body bends on a sine from a Bhaskara approximation rather than an import.
+This engine has none, and a wave drawn through a spine needs no accuracy:
+collision uses where each segment is, not where the curve says it should be.
+
+Everything before the first leviathan is the game it was. Replaying the
+corridor pilot with noise through the engine before and after gave identical
+memory (the old 1,056 bytes) and twelve readers on every frame up to the first
+leviathan, on all three settings.
+
+### What the bench found
+
+The two pilots from the Difficulty section: the corridor pilot, and the pilot
+that reads the next row 150 ms late and flies to a preferred clearance **P**.
+Median per run, before → after (16 runs on Normal, 12 on Easy and Hard):
+
+| | Survived | Hits | Plates patched | Squeezes | Score |
+|---|---|---|---|---|---|
+| Normal, P = 10 | 95 → 100 s | 4 → 5 | **1 → 2** | 9 → 12 | 19,311 → 28,670 |
+| Normal, P = 30 | 84 → 81 s | 3 → 3 | 0 → 0 | 4 → 4 | 2,588 → 3,580 |
+| Easy, P = 10 | 196 → 195 s | 10 → 14 | **6 → 10** | 36 → 46 | 63,413 → 74,141 |
+| Hard, P = 10 | 70 → 76 s | 2 → 3 | **0 → 1** | 5 → 8 | 9,305 → 15,527 |
+| any, corridor pilot | unchanged | | | | |
+
+The close pilot got through 26 of 44 leviathans untouched on Normal, 28 of 71 on
+Easy and 12 of 25 on Hard.
+
+**It is a set piece that pays for risk, not a wall.** A close flier takes more
+hits in it and patches more plates, and comes out alive about as long as before,
+with much more score. On Hard it is the first place the close pilot ever buys a
+plate back. The difficulty section above records Hard as "the setting without a
+safety net", and the leviathan is now the one net it has, earned by flying
+through it cleanly. The corridor pilot, which never grazes, is not touched by it
+at all. Its runs mostly end before 8 km, and one that reaches a leviathan can
+fly its corridor as it always does.
+
+What the bench does not say is how a person reads a wall of body arriving. The
+banner, the sound and the head's eyes are there to make it a moment, and none
+of that is measurable here.
+
+## The gate, October 2026
+
+The title's own idea from the menu of features for the other eight titles:
+*a squeeze that scores double*.
+
+Every fourth field places a **gate**: two gold posts, radius 20, set so the gap
+between their surfaces is the ship plus 12px on each side. That is inside the
+graze band on every setting, so going through always settles both posts as
+grazes in the same frame, which makes it a squeeze. A squeeze whose *both*
+grazes were posts is a gate, and it pays the squeeze's 140 × multiplier a second
+time, at the multiplier as it stood before that squeeze raised it, so a gate
+is exactly double and not a shade more. It is the rib gap's rule brought out
+of the leviathan: on whichever side of the corridor has more room, at least
+110px clear of it, so a gate is a second way through a field and never a wider
+first one. A corridor near the middle can leave no room, and then that field
+has none.
+
+**Score only.** A squeeze also banks charge, which repairs the hull, and the
+difficulty table is tuned around that repair. A gate that doubled charge as
+well would be a small leviathan every four fields. What doubles is the
+multiplier's worth, and the multiplier is only high when the player has been
+taking risks, so a gate is worth most to someone already flying close. No other
+rock may be placed in a gate's gap, so a gate never arrives plugged.
+
+**The posts replace two of the field's rocks.** The first version added them
+on top, and every fourth field got denser. The tight pilot, never going near a
+gate on purpose, lost 30s of its median Easy run to rocks it was only avoiding.
+
+### What the bench found
+
+The two pilots from the Difficulty section, 150 ms late, 16 runs a setting, a
+10-minute cap: flying to a preferred clearance **P**, and the same pilot told
+to take any gate in the next row it can reach in time. Median survival and
+median score:
+
+| | before | after, ignoring gates | after, **taking gates** | gates taken per run |
+|---|---|---|---|---|
+| Easy, P = 30 | 126 s · 14,173 | 117 s · 14,392 | 108 s · **33,367** | 12.3 |
+| Normal, P = 30 | 81 s · 3,580 | 86 s · 3,387 | 66 s · **9,237** | 8.1 |
+| Hard, P = 30 | 62 s · 1,600 | 61 s · 1,816 | 47 s · **4,355** | 6.1 |
+| Normal, P = 10 | 100 s · 28,670 | 94 s · 33,263 | 75 s · 27,884 | 9.2 |
+| Hard, P = 10 | 75 s · 15,354 | 69 s · 19,800 | 62 s · 16,590 | 7.6 |
+
+**Ignoring them costs nothing measurable.** Survival before and after is
+inside the bench's spread, which is wide: Easy's tight pilot came out 196 s
+before and 282 s after, which is how much a ten-minute run varies, not
+anything the gate did. The tight pilot scores a little more even without
+seeking them, from the gates its ordinary line happens to cross (4 a run on
+Normal).
+
+**Taking them is a real decision, and its answer depends on the player.** The
+pilot flying at 30px, a careful player, scores **2.3-2.7 times as much** for
+losing 8-23% of its run: the gate is the squeeze it would never otherwise try,
+laid out for it. The pilot already flying at 10px **loses** by chasing gates, on
+score as well as time. It was already squeezing through whatever the field
+offered, and a detour to a gate costs it the squeezes on the way. That is the
+right way round: the gate tempts the player who is not yet taking risks, and
+does not pay the one who already is to stop improvising.
+
+What the bench cannot say is whether a person sees a gate early enough to
+choose. The posts are the one warm colour on the board, their caps blink, and a
+dashed bar joins them, so the pair reads as one opening. How soon that reads at
+620 px/s is for playing to find out.
 
 ## Rebuilding the engine
 

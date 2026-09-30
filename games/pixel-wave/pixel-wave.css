@@ -245,7 +245,10 @@
 @media (max-width: 700px) {
   .ss-msg { font-size: 7vw; }
   .ss-levelbanner { font-size: 6.5vw; }
-  .ss-hud { gap: 4vw; font-size: 3vw; padding: 4px 10px; }
+  /* Wraps rather than widening the page: with PAUSE and the difficulty button
+     beside SOUND the HUD no longer fits 375px on one line, and a flex row
+     that cannot wrap pushed the whole widget 20-80px past a phone's edge. */
+  .ss-hud { flex-wrap: wrap; gap: 2.4vw; row-gap: 4px; font-size: 2.6vw; padding: 4px 8px; letter-spacing: 1px; }
 }
 .ss-msg small {
   display: block;
@@ -253,6 +256,26 @@
   color: #33ff66;
   margin-top: 14px;
   letter-spacing: 3px;
+}
+
+/* The run, under GAME OVER: label left, figure right, in the HUD's white so it
+   reads as information rather than as more of the red headline. */
+.ss-stats {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 4px 22px;
+  margin: 16px auto 0;
+  width: max-content;
+  font-size: 15px;
+  letter-spacing: 2px;
+  color: #cfd8e8;
+  text-shadow: 2px 2px 0 #1a1f2a;
+}
+.ss-stats:empty { display: none; }
+.ss-stats dt { text-align: left; color: #8a93a6; }
+.ss-stats dd { margin: 0; text-align: right; }
+@media (max-width: 700px) {
+  .ss-stats { font-size: 2.6vw; gap: 0.6vw 3vw; margin-top: 2vw; }
 }
 
 /* Same overlay as GAME OVER, in the level banner's yellow: this one is a

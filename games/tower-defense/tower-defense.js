@@ -34,7 +34,7 @@
   // this table rather than a bare `f32[a + 5]`, so scripts/check-layout.mjs can
   // see a field that moved.
   var FIELD = {
-    cell: { kind: 0, tower: 1, step: 2, spare: 3 },
+    cell: { kind: 0, tower: 1, step: 2, tier: 3 },
     tower: { x: 0, y: 1, kind: 2, heat: 3, cd: 4, active: 5, aimX: 6, aimY: 7, tracer: 8, tripped: 9 },
     enemy: { x: 0, y: 1, hp: 2, maxHp: 3, kind: 4, active: 5, step: 6, t: 7, flash: 8, spare: 9 },
     shell: { x: 0, y: 1, vx: 2, vy: 3, tx: 4, ty: 5, active: 6, dmg: 7 },
@@ -43,7 +43,7 @@
   var PXS = 3;         // chunky pixel scale for the ASCII sprites
   var LOW_SCALE = 3;   // 320x240 buffer, blown up — see asteroid-miner.js
 
-  var WASM_B64 = "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";
+  var WASM_B64 = "AGFzbQEAAAABchRgAn9/AX9gAX8Bf2AAAX9gAAF9YAJ9fQF9YAN9fX0BfWADf39/AX9gBH19fX0BfWABfwF9YAF9AGACf38BfWACf38AYAN/f38AYAAAYAF/AGACf30AYAN9fX0Bf2AFfX19fX0AYAN9fX0AYAR/f39/AANlZAABAQEBAgEDBAUGBwgIAAkIAQgKAAsMDQ0GDAsICAgIAgMCAQ0CDg8NCRAREgkEBAkDAg0DAw0NDRMNDgINDAkDAwMDAgIDAwICAgIDAggIAwMDAgICAgICAgICAgICAgICAgMFAwEAAQaGBWB/AEEAC38AQQQLfwBBEAt/AEEMC38AQYAGC38AQSgLfwBBHAt/AEHgDgt/AEEoC38AQSgLfwBBoBsLfwBBIAt/AEEYC38AQaAhC38AQQgLfwBB+AALfQBDAABwRAt9AEMAADREC30AQwAAcEILfQBDAACgQQt9AEMAADRCC30AQwAAcEELfQBDZmYmPwt9AEMAAARDC30AQwAAEEELfQBDuB6FPgt9AEMAAFBBC30AQwAAUkMLfQBDAADQQQt9AEMAAMA/C30AQwAABEILfQBDAAB4Qgt9AEMAAOZDC30AQwAAuEILfQBDAACgQQt9AEMAAMhCC30AQwAAIEILfQBDAAAQQQt9AEMpXI89C30AQwAAcEELfQBDAAARQwt9AEMAAKhBC38AQQULfQBDAADwQgt9AEMAAABBC30AQwAAYEILfQBDAAC0Qgt/AEECC30AQ5qZGT4LfQBDAACAQAt9AEMAAKBBC30AQwAAIEELfQFDAACgQQt9AUMAAL5CC30AQwAAYEELfQBDAAAAQQt9AEMAAEBAC30BQwAAwEELfQFDAAAAQAt9AEMAAEBBC30AQwAAFkMLfQBDAADIQQt/AUEBC30BQ7gehT4LfwFBn/WFogQLfwFBAAt9AUMAAAAAC30BQwAAvkILfQFDAACgQQt/AUEBC38BQQALfQFDAABgQQt/AUEAC30BQwAAAAALfwFBAAt/AUEBC38BQQALfQFDAAAAAAt9AUMAAAAAC38BQQALfwFBAAt/AUEAC38BQQALfwFBAAt/AUEAC38BQQALfwFBAAt/AUEAC38BQQALfwFBAAt/AUEAC38BQQALfwFBAAt/AUEAC38BQQALfwFBAAsHmgUxBm1lbW9yeQIAEGdldF91cGdyYWRlX2Nvc3QAEwtjYW5fdXBncmFkZQAUCWNhbl9idWlsZAAZDmlzX2xlYWRlcl93YXZlACMNZW5lbWllc19hbGl2ZQAlDmdldF9wdXJnZV9jb3N0ADEJY2FuX3B1cmdlADIOc2V0X2RpZmZpY3VsdHkAOw5nZXRfZGlmZmljdWx0eQA8BGluaXQAPQlzZXRfaW5wdXQAPgRzdGVwAD8JZ2V0X3Njb3JlAEAJZ2V0X3NjcmFwAEEIZ2V0X2NvcmUAQgxnZXRfY29yZV9tYXgAQwlnZXRfbGV2ZWwARAlnZXRfcGhhc2UARQtnZXRfcGhhc2VfdABGDmdldF9idWlsZF90aW1lAEcMZ2V0X3RvX3NwYXduAEgNZ2V0X3dhdmVfc2l6ZQBJCGdldF9jb2xzAEoIZ2V0X3Jvd3MASwhnZXRfY2VsbABMDGdldF9wYXRoX2xlbgBNCGdldF9jb3N0AE4JZ2V0X3JhbmdlAE8KZ2V0X3NwbGFzaABQDGdldF9oZWF0X21heABRDmdldF9lYXJseV9yYXRlAFIMaXNfZ2FtZV9vdmVyAFMKZ2V0X2J1aWxkcwBUCWdldF9zZWxscwBVCWdldF9zaG90cwBWCWdldF9ib29tcwBXCWdldF9raWxscwBYCWdldF9sZWFrcwBZCWdldF90cmlwcwBaCWdldF93YXZlcwBbC2dldF9yZWZ1c2VkAFwLZ2V0X2xlYWRlcnMAXRBnZXRfbGVhZGVyX2tpbGxzAF4KZ2V0X2NsaW5rcwBfCmdldF9wdXJnZXMAYAxnZXRfdXBncmFkZXMAYQ9nZXRfcHVyZ2VfcmVhZHkAYhBnZXRfbGVhZGVyX3JlYWNoAGMKrCZkEAAjACABIwJsIABqIwFsagsKACMEIAAjBWxqCwoAIwcgACMIbGoLCgAjCiAAIwtsagsKACMNIAAjDmxqCzMBAX8jQCEAIAAgAEENdHMhACAAIABBEXZzIQAgACAAQQV0cyEAIAAkQCAAQf////8HcQsHABAFIABwCwsAEAWzQwAAAE+VCw0AIAAQByABIACTlJILIgEBfSAAIQMgAyABXQRAIAEhAwsgAyACXgRAIAIhAwsgAwsiAQF/IAAhAyADIAFIBEAgASEDCyADIAJKBEAgAiEDCyADCx4BAn0gACACkyEEIAEgA5MhBSAEIASUIAUgBZSS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";
 
   // ============================================================
   // PIXEL SPRITES (ASCII grids -> offscreen canvases)
@@ -163,6 +163,24 @@
     '...K..K...',
   ];
 
+  // The leader: half again the size of anything else on the route, in
+  // riveted plate. Rust and brass rather than a new hue — it is armour, and
+  // armour on this board is the hauler's grey-and-red made heavier.
+  var LEAD_PAL = { S: '#9aa4ad', D: '#3e454d', W: '#e8dcc0', K: '#1c2026', R: '#c0452f', B: '#d9a441' };
+  var leaderRows = [
+    '...BBBBBBBB...',
+    '..BSSSSSSSSB..',
+    '.BSDDDDDDDDSB.',
+    'BSDWDSSSSDWDSB',
+    'BSDDDSRRSDDDSB',
+    'BSSDDSRRSDDSSB',
+    'BSDSDDDDDDSDSB',
+    'BSDDSSSSSSDDSB',
+    '.BSSDDDDDDSSB.',
+    'KKBBSSSSSSBBKK',
+    'K.K.K.KK.K.K.K',
+  ];
+
   // Board palette. No glow anywhere — brightness is a brighter colour.
   var DIRT = '#16130d';
   var DIRT_ALT = '#191510';
@@ -190,6 +208,7 @@
     // below what anyone can pick apart and well above what the audio graph
     // starts choking on.
     var lastShot = 0;
+    var lastClink = 0;
 
     function ensure() {
       if (ctx) return ctx;
@@ -237,6 +256,16 @@
         lastShot = now;
         tone(880, 380, 0.035, 'square', 0.016);
       },
+      // A pylon round on armour. Throttled harder than the shot, because a
+      // leader under a row of pylons is struck a dozen times a second and
+      // every one of them saying so is a buzz, not a clink.
+      clink: function (now) {
+        if (now - lastClink < 140) return;
+        lastClink = now;
+        tone(1900, 1500, 0.03, 'square', 0.012);
+      },
+      leader: function () { tone(110, 90, 0.5, 'sawtooth', 0.06); tone(165, 140, 0.5, 'square', 0.03); },
+      felled: function () { noise(0.4, 0.1); tone(180, 50, 0.45, 'sawtooth', 0.06); tone(520, 1040, 0.3, 'triangle', 0.05); },
       boom: function () { noise(0.22, 0.07); tone(220, 60, 0.24, 'sawtooth', 0.05); },
       build: function () { tone(300, 620, 0.11, 'triangle', 0.05); },
       sell: function () { tone(620, 260, 0.11, 'triangle', 0.045); },
@@ -246,6 +275,13 @@
       wave: function () { tone(320, 520, 0.16, 'square', 0.05); },
       clear: function () { tone(520, 900, 0.22, 'triangle', 0.055); },
       over: function () { tone(230, 40, 1.0, 'sawtooth', 0.085); },
+      // a long exhale: noise with the top rolled off, and a falling tone
+      // up a fourth, then up a fifth: the second tier is heard as further
+      upgrade: function (tier) {
+        tone(440, 440 * (tier > 1 ? 1.5 : 1.335), 0.16, 'square', 0.04);
+        tone(660, 660 * (tier > 1 ? 1.5 : 1.335), 0.2, 'triangle', 0.035);
+      },
+      purge: function () { noise(0.6, 0.1); tone(900, 180, 0.55, 'triangle', 0.05); },
       setMuted: function (m) { muted = m; },
       close: function () { if (ctx && ctx.close) { try { ctx.close(); } catch (e) {} } ctx = null; },
     };
@@ -284,10 +320,11 @@
         '<button type="button" class="td-tool" data-td="t1"><b>2 MORTAR</b><span>45 · splash</span></button>' +
         '<button type="button" class="td-tool" data-td="t2"><b>3 VENT</b><span>15 · cools</span></button>' +
         '<button type="button" class="td-tool td-sell" data-td="t3"><b>4 SELL</b><span>65% back</span></button>' +
+        '<button type="button" class="td-tool td-purge" data-td="purge"><b>5 PURGE</b><span data-td="purgecost">cools all</span></button>' +
         '<button type="button" class="td-tool td-go" data-td="go"><b>SPACE</b><span>call the wave</span></button>' +
       '</div>' +
       '<div class="td-help" data-td="help">' +
-        'CLICK A SQUARE TO BUILD &nbsp; GUNS OVERHEAT — VENTS COOL THE EIGHT SQUARES AROUND THEM ' +
+        'CLICK A SQUARE TO BUILD, OR A TOWER TO UPGRADE IT &nbsp; GUNS OVERHEAT — VENTS COOL THE EIGHT SQUARES AROUND THEM ' +
         '&nbsp; [P] PAUSE &nbsp; [R] RESTART &nbsp; [M] MUTE</div>';
     container.appendChild(root);
 
@@ -307,13 +344,18 @@
     var coreBar = q('corebar'), coreFill = q('core');
     var msgEl = q('msg'), noteEl = q('note'), helpEl = q('help');
     var muteBtn = q('mute'), goBtn = q('go');
+    var purgeBtn = q('purge'), purgeCost = q('purgecost');
     var toolEls = [q('t0'), q('t1'), q('t2'), q('t3')];
+    // The build tools' labels, kept so the one relabelled "upgrade" while it
+    // hovers a tower can be put back.
+    var toolSpans = [0, 1, 2].map(function (i) { return toolEls[i].querySelector('span'); });
+    var toolLabels = toolSpans.map(function (sp) { return sp.textContent; });
 
     function enableTouchUI() {
       if (root.classList.contains('td-is-touch')) return;
       root.classList.add('td-is-touch');
       helpEl.textContent =
-        'PICK A TOOL, THEN TAP A SQUARE • GUNS OVERHEAT — VENTS COOL THE EIGHT SQUARES AROUND THEM • TAP TO RESTART';
+        'PICK A TOOL, THEN TAP A SQUARE — OR A TOWER TO UPGRADE IT • GUNS OVERHEAT — VENTS COOL THE EIGHT SQUARES AROUND THEM • TAP TO RESTART';
       q('msgsmall').textContent = 'TAP TO RESTART';
       q('pausedsmall').textContent = 'TAP TO RESUME';
     }
@@ -339,7 +381,7 @@
     var PAD_DEADZONE = 0.5;
     var PAD_REPEAT_FIRST = 0.30, PAD_REPEAT_NEXT = 0.10;
     var padCursor = { active: false, c: 0, r: 0, wait: 0, lastDir: 0 };
-    var padPrev = { pause: false, restart: false, mute: false, build: false, sell: false, tool: false, go: false };
+    var padPrev = { pause: false, restart: false, mute: false, build: false, sell: false, tool: false, go: false, purge: false };
     var sound = createSound();
     var muted = false;
     var particles = [];
@@ -347,6 +389,7 @@
     var prevBuilds = 0, prevSells = 0, prevShots = 0, prevBooms = 0;
     var prevLeaks = 0, prevTrips = 0, prevWaves = 0, prevRefused = 0, prevOver = 0;
     var prevLevel = 1;
+    var prevLeaders = 0, prevLeaderKills = 0, prevClinks = 0, prevPurges = 0, prevUpgrades = 0;
     var noteT = 0, noteText = '';
     // The selected tool. This is the one piece of state the widget owns, and
     // it is owned here on purpose: it is a property of the *pointer*, not of
@@ -372,6 +415,7 @@
       makeSprite(sprinterRows, SPRINT_PAL, PXS),
       makeSprite(haulerRows, HAUL_PAL, PXS),
       makeSprite(damperRows, DAMP_PAL, PXS),
+      makeSprite(leaderRows, LEAD_PAL, PXS),
     ];
 
     // ---------- input ----------
@@ -391,6 +435,7 @@
       if (e.key === '3') { setTool(2); e.preventDefault(); return; }
       if (e.key === '4') { setTool(3); e.preventDefault(); return; }
       if (e.key === ' ') { pendingAction = 5; e.preventDefault(); return; }
+      if (e.key === '5') { pendingAction = 6; e.preventDefault(); return; }
       if (e.key === 'r' || e.key === 'R') restart();
       if (e.key === 'm' || e.key === 'M') toggleMute();
       // A held key auto-repeats, and a toggle on every repeat would flicker.
@@ -398,6 +443,13 @@
         setPaused(!paused);
         e.preventDefault();
       }
+    }
+
+    // Is there a tower on (c,r)? A build tool on your own tower means
+    // "upgrade it" — there is nothing else a build could mean there.
+    function towerAt(c, r) {
+      if (c < 0 || r < 0) return false;
+      return u8[GRID_OFF + (r * COLS + c) * CELL_STRIDE + FIELD.cell.tower] !== 0;
     }
 
     function stageCell(e) {
@@ -425,7 +477,7 @@
       // Right-click sells, whatever the toolbar says. A modifier is faster
       // than a round trip to the palette, and selling is the one verb you
       // reach for mid-thought.
-      pendingAction = (e.button === 2 || tool === 3) ? 4 : tool + 1;
+      pendingAction = (e.button === 2 || tool === 3) ? 4 : (towerAt(hoverC, hoverR) ? 7 : tool + 1);
       e.preventDefault();
     }
     function onContextMenu(e) { e.preventDefault(); }
@@ -443,6 +495,7 @@
     global.addEventListener('keydown', onKeyDown);
     muteBtn.addEventListener('click', function () { toggleMute(); muteBtn.blur(); });
     goBtn.addEventListener('click', function () { pendingAction = 5; goBtn.blur(); });
+    purgeBtn.addEventListener('click', function () { pendingAction = 6; purgeBtn.blur(); });
     msgEl.addEventListener('click', function () { restart(); });
     // This title holds nothing down — you place things — so it never needed a
     // blur handler. It needs one now: losing focus pauses.
@@ -541,7 +594,12 @@
 
       var buildPress = btn(0), sellPress = btn(1), toolPress = btn(2), goPress = btn(3);
       var pausePress = btn(9), restartPress = btn(8), mutePress = btn(4) || btn(5);
-      if (!paused && buildPress && !padPrev.build && hoverC >= 0) pendingAction = tool === 3 ? 4 : tool + 1;
+      var purgePress = btn(6);
+      if (!paused && purgePress && !padPrev.purge) pendingAction = 6;
+      padPrev.purge = purgePress;
+      if (!paused && buildPress && !padPrev.build && hoverC >= 0) {
+        pendingAction = tool === 3 ? 4 : (towerAt(hoverC, hoverR) ? 7 : tool + 1);
+      }
       if (!paused && sellPress && !padPrev.sell && hoverC >= 0) pendingAction = 4;
       if (toolPress && !padPrev.tool) setTool((tool + 1) % toolEls.length);
       if (!paused && goPress && !padPrev.go) pendingAction = 5;
@@ -679,6 +737,15 @@
 
         drawSpriteAt(sprTower[kind], x, y);
 
+        // Tiers, as pips on the top edge in gold: two squares, one per
+        // upgrade, so a board's investment reads at a glance.
+        var tier = u8[GRID_OFF + (Math.floor(y / cellSize()) * COLS + Math.floor(x / cellSize())) * CELL_STRIDE + FIELD.cell.tier];
+        for (var tp = 0; tp < tier; tp++) {
+          g.fillStyle = '#ffd166';
+          g.fillRect(snap(x) - LOW_SCALE * 3 + tp * LOW_SCALE * 4, snap(y) - LOW_SCALE * 12,
+                     LOW_SCALE * 2, LOW_SCALE * 2);
+        }
+
         // The tracer. The engine set its countdown on the frame it applied the
         // damage, so a line on screen always means a hit landed.
         if (tracer > 0) {
@@ -716,6 +783,14 @@
         var x = f32[a + E.x], y = f32[a + E.y], hp = f32[a + E.hp], maxHp = f32[a + E.maxHp];
         var kind = f32[a + E.kind] | 0, flash = f32[a + E.flash];
 
+        if (kind === 4) {
+          // the escort: everything inside this ring walks at the leader's
+          // pace, and the ring is the radius the engine checks
+          g.globalAlpha = 0.16;
+          g.fillStyle = '#d9a441';
+          ringAt(x, y, wasm.exports.get_leader_reach(), 22);
+          g.globalAlpha = 1;
+        }
         if (kind === 3) {
           // the damper's field, drawn at the radius the engine actually uses
           g.globalAlpha = 0.18 + 0.07 * Math.sin(tGlobal * 5);
@@ -734,9 +809,11 @@
           drawSpriteAt(sprEnemy[kind], x, y);
         }
 
-        if (hp < maxHp) {
-          var bw = LOW_SCALE * 10;
-          var bx = snap(x) - bw / 2, by = snap(y) - LOW_SCALE * 7;
+        // The leader's bar is always up and twice as wide: it is the one
+        // number on the board a player is racing.
+        if (hp < maxHp || kind === 4) {
+          var bw = LOW_SCALE * (kind === 4 ? 20 : 10);
+          var bx = snap(x) - bw / 2, by = snap(y) - LOW_SCALE * (kind === 4 ? 10 : 7);
           g.fillStyle = '#2a1015';
           g.fillRect(bx, by, bw, LOW_SCALE);
           g.fillStyle = hp / maxHp > 0.45 ? '#6ee7a8' : '#ff5470';
@@ -778,7 +855,8 @@
 
       var ok = tool === 3
         ? hasTower
-        : !!wasm.exports.can_build(hoverC, hoverR, tool);
+        : (hasTower ? !!wasm.exports.can_upgrade(hoverC, hoverR)
+                    : !!wasm.exports.can_build(hoverC, hoverR, tool));
       g.fillStyle = ok ? 'rgba(110,231,168,0.22)' : 'rgba(255,84,112,0.20)';
       g.fillRect(x, y, w, h);
       g.fillStyle = ok ? '#6ee7a8' : '#ff5470';
@@ -835,6 +913,45 @@
         prevLeaks = lk;
       }
 
+      var cl = e.get_clinks();
+      if (cl > prevClinks) { sound.clink(now); prevClinks = cl; }
+
+      var ld = e.get_leaders();
+      if (ld > prevLeaders) { sound.leader(); noteText = 'LEADER'; noteT = 1.4; prevLeaders = ld; }
+
+      var lkill = e.get_leader_kills();
+      if (lkill > prevLeaderKills) {
+        sound.felled();
+        shake = Math.max(shake, 0.35);
+        burst(lastLeaderX, lastLeaderY, 26, '#d9a441', 220);
+        noteText = 'LEADER DOWN';
+        noteT = 1.4;
+        prevLeaderKills = lkill;
+      }
+
+      var ug = e.get_upgrades();
+      if (ug > prevUpgrades) {
+        var uTier = hoverC >= 0 ? u8[GRID_OFF + (hoverR * COLS + hoverC) * CELL_STRIDE + FIELD.cell.tier] : 1;
+        sound.upgrade(uTier);
+        if (hoverC >= 0) burst((hoverC + 0.5) * cellSize(), (hoverR + 0.5) * cellSize(), 10, '#ffd166', 120);
+        prevUpgrades = ug;
+      }
+
+      var pg = e.get_purges();
+      if (pg > prevPurges) {
+        sound.purge();
+        // every gun vents where it stands, so the relief is seen where it lands
+        for (var ti2 = 0; ti2 < MAX_TOWERS; ti2++) {
+          var ta2 = (TOWERS_OFF + ti2 * TOWER_STRIDE) >> 2;
+          if (f32[ta2 + FIELD.tower.active] > 0 && (f32[ta2 + FIELD.tower.kind] | 0) !== 2) {
+            burst(f32[ta2 + FIELD.tower.x], f32[ta2 + FIELD.tower.y], 6, '#7cd8ff', 110);
+          }
+        }
+        noteText = 'PURGE';
+        noteT = 0.9;
+        prevPurges = pg;
+      }
+
       var tr = e.get_trips();
       if (tr > prevTrips) { sound.trip(); prevTrips = tr; }
 
@@ -852,6 +969,17 @@
       var over = e.is_game_over();
       if (over && !prevOver) { sound.over(); msgEl.style.display = 'block'; }
       prevOver = over;
+    }
+
+    // Where the leader was last seen, so its fall has somewhere to burst — it
+    // is gone from the pool by the frame the counter says so.
+    var lastLeaderX = WORLD_W / 2, lastLeaderY = WORLD_H / 2;
+    function trackLeader() {
+      for (var i = 0; i < MAX_ENEMIES; i++) {
+        var a = (ENEMIES_OFF + i * ENEMY_STRIDE) >> 2;
+        if (f32[a + FIELD.enemy.active] <= 0 || (f32[a + FIELD.enemy.kind] | 0) !== 4) continue;
+        lastLeaderX = f32[a + FIELD.enemy.x]; lastLeaderY = f32[a + FIELD.enemy.y];
+      }
     }
 
     // The last shell position seen, so a detonation has somewhere to spark.
@@ -875,7 +1003,10 @@
       coreBar.classList.toggle('td-crit', frac <= 0.3);
 
       if (e.get_phase() === 0) {
-        hudPhase.textContent = 'BUILD ' + Math.max(0, Math.ceil(e.get_phase_t())) + 's';
+        // A leader is announced while there is still time to build for it —
+        // the engine says which waves bring one, so this is never a guess.
+        hudPhase.textContent = 'BUILD ' + Math.max(0, Math.ceil(e.get_phase_t())) + 's' +
+          (e.is_leader_wave(e.get_level()) ? ' \u00b7 LEADER' : '');
         goBtn.classList.add('td-armed');
       } else {
         hudPhase.textContent = 'INCOMING ' +
@@ -885,6 +1016,24 @@
       for (var i = 0; i < 3; i++) {
         toolEls[i].classList.toggle('td-poor', scrap < e.get_cost(i));
       }
+      // Over one of your towers, the selected build tool is an upgrade tool,
+      // and its label says so and what it costs — the engine's price, since
+      // it depends on the tower and its tier.
+      var label = toolLabels[tool] || '';
+      if (tool < 3 && towerAt(hoverC, hoverR)) {
+        var uc = e.get_upgrade_cost(hoverC, hoverR);
+        label = uc < 0 ? 'fully upgraded' : 'upgrade \u00b7 ' + Math.ceil(uc);
+      }
+      if (tool < 3 && toolSpans[tool].textContent !== label) toolSpans[tool].textContent = label;
+      for (i = 0; i < 3; i++) {
+        if (i !== tool && toolSpans[i].textContent !== toolLabels[i]) toolSpans[i].textContent = toolLabels[i];
+      }
+      // The price is the engine's, and it rises with the wave. The button is
+      // lit only when a press would work — spent this wave, between waves, or
+      // short of scrap all read the same, as "not now".
+      purgeCost.textContent = Math.ceil(e.get_purge_cost()) +
+        (e.get_purge_ready() ? ' \u00b7 cools all' : ' \u00b7 used');
+      purgeBtn.classList.toggle('td-poor', !e.can_purge());
     }
 
     // ---------- loop ----------
@@ -906,6 +1055,7 @@
         wasm.exports.set_input(hoverC, hoverR, pendingAction);
         pendingAction = 0;
         trackShells();
+        trackLeader();
         wasm.exports.step(dt);
         pollEvents(now);
       }
@@ -967,6 +1117,11 @@
       prevWaves = wasm.exports.get_waves();
       prevRefused = wasm.exports.get_refused();
       prevLevel = wasm.exports.get_level();
+      prevLeaders = wasm.exports.get_leaders();
+      prevLeaderKills = wasm.exports.get_leader_kills();
+      prevClinks = wasm.exports.get_clinks();
+      prevPurges = wasm.exports.get_purges();
+      prevUpgrades = wasm.exports.get_upgrades();
       prevOver = 0;
       msgEl.style.display = 'none';
     }

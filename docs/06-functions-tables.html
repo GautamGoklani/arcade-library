@@ -258,6 +258,8 @@ gets. Pixel Wave started with fifteen exports; this is all of them now:</p>
 (func $get_clinks      (export &quot;get_clinks&quot;)      (result i32))
 (func $get_boss_parts  (export &quot;get_boss_parts&quot;)  (result i32))
 (func $get_boss_downs  (export &quot;get_boss_downs&quot;)  (result i32))
+(func $get_rounds      (export &quot;get_rounds&quot;)      (result i32))
+(func $get_hits        (export &quot;get_hits&quot;)        (result i32))
 ;; what the HUD shows of a power-up: seconds left, zero when not in force
 (func $get_rapid_t     (export &quot;get_rapid_t&quot;)     (result f32))
 (func $get_spread_t    (export &quot;get_spread_t&quot;)    (result f32))
@@ -266,16 +268,17 @@ gets. Pixel Wave started with fifteen exports; this is all of them now:</p>
 (func $set_difficulty  (export &quot;set_difficulty&quot;)  (param i32))
 (func $get_difficulty  (export &quot;get_difficulty&quot;)  (result i32))
 </code></pre>
-<p>Twenty-eight, for a complete game with 33 enemies, a five-part boss and 160
-bullets in flight — and fourteen of them are one idea repeated. They are <strong>event counters</strong>: one integer
+<p>Thirty, for a complete game with 33 enemies, a five-part boss and 160
+bullets in flight — and sixteen of them are one idea repeated. They are <strong>event counters</strong>: one integer
 per kind of thing that can happen, incremented at the line where the engine
 decides it happened, which the host diffs between frames to decide what to play.
 Pixel Wave was the first title here and for most of its life exported only the
 first nine entries; it was the last in the repository to get counters, and
 <a href="15-game-loop-architecture.html">chapter 15</a> is why it needed them.</p>
-<p>The list has grown three times since, and every time the same way: difficulty
-added a command and its reader, power-ups three counters and three readers, and
-boss waves five counters. None added a callback, and none changed a signature
+<p>The list has grown four times since, and every time the same way: difficulty
+added a command and its reader, power-ups three counters and three readers,
+boss waves five counters, and the game-over screen&#39;s accuracy two more — rounds
+that flew and rounds that struck something. None added a callback, and none changed a signature
 already there — a host written against the first fifteen still works, which is
 what keeping the boundary to scalars in and scalars out buys. The boss did not
 need a reader at all for what the widget draws: the boss and its parts are

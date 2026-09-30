@@ -159,6 +159,8 @@
   letter-spacing: 3px;
 }
 
+/* The gauntlet's name sits above the low-current warning, so both can show. */
+.cr-root .cr-gname { top: 9%; color: #ffb02e; text-shadow: 0 0 12px #ffb02e; }
 .cr-note {
   top: 18%;
   font-size: 18px;
@@ -231,7 +233,10 @@
 @media (max-width: 700px) {
   .cr-msg { font-size: 6.5vw; }
   .cr-note { font-size: 3vw; }
-  .cr-hud { gap: 2.4vw; font-size: 2.5vw; padding: 4px 8px; letter-spacing: 1px; }
+  /* Wraps rather than widening the page: with PAUSE and the difficulty button
+     beside SOUND the HUD no longer fits 375px on one line, and a flex row
+     that cannot wrap pushed the whole widget 20-80px past a phone's edge. */
+  .cr-hud { flex-wrap: wrap; gap: 2.4vw; row-gap: 4px; font-size: 2.5vw; padding: 4px 8px; letter-spacing: 1px; }
   .cr-bar { width: 18vw; height: 2vw; }
   .cr-mute { font-size: 2.2vw; padding: 2px 5px; }
 }

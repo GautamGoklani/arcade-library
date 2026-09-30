@@ -56,14 +56,14 @@ scripts/serve.mjs       dev server
 | Slug | Engine | Shape | Notes |
 |---|---|---|---|
 | `pixel-wave` | 7.6 KB | wave shooter | the first title; the course's main worked example; Easy/Normal/Hard as a table in the engine; three enemy roles keyed off the pool slot; power-ups on a random stream of their own; a five-part boss every tenth level, with telegraphed attacks |
-| `grid-breaker` | 5.2 KB | paddle and ball | arrived from a portfolio repo; predates some conventions; Easy/Normal/Hard as a table in the engine |
-| `worm-chase` | 4.1 KB | grid territory capture | **no imports**; hold-to-move; Easy/Normal/Hard as a table in the engine |
-| `asteroid-miner` | 4.4 KB | mining run | splitting entities, fuel/cargo; first with the retro renderer; Easy/Normal/Hard as a table in the engine |
-| `sector-defense` | 4.0 KB | wave defence | **no imports**; per-entity intent, two meters instead of lives; Easy/Normal/Hard as a table in the engine |
-| `circuit-runner` | 3.1 KB | endless lane runner | **no imports**; nothing to shoot, generated board, tap-zone touch; Easy/Normal/Hard as a table in the engine |
-| `starfield-runner` | 3.3 KB | graze-scoring runner | **no imports**; free flight, close passes are the only score and the only repair; Easy/Normal/Hard as a table in the engine |
-| `tower-defense` | 5.2 KB | wave defence, placed | **no imports**; the player places rather than steers; guns overheat, vents cool their neighbours; Easy/Normal/Hard as a table in the engine |
-| `pulse` | 3.5 KB | rhythm tube shooter | **no imports**; the engine is the sequencer — it owns the tempo and the bar, and the widget plays notes off its step counter; Easy/Normal/Hard as a table in the engine |
+| `grid-breaker` | 6.2 KB | paddle and ball | arrived from a portfolio repo; predates some conventions; Easy/Normal/Hard as a table in the engine; a warden tile every fourth level that rebuilds its neighbours until broken |
+| `worm-chase` | 5.5 KB | grid territory capture | **no imports**; hold-to-move; Easy/Normal/Hard as a table in the engine; freeze and surge capsules on a random stream of their own; a trail-cutting hunter every fourth level |
+| `asteroid-miner` | 7.5 KB | mining run | splitting entities, fuel/cargo; first with the retro renderer; Easy/Normal/Hard as a table in the engine; magnet and drill power-ups on a random stream of their own; every delivered gem banked, and spent docked on a bigger hold, a bigger tank or a ship back; a rival miner every third level that mines into its own hold, spills it when shot, and raises the quota if it gets away full |
+| `sector-defense` | 6.2 KB | wave defence | **no imports**; per-entity intent, two meters instead of lives; Easy/Normal/Hard as a table in the engine; a carrier every fifth wave that drops the wave from its bay; a lander two waves before each, that puts a squad down mid-field opposite the defender; shield modules on a random stream of their own |
+| `circuit-runner` | 3.9 KB | endless lane runner | **no imports**; nothing to shoot, generated board, tap-zone touch; Easy/Normal/Hard as a table in the engine; three named gauntlets, one every 8 km |
+| `starfield-runner` | 4.5 KB | graze-scoring runner | **no imports**; free flight, close passes are the only score and the only repair; Easy/Normal/Hard as a table in the engine; a leviathan every 16 km to thread, which pays half a plate untouched; a gate every fourth field whose squeeze pays double |
+| `tower-defense` | 6.5 KB | wave defence, placed | **no imports**; the player places rather than steers; guns overheat, vents cool their neighbours; Easy/Normal/Hard as a table in the engine; an armoured leader every fifth wave that holds its escort to its pace; a once-a-wave purge that buys every gun's heat back; towers upgrade in place, twice |
+| `pulse` | 4.9 KB | rhythm tube shooter | **no imports**; the engine is the sequencer — it owns the tempo and the bar, and the widget plays notes off its step counter; Easy/Normal/Hard as a table in the engine; a drop every fourth level, with a conductor that plays the bar and is hurt only on the beat; a second, lead line whose notes release chimes to catch on the beat |
 
 Vector Arena was removed in `e90bc03`. Chapters 6, 7 and 17 still teach
 techniques drawn from it and say so inline; do not "fix" those by deleting the

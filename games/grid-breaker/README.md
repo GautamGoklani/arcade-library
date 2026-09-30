@@ -176,6 +176,13 @@ slides off it.
 - A level is a fresh wall: one of five patterns (checkerboard, solid, pyramid,
   stripes, lattice frame), a row deeper every second level up to 10 rows, with
   bombs and tough tiles growing more common as levels climb.
+- **The warden.** Every fourth level the centre of the wall's bottom row is a
+  gold, visored **warden** tile with 5 hit points (one more each boss level, up
+  to 8). Every 2.4 seconds it rebuilds the nearest broken cell within two of
+  it as a dull, stitched **patch** — the cell flickers gold just before. Patches
+  take one hit and never drop a capsule. Bombs chip the warden rather than
+  destroy it. Break it for 150 and the rebuilding stops. See
+  [The warden](#the-warden-september-2026).
 
 ## Architecture
 
@@ -199,6 +206,9 @@ slides off it.
                 │ get_chips, get_booms, get_bounces,
                 │ get_powers, get_drains, get_launches,
                 │ get_hurts, get_clears, get_last_break_row,
+                │ get_repairs, get_warden_hits, get_warden_falls,
+                │ get_warden_alive, get_warden_max,
+                │ get_repair_cell, get_repair_t,
                 │ set_difficulty, get_difficulty
 ┌───────────────┴──────────────────────────────────────┐
 │ game.wasm (compiled from hand-written game.wat)      │
@@ -265,8 +275,11 @@ score, lives and paddle-path hash before and after.
 | tilesLeft | 1852   | —      | 1     | i32 |
 
 `hp` of 0 means empty and a negative `hp` means indestructible. Tile kinds are
-0 plain, 1 tough, 2 bomb, 3 solid; power-up kinds are 0 WIDE, 1 MULTI, 2 SLOW,
-3 STICKY.
+0 plain, 1 tough, 2 bomb, 3 solid, 4 warden, 5 patch; power-up kinds are 0 WIDE,
+1 MULTI, 2 SLOW, 3 STICKY. An empty cell keeps the kind it had, and a cell the
+pattern never built has kind -1 — that is how the warden tells a cell it may
+rebuild from a gap the pattern left on purpose. Nothing else reads the kind of
+an empty cell.
 
 **If you change this layout in `game.wat`, change the constants at the top of
 `grid-breaker.js` with it.** Nothing links the two at build time.
@@ -341,6 +354,87 @@ reaches on Normal.
 same key as before, so a best set before difficulty existed is still Normal's,
 and Easy and Hard get `grid-breaker:easy` and `grid-breaker:hard`.
 
+## The warden, September 2026
+
+TASKS.md listed the same idea for this title twice: a boss wave, *"an armoured
+tile that repairs its neighbours until you break it first"*, and its own idea,
+*"a tile that repairs its neighbours"*. This is both.
+
+On every fourth level the centre cell of the wall's bottom row becomes the
+**warden**, over whatever the pattern put there. It has 5 hit points on level
+4, one more on each boss level after, capped at 8; pips along its bottom edge
+show what is left, and the maximum comes from the engine (`get_warden_max()`),
+not the widget. Every 2.4 seconds it rebuilds one broken cell within two cells
+of it — the nearest first, so the gap you opened to get at it is the one that
+closes. It is always on the bottom row so a ball from below can always reach
+it: a boss the ball cannot get at would be a timer, not a fight.
+
+Four decisions, each commented in `game.wat`:
+
+- **It rebuilds patches, not what was there.** Restoring the original kind
+  was the first thought and the wrong one: a warden that puts bombs back beside
+  itself can be farmed for blasts, and one that puts tough tiles back can be
+  farmed for chip score. A patch takes one hit, scores 5 and never drops a
+  capsule, so it is only ever in the way.
+- **It only rebuilds cells that held a tile.** An empty cell used to have kind
+  0, the same as a plain tile, so "broken" and "never built" looked the same.
+  Empty cells are now kind -1 until something is built there. Without this, a
+  warden would fill in the stripes and the lattice's holes — pockets the
+  patterns leave on purpose.
+- **Bombs chip it, one hit per blast.** Otherwise a bomb landing next to it
+  ends the boss in one frame, and which bombs land next to it is decided by the
+  dice, not the player.
+- **The next cell is chosen 0.6 s early** and the widget flickers its outline,
+  faster in the last quarter-second. A tile that appears in front of the ball
+  without warning looks like the game cheating; one that was marked first looks
+  like a rule. No cell is rebuilt on top of a ball — that rebuild is skipped and
+  the clock starts over, so a ball sitting in the gap cannot trigger a rebuild
+  the moment it leaves.
+
+The choice of cell uses no randomness at all (ties go to scan order), so
+levels without a warden draw exactly what they drew before. Replaying the same
+input through the committed engine and this one gave identical memory — tile
+kinds of empty cells aside — every frame up to level 4, on all three settings.
+
+### What the bench found
+
+Normal, six seeds, each run starting on the level in question and played to
+the end of it. The first two pilots track the ball perfectly. One ignores the
+warden, and the other angles each return with the paddle's edge to hit it:
+
+| | Warden broken at (s) | Patches built |
+|---|---|---|
+| Level 4, ignores it | 75–262 | 11–50 |
+| Level 4, goes for it | 14–41 | 2–6 |
+| Level 8, ignores it | 32–155 | 7–26 |
+| Level 8, goes for it | 13–36 | 4–13 |
+| Level 12, ignores it | 60–166 | 13–41 |
+| Level 12, goes for it | 20–53 | 8–21 |
+
+**The rebuild rate is not what decides the fight.** Runs at 1.6, 2.4 and 3.2
+seconds had the aiming pilot break the warden in the same 13–53 s range at
+all three; what ends it is hits. The rate sets what ignoring it costs: about one patch per ball
+round trip at 2.4. That is also why it is a single constant and not a column
+in the difficulty table. It would have been a setting that did nothing
+noticeable.
+
+**Ignoring it costs time, not lives.** A weaker pilot that ignores the warden
+(reacts 120 ms late, drifts inside a 15 px dead zone) cleared level 4 on all
+six seeds and lost no lives, but took a median 246 s against 128 s for the
+same level without a warden. **Going for it costs lives.** The same pilot
+angling its returns at the warden — offsetting by at most 30% of the paddle's
+half-width — cleared only two of six, because a late paddle that also aims off
+centre has no margin left. That is a real choice between time and risk, not a
+longer wave. Level lengths in general are noisy in this game, though, because
+they end with the hunt for the last few tiles. The longest stall the bench
+found (187 s on level 12) came *after* the warden fell, with one tough tile
+left in a corner. That hunt was there before the warden.
+
+What no bench here can say is whether a person *reads* the warden as the
+thing to go for. The gold, the pips, the flicker before each rebuild and the
+"LEVEL 4 · WARDEN" banner are the widget's case for it, and they are
+unplayed.
+
 ---
 
 ## Tuning
@@ -356,6 +450,9 @@ The constants worth touching are all at the top of `game.wat`:
 | `$MIN_DEFLECT` / `$MIN_DEFLECT_HI` | the band a too-vertical return is pushed into | 0.15 / 0.45 |
 | `$DROP_CHANCE` | chance a broken tile drops a capsule | 0.16 |
 | `$START_LIVES` | starting lives | 5 |
+| `$WARDEN_EVERY` | a warden on every Nth level | 4 |
+| `$WARDEN_HP_BASE` / `$WARDEN_HP_CAP` | warden hit points: base + boss levels so far, ceiling | 4 / 8 |
+| `$REPAIR_EVERY` / `$REPAIR_REACH` | seconds between rebuilds, reach in cells | 2.4 / 2 |
 
 Two findings from benching, both commented in place:
 

@@ -45,6 +45,17 @@
   ;; ebullets @1456 : stride 24, MAX_EBULLETS = 30
   ;;                  x, y, vx, vy, life, active
   ;;                  ends at 1456 + 30*24 = 2176
+  ;; carrier  @2176 : x, y, vx, hp, maxHp, active, bay, flash (8 f32 = 32)
+  ;;                  ends at 2176 + 32 = 2208
+  ;;                  `bay` is seconds until the next drop; the widget flashes
+  ;;                  the bay when it is short. `flash` is a hit flash.
+  ;; module   @2208 : x, y, vy, active                      (4 f32 = 16)
+  ;;                  ends at 2208 + 16 = 2224
+  ;;                  one shield module, falling; see "the shield module"
+  ;; lander   @2224 : x, y, landY, hp, active, squad, flash, climbing (8 f32 = 32)
+  ;;                  ends at 2224 + 32 = 2256
+  ;;                  `landY` is where it will touch down, so the widget can
+  ;;                  mark the spot; `squad` is how many attackers are aboard.
   ;;
   ;; enemy kinds: 0 = drifter, 1 = weaver, 2 = diver, 3 = hulk (2 hp)
   ;;
@@ -60,6 +71,9 @@
   ;; @fields enemy   f32 ENEMY_STRIDE: x y vx vy hp kind active phase cd targetX
   ;; @fields pbullet f32 PB_STRIDE: x y vx vy life active
   ;; @fields ebullet f32 EB_STRIDE: x y vx vy life active
+  ;; @fields carrier f32 -: x y vx hp maxHp active bay flash
+  ;; @fields module  f32 -: x y vy active
+  ;; @fields lander  f32 -: x y landY hp active squad flash climbing
   ;; ===================================================
 
   (global $PLAYER_OFF i32 (i32.const 0))
@@ -72,6 +86,9 @@
   (global $EB_OFF i32 (i32.const 1456))
   (global $EB_STRIDE i32 (i32.const 24))
   (global $MAX_EB i32 (i32.const 30))
+  (global $CARRIER_OFF i32 (i32.const 2176))
+  (global $MODULE_OFF i32 (i32.const 2208))
+  (global $LANDER_OFF i32 (i32.const 2224))
 
   (global $WORLD_W f32 (f32.const 960.0))
   (global $WORLD_H f32 (f32.const 720.0))
@@ -144,6 +161,112 @@
   (global $COMBO_CAP f32 (f32.const 30.0))
   (global $SCORE_KILL f32 (f32.const 20.0))
   (global $SCORE_WAVE f32 (f32.const 150.0))
+
+  ;; ---- the carrier ----
+  ;; Every CARRIER_EVERY-th wave arrives by carrier: a heavy ship that patrols
+  ;; the top of the field and drops the wave's attackers from its bay, at its
+  ;; own position, instead of letting them walk in from the top edge. They
+  ;; start lower, so they reach the line sooner, and they arrive where the
+  ;; carrier is rather than anywhere at all.
+  ;;
+  ;; What it adds is a decision the other waves do not ask: shoot the carrier,
+  ;; which is tough and far away, or the attackers it has already dropped,
+  ;; which are falling toward the line. Bringing it down **denies whatever is
+  ;; still in its bay** and pays for each attacker denied. Once the bay is
+  ;; empty it climbs away — no penalty, only the kill bonus forgone — so a wave
+  ;; can never stall on a ship that has nothing left to do.
+  ;;
+  ;; The bay flashes before each drop (the widget reads `bay`), and nothing
+  ;; about the carrier draws from $rng: its path is a fixed patrol, so waves 1-4
+  ;; replay the engine that had no carrier byte for byte, and a carrier wave's
+  ;; attackers roll their kinds exactly as a walking wave's would.
+  (global $CARRIER_EVERY i32 (i32.const 5))
+  (global $CARRIER_Y f32 (f32.const 96.0))
+  (global $CARRIER_ENTRY_Y f32 (f32.const -60.0))
+  (global $CARRIER_DESCENT f32 (f32.const 120.0))  ;; px/s, on the way in
+  (global $CARRIER_CLIMB f32 (f32.const 90.0))     ;; px/s, on the way out
+  (global $CARRIER_SPEED f32 (f32.const 80.0))     ;; px/s, side to side
+  (global $CARRIER_SPEED_STEP f32 (f32.const 12.0)) ;; faster each carrier
+  (global $CARRIER_HP f32 (f32.const 24.0))        ;; rounds, first carrier
+  (global $CARRIER_HP_STEP f32 (f32.const 8.0))
+  (global $CARRIER_HALF_W f32 (f32.const 64.0))
+  (global $CARRIER_HALF_H f32 (f32.const 22.0))
+  (global $CARRIER_DROP_Y f32 (f32.const 30.0))    ;; below its centre
+  (global $SCORE_CARRIER f32 (f32.const 300.0))
+  (global $SCORE_DENIED f32 (f32.const 40.0))      ;; per attacker never dropped
+
+  ;; ---- the lander ----
+  ;; The title's own idea from the per-game menu: *a carrier that lands
+  ;; attackers*. The carrier wave already drops its payload from the top of
+  ;; the field; the lander is the other reading of that line, and the two ask
+  ;; opposite things of the player. The carrier is slow, far away and tough,
+  ;; and its threat is a steady drip. The lander is fast, close and fragile,
+  ;; and its threat is one burst, delivered to the middle of the field.
+  ;;
+  ;; On every wave numbered $LANDER_AT modulo $CARRIER_EVERY — waves 3, 8, 13
+  ;; and so on, two before each carrier — a lander leaves the top edge
+  ;; $LANDER_DELAY seconds into the wave and dives to $LANDER_Y, well down the
+  ;; field, where it puts its squad down all at once and climbs away. Its
+  ;; squad is taken *out of* the wave's count, not added to it: a lander wave
+  ;; sends the same number of attackers as any other, some of them much
+  ;; closer to the line. A harder wave, not a longer one.
+  ;;
+  ;; Shoot it down on the way in — $LANDER_HP rounds — and the squad never
+  ;; lands: $SCORE_LANDER plus $SCORE_DENIED an attacker, as the carrier pays.
+  ;; It takes $LANDER_Y / $LANDER_DIVE seconds to arrive, which is the window.
+  ;;
+  ;; **Where it lands is the defender's opposite.** It aims at the mirror of
+  ;; the defender's column at the moment it launches, clamped off the walls,
+  ;; so reaching it means leaving the column you were holding. That is also why
+  ;; nothing about it draws from $rng: its x is the player's, reflected, and
+  ;; waves 1-2 replay the engine that had no lander byte for byte. The widget
+  ;; marks the spot from `landY` the moment it launches.
+  (global $LANDER_AT i32 (i32.const 3))           ;; level mod CARRIER_EVERY
+  (global $LANDER_DELAY f32 (f32.const 3.0))      ;; seconds into the wave
+  (global $LANDER_Y f32 (f32.const 380.0))
+  (global $LANDER_ENTRY_Y f32 (f32.const -40.0))
+  (global $LANDER_DIVE f32 (f32.const 150.0))     ;; px/s, down
+  (global $LANDER_CLIMB f32 (f32.const 220.0))    ;; px/s, up and away
+  (global $LANDER_HP f32 (f32.const 6.0))
+  (global $LANDER_HP_STEP f32 (f32.const 2.0))    ;; each lander after the first
+  (global $LANDER_SQUAD i32 (i32.const 3))
+  (global $LANDER_SQUAD_MAX i32 (i32.const 5))
+  (global $LANDER_HALF_W f32 (f32.const 30.0))
+  (global $LANDER_HALF_H f32 (f32.const 16.0))
+  (global $SCORE_LANDER f32 (f32.const 150.0))
+
+  ;; ---- the shield module ----
+  ;; A kill sometimes drops a shield module, and catching it puts the shield
+  ;; back to full at once — no recovery pause. It is the one way to get the
+  ;; shield back without breaking contact, and it costs exactly what breaking
+  ;; contact costs: it falls from where the attacker died, so reaching it means
+  ;; leaving the column you were holding, usually to stand under the fire you
+  ;; were avoiding. Worth everything with the shield empty and nothing with it
+  ;; full, so whether to go for it is a question with a different answer every
+  ;; time — which is what a pickup here has to be. A second life would not be:
+  ;; the sector is the thing being defended, and nothing falls from the sky to
+  ;; mend it.
+  ;;
+  ;; The roll comes from a random stream of its own, $rng2, as Pixel Wave's
+  ;; and Worm Chase's pickups do. A drop therefore changes nothing about the
+  ;; wave: the attackers, their shots and their turns are the ones the engine
+  ;; without modules made, and a module that is never caught leaves the run
+  ;; exactly as it was.
+  ;;
+  ;; **It moves the curve by less than the bench can see, and that was kept.**
+  ;; Pilots that fetched every module, only below half shield, or only with
+  ;; the shield empty all finished within a few percent of the pilot that
+  ;; ignored them, on every setting, at 5% and at 10%. The shield already
+  ;; takes about 85% of the hits; what ends a run is attackers crossing the
+  ;; line, and leaving your column to catch a module lets them. So the
+  ;; refill and the column it cost come out roughly even — a real choice with
+  ;; no dominant answer, and a pickup that did not need the difficulty table
+  ;; re-tuned. A version that armed a barrier on the line instead (stop the
+  ;; next breach) was benched too, and did little more: see the README.
+  (global $MODULE_CHANCE f32 (f32.const 0.05))    ;; per kill
+  (global $MODULE_FALL f32 (f32.const 140.0))     ;; px/s
+  (global $MODULE_HALF f32 (f32.const 12.0))
+  (global $SCORE_MODULE f32 (f32.const 50.0))
 
   ;; ---- difficulty ---------------------------------------------------------
   ;; Easy / Normal / Hard. The widget calls set_difficulty(d) and then init();
@@ -221,6 +344,7 @@
   (global $WAVE_CAP (mut i32) (i32.const 26))
 
   (global $rng (mut i32) (i32.const 88675123))
+  (global $rng2 (mut i32) (i32.const 362436069))   ;; the module stream only
   (global $level (mut i32) (i32.const 1))
   (global $gameOver (mut i32) (i32.const 0))
   (global $score (mut f32) (f32.const 0.0))
@@ -233,6 +357,7 @@
   (global $spawnAcc (mut f32) (f32.const 0.0))
   (global $calm (mut f32) (f32.const 0.0))       ;; seconds since the last hit
   (global $fireCd (mut f32) (f32.const 0.0))
+  (global $landerT (mut f32) (f32.const -1.0))  ;; seconds to launch; <0 none due
 
   ;; input, as reported by set_input each frame
   (global $moveIn (mut f32) (f32.const 0.0))
@@ -247,6 +372,17 @@
   (global $leaks (mut i32) (i32.const 0))        ;; sector took a hit
   (global $breaches (mut i32) (i32.const 0))     ;; an attacker crossed the line
   (global $waves (mut i32) (i32.const 0))
+  (global $carriers (mut i32) (i32.const 0))     ;; a carrier arrived
+  (global $carrierHits (mut i32) (i32.const 0))  ;; a round struck the carrier
+  (global $carrierDowns (mut i32) (i32.const 0)) ;; a carrier destroyed
+  (global $bayDrops (mut i32) (i32.const 0))     ;; an attacker dropped from the bay
+  (global $denied (mut i32) (i32.const 0))       ;; attackers a downed carrier never dropped
+  (global $modDrops (mut i32) (i32.const 0))     ;; a module fell
+  (global $modCatches (mut i32) (i32.const 0))   ;; a module caught
+  (global $landers (mut i32) (i32.const 0))      ;; a lander launched
+  (global $landerHits (mut i32) (i32.const 0))   ;; a round struck the lander
+  (global $landerDowns (mut i32) (i32.const 0))  ;; a lander destroyed with its squad aboard
+  (global $landings (mut i32) (i32.const 0))     ;; a lander put its squad down
 
   ;; ---------------- helpers ----------------
 
@@ -264,6 +400,17 @@
     (local.set $x (i32.xor (local.get $x) (i32.shr_u (local.get $x) (i32.const 17))))
     (local.set $x (i32.xor (local.get $x) (i32.shl (local.get $x) (i32.const 5))))
     (global.set $rng (local.get $x))
+    (f32.div (f32.convert_i32_u (local.get $x)) (f32.const 4294967296.0)))
+
+  ;; The same xorshift, on the module's own state. A draw from here never
+  ;; moves $rng, which is the whole point of having it.
+  (func $rand2 (result f32)
+    (local $x i32)
+    (local.set $x (global.get $rng2))
+    (local.set $x (i32.xor (local.get $x) (i32.shl (local.get $x) (i32.const 13))))
+    (local.set $x (i32.xor (local.get $x) (i32.shr_u (local.get $x) (i32.const 17))))
+    (local.set $x (i32.xor (local.get $x) (i32.shl (local.get $x) (i32.const 5))))
+    (global.set $rng2 (local.get $x))
     (f32.div (f32.convert_i32_u (local.get $x)) (f32.const 4294967296.0)))
 
   (func $frand (param $lo f32) (param $hi f32) (result f32)
@@ -359,7 +506,9 @@
 
   ;; ---------------- spawning ----------------
 
-  (func $spawn_enemy
+  ;; Returns the record it filled, or 0 if the pool was full, so a carrier
+  ;; wave can move a new attacker to its bay.
+  (func $spawn_enemy (result i32)
     (local $i i32) (local $a i32) (local $kind i32)
     (local.set $i (i32.const 0))
     (block $done
@@ -384,9 +533,10 @@
             (f32.store offset=32 (local.get $a) (call $fire_gap (local.get $kind)))
             (f32.store offset=36 (local.get $a)
               (call $frand (global.get $MARGIN) (f32.sub (global.get $WORLD_W) (global.get $MARGIN))))
-            (return)))
+            (return (local.get $a))))
         (local.set $i (i32.add (local.get $i) (i32.const 1)))
-        (br $lp))))
+        (br $lp)))
+    (i32.const 0))
 
   (func $fire_player
     (local $i i32) (local $a i32)
@@ -571,9 +721,45 @@
         (local.set $i (i32.add (local.get $i) (i32.const 1)))
         (br $lp))))
 
+  ;; One module at a time. A second roll while one is falling is still made —
+  ;; so the stream's position depends only on the number of kills — and
+  ;; simply does nothing.
+  (func $maybe_drop_module (param $x f32) (param $y f32)
+    (local $m i32)
+    (local.set $m (global.get $MODULE_OFF))
+    (if (f32.ge (call $rand2) (global.get $MODULE_CHANCE)) (then (return)))
+    (if (f32.gt (f32.load offset=12 (local.get $m)) (f32.const 0.0)) (then (return)))
+    (f32.store offset=0 (local.get $m) (local.get $x))
+    (f32.store offset=4 (local.get $m) (local.get $y))
+    (f32.store offset=8 (local.get $m) (global.get $MODULE_FALL))
+    (f32.store offset=12 (local.get $m) (f32.const 1.0))
+    (global.set $modDrops (i32.add (global.get $modDrops) (i32.const 1))))
+
+  (func $step_module (param $dt f32)
+    (local $m i32) (local $y f32)
+    (local.set $m (global.get $MODULE_OFF))
+    (if (f32.le (f32.load offset=12 (local.get $m)) (f32.const 0.0)) (then (return)))
+    (local.set $y (f32.add (f32.load offset=4 (local.get $m))
+      (f32.mul (f32.load offset=8 (local.get $m)) (local.get $dt))))
+    (f32.store offset=4 (local.get $m) (local.get $y))
+    (if (call $overlap (f32.load offset=0 (local.get $m)) (local.get $y)
+                       (global.get $MODULE_HALF) (global.get $MODULE_HALF)
+                       (call $player_x) (global.get $PLAYER_Y)
+                       (global.get $PLAYER_HALF_W) (global.get $PLAYER_HALF_H))
+      (then
+        (f32.store offset=12 (local.get $m) (f32.const 0.0))
+        (global.set $modCatches (i32.add (global.get $modCatches) (i32.const 1)))
+        (global.set $shield (global.get $SHIELD_MAX))
+        (call $add_score (global.get $SCORE_MODULE))
+        (return)))
+    ;; missed: it falls through the line and is gone
+    (if (f32.gt (local.get $y) (global.get $SECTOR_Y))
+      (then (f32.store offset=12 (local.get $m) (f32.const 0.0)))))
+
   (func $kill_enemy (param $a i32)
     (f32.store offset=24 (local.get $a) (f32.const 0.0))
     (global.set $kills (i32.add (global.get $kills) (i32.const 1)))
+    (call $maybe_drop_module (f32.load offset=0 (local.get $a)) (f32.load offset=4 (local.get $a)))
     ;; Score is paid at the multiplier the streak had *before* this kill
     ;; extended it, so the first kill of a streak is worth 1x and the reward
     ;; is unambiguously for keeping one going.
@@ -625,7 +811,17 @@
                               (then (call $kill_enemy (local.get $e))))
                             (br $edone)))))
                     (local.set $j (i32.add (local.get $j) (i32.const 1)))
-                    (br $elp)))))))
+                    (br $elp)))
+                ;; a round that struck no attacker may still strike the carrier
+                (if (f32.gt (f32.load offset=20 (local.get $a)) (f32.const 0.0))
+                  (then
+                    (if (call $hit_carrier (local.get $x) (local.get $y))
+                      (then (f32.store offset=20 (local.get $a) (f32.const 0.0))))))
+                ;; ... or the lander
+                (if (f32.gt (f32.load offset=20 (local.get $a)) (f32.const 0.0))
+                  (then
+                    (if (call $hit_lander (local.get $x) (local.get $y))
+                      (then (f32.store offset=20 (local.get $a) (f32.const 0.0))))))))))
         (local.set $i (i32.add (local.get $i) (i32.const 1)))
         (br $blp))))
 
@@ -672,6 +868,195 @@
         (br $lp)))
     (local.get $n))
 
+  ;; ---------------- the carrier ----------------
+
+  (func $carrier_active (result i32)
+    (f32.gt (f32.load offset=20 (global.get $CARRIER_OFF)) (f32.const 0.0)))
+
+  ;; Landed: at its patrol line with a payload still aboard. Only then does it
+  ;; drop anything, so an attacker never appears above the top edge.
+  (func $carrier_landed (result i32)
+    (i32.and (call $carrier_active)
+      (f32.ge (f32.load offset=4 (global.get $CARRIER_OFF)) (global.get $CARRIER_Y))))
+
+  (func $spawn_carrier
+    (local $b i32) (local $n f32)
+    (local.set $b (global.get $CARRIER_OFF))
+    (local.set $n (f32.convert_i32_s (i32.div_s (global.get $level) (global.get $CARRIER_EVERY))))
+    (f32.store offset=0 (local.get $b) (f32.mul (global.get $WORLD_W) (f32.const 0.5)))
+    (f32.store offset=4 (local.get $b) (global.get $CARRIER_ENTRY_Y))
+    (f32.store offset=8 (local.get $b)
+      (f32.add (global.get $CARRIER_SPEED)
+        (f32.mul (f32.sub (local.get $n) (f32.const 1.0)) (global.get $CARRIER_SPEED_STEP))))
+    (f32.store offset=12 (local.get $b)
+      (f32.add (global.get $CARRIER_HP)
+        (f32.mul (f32.sub (local.get $n) (f32.const 1.0)) (global.get $CARRIER_HP_STEP))))
+    (f32.store offset=16 (local.get $b) (f32.load offset=12 (local.get $b)))
+    (f32.store offset=20 (local.get $b) (f32.const 1.0))
+    (f32.store offset=24 (local.get $b) (call $spawn_gap))
+    (f32.store offset=28 (local.get $b) (f32.const 0.0))
+    (global.set $carriers (i32.add (global.get $carriers) (i32.const 1))))
+
+  ;; In, across, out. It comes down to its patrol line, patrols while it has a
+  ;; payload, and climbs away once the bay is empty.
+  (func $step_carrier (param $dt f32)
+    (local $b i32) (local $x f32) (local $y f32) (local $vx f32)
+    (if (i32.eqz (call $carrier_active)) (then (return)))
+    (local.set $b (global.get $CARRIER_OFF))
+    (local.set $x (f32.load offset=0 (local.get $b)))
+    (local.set $y (f32.load offset=4 (local.get $b)))
+    (local.set $vx (f32.load offset=8 (local.get $b)))
+    (f32.store offset=28 (local.get $b)
+      (f32.max (f32.sub (f32.load offset=28 (local.get $b)) (local.get $dt)) (f32.const 0.0)))
+    (if (i32.le_s (global.get $toSpawn) (i32.const 0))
+      (then
+        (local.set $y (f32.sub (local.get $y) (f32.mul (global.get $CARRIER_CLIMB) (local.get $dt))))
+        (if (f32.lt (local.get $y) (global.get $CARRIER_ENTRY_Y))
+          (then (f32.store offset=20 (local.get $b) (f32.const 0.0)))))
+      (else
+        (if (f32.lt (local.get $y) (global.get $CARRIER_Y))
+          (then
+            (local.set $y (f32.min (global.get $CARRIER_Y)
+              (f32.add (local.get $y) (f32.mul (global.get $CARRIER_DESCENT) (local.get $dt))))))
+          (else
+            (local.set $x (f32.add (local.get $x) (f32.mul (local.get $vx) (local.get $dt))))
+            (if (f32.lt (local.get $x) (f32.const 140.0))
+              (then (local.set $x (f32.const 140.0)) (local.set $vx (f32.abs (local.get $vx)))))
+            (if (f32.gt (local.get $x) (f32.const 820.0))
+              (then (local.set $x (f32.const 820.0)) (local.set $vx (f32.neg (f32.abs (local.get $vx))))))))))
+    (f32.store offset=0 (local.get $b) (local.get $x))
+    (f32.store offset=4 (local.get $b) (local.get $y))
+    (f32.store offset=8 (local.get $b) (local.get $vx)))
+
+  ;; A player round against the carrier: 1 if it struck. Bringing it down
+  ;; denies what is still in the bay, and that is what the bonus pays for.
+  (func $hit_carrier (param $x f32) (param $y f32) (result i32)
+    (local $b i32)
+    (if (i32.eqz (call $carrier_active)) (then (return (i32.const 0))))
+    (local.set $b (global.get $CARRIER_OFF))
+    (if (i32.eqz (call $overlap (local.get $x) (local.get $y) (global.get $PB_HALF) (global.get $PB_HALF)
+                   (f32.load offset=0 (local.get $b)) (f32.load offset=4 (local.get $b))
+                   (global.get $CARRIER_HALF_W) (global.get $CARRIER_HALF_H)))
+      (then (return (i32.const 0))))
+    (global.set $carrierHits (i32.add (global.get $carrierHits) (i32.const 1)))
+    (f32.store offset=28 (local.get $b) (f32.const 0.08))
+    (f32.store offset=12 (local.get $b) (f32.sub (f32.load offset=12 (local.get $b)) (f32.const 1.0)))
+    (if (f32.le (f32.load offset=12 (local.get $b)) (f32.const 0.0))
+      (then
+        (f32.store offset=20 (local.get $b) (f32.const 0.0))
+        (global.set $carrierDowns (i32.add (global.get $carrierDowns) (i32.const 1)))
+        (global.set $denied (i32.add (global.get $denied) (global.get $toSpawn)))
+        (call $add_score (f32.add (global.get $SCORE_CARRIER)
+          (f32.mul (f32.convert_i32_s (global.get $toSpawn)) (global.get $SCORE_DENIED))))
+        (global.set $toSpawn (i32.const 0))))
+    (i32.const 1))
+
+  ;; ---------------- the lander ----------------
+
+  (func $lander_active (result i32)
+    (f32.gt (f32.load offset=16 (global.get $LANDER_OFF)) (f32.const 0.0)))
+
+  ;; Squad still aboard: the wave is not over while this is true.
+  (func $lander_loaded (result i32)
+    (i32.and (call $lander_active)
+      (f32.gt (f32.load offset=20 (global.get $LANDER_OFF)) (f32.const 0.0))))
+
+  ;; How many of this wave's attackers ride down, and so how many the drip
+  ;; does not send. One more every other lander, to $LANDER_SQUAD_MAX.
+  (func $lander_squad (result i32)
+    (call $clampi
+      (i32.add (global.get $LANDER_SQUAD)
+        (i32.div_s (i32.div_s (global.get $level) (global.get $CARRIER_EVERY)) (i32.const 2)))
+      (i32.const 1) (global.get $LANDER_SQUAD_MAX)))
+
+  (func $launch_lander
+    (local $b i32) (local $n f32)
+    (local.set $b (global.get $LANDER_OFF))
+    (local.set $n (f32.convert_i32_s (i32.div_s (global.get $level) (global.get $CARRIER_EVERY))))
+    (f32.store offset=0 (local.get $b)
+      (call $clampf (f32.sub (global.get $WORLD_W) (call $player_x)) (f32.const 120.0) (f32.const 840.0)))
+    (f32.store offset=4 (local.get $b) (global.get $LANDER_ENTRY_Y))
+    (f32.store offset=8 (local.get $b) (global.get $LANDER_Y))
+    (f32.store offset=12 (local.get $b)
+      (f32.add (global.get $LANDER_HP) (f32.mul (local.get $n) (global.get $LANDER_HP_STEP))))
+    (f32.store offset=16 (local.get $b) (f32.const 1.0))
+    (f32.store offset=20 (local.get $b) (f32.convert_i32_s (call $lander_squad)))
+    (f32.store offset=24 (local.get $b) (f32.const 0.0))
+    (f32.store offset=28 (local.get $b) (f32.const 0.0))
+    (global.set $landers (i32.add (global.get $landers) (i32.const 1))))
+
+  ;; Down, unload, up. The squad is put down side by side at the landing spot,
+  ;; a spread wide enough that one burst of fire cannot take all of them.
+  (func $step_lander (param $dt f32)
+    (local $b i32) (local $y f32) (local $k i32) (local $n i32) (local $e i32)
+    (if (f32.ge (global.get $landerT) (f32.const 0.0))
+      (then
+        (global.set $landerT (f32.sub (global.get $landerT) (local.get $dt)))
+        (if (f32.lt (global.get $landerT) (f32.const 0.0))
+          (then (call $launch_lander)))))
+    (if (i32.eqz (call $lander_active)) (then (return)))
+    (local.set $b (global.get $LANDER_OFF))
+    (f32.store offset=24 (local.get $b)
+      (f32.max (f32.sub (f32.load offset=24 (local.get $b)) (local.get $dt)) (f32.const 0.0)))
+    (local.set $y (f32.load offset=4 (local.get $b)))
+    (if (f32.gt (f32.load offset=28 (local.get $b)) (f32.const 0.0))
+      (then
+        (local.set $y (f32.sub (local.get $y) (f32.mul (global.get $LANDER_CLIMB) (local.get $dt))))
+        (if (f32.lt (local.get $y) (global.get $LANDER_ENTRY_Y))
+          (then (f32.store offset=16 (local.get $b) (f32.const 0.0)))))
+      (else
+        (local.set $y (f32.add (local.get $y) (f32.mul (global.get $LANDER_DIVE) (local.get $dt))))
+        (if (f32.ge (local.get $y) (global.get $LANDER_Y))
+          (then
+            (local.set $y (global.get $LANDER_Y))
+            (local.set $n (i32.trunc_f32_s (f32.load offset=20 (local.get $b))))
+            (local.set $k (i32.const 0))
+            (block $done
+              (loop $lp
+                (br_if $done (i32.ge_s (local.get $k) (local.get $n)))
+                ;; A full pool drops the rest, as the carrier's bay does.
+                (local.set $e (call $spawn_enemy))
+                (br_if $done (i32.eqz (local.get $e)))
+                (f32.store offset=0 (local.get $e)
+                  (call $clampf
+                    (f32.add (f32.load offset=0 (local.get $b))
+                      (f32.mul (f32.sub (f32.convert_i32_s (local.get $k))
+                                        (f32.mul (f32.convert_i32_s (i32.sub (local.get $n) (i32.const 1))) (f32.const 0.5)))
+                               (f32.const 44.0)))
+                    (global.get $MARGIN) (f32.sub (global.get $WORLD_W) (global.get $MARGIN))))
+                (f32.store offset=4 (local.get $e) (f32.add (local.get $y) (f32.const 24.0)))
+                (local.set $k (i32.add (local.get $k) (i32.const 1)))
+                (br $lp)))
+            (f32.store offset=20 (local.get $b) (f32.const 0.0))
+            (f32.store offset=28 (local.get $b) (f32.const 1.0))
+            (global.set $landings (i32.add (global.get $landings) (i32.const 1)))))))
+    (f32.store offset=4 (local.get $b) (local.get $y)))
+
+  ;; A player round against the lander: 1 if it struck. Only a loaded lander
+  ;; can be hit — one climbing away empty has nothing left to deny, and
+  ;; letting it soak rounds would only waste the player's fire.
+  (func $hit_lander (param $x f32) (param $y f32) (result i32)
+    (local $b i32) (local $n i32)
+    (if (i32.eqz (call $lander_loaded)) (then (return (i32.const 0))))
+    (local.set $b (global.get $LANDER_OFF))
+    (if (i32.eqz (call $overlap (local.get $x) (local.get $y) (global.get $PB_HALF) (global.get $PB_HALF)
+                   (f32.load offset=0 (local.get $b)) (f32.load offset=4 (local.get $b))
+                   (global.get $LANDER_HALF_W) (global.get $LANDER_HALF_H)))
+      (then (return (i32.const 0))))
+    (global.set $landerHits (i32.add (global.get $landerHits) (i32.const 1)))
+    (f32.store offset=24 (local.get $b) (f32.const 0.08))
+    (f32.store offset=12 (local.get $b) (f32.sub (f32.load offset=12 (local.get $b)) (f32.const 1.0)))
+    (if (f32.le (f32.load offset=12 (local.get $b)) (f32.const 0.0))
+      (then
+        (local.set $n (i32.trunc_f32_s (f32.load offset=20 (local.get $b))))
+        (f32.store offset=16 (local.get $b) (f32.const 0.0))
+        (f32.store offset=20 (local.get $b) (f32.const 0.0))
+        (global.set $landerDowns (i32.add (global.get $landerDowns) (i32.const 1)))
+        (global.set $denied (i32.add (global.get $denied) (local.get $n)))
+        (call $add_score (f32.add (global.get $SCORE_LANDER)
+          (f32.mul (f32.convert_i32_s (local.get $n)) (global.get $SCORE_DENIED))))))
+    (i32.const 1))
+
   ;; ---------------- state machine ----------------
 
   (func $clear_pool (param $off i32) (param $stride i32) (param $count i32) (param $activeOff i32)
@@ -695,6 +1080,20 @@
     (call $clear_pool (global.get $EB_OFF) (global.get $EB_STRIDE)
                       (global.get $MAX_EB) (i32.const 20))
     (global.set $toSpawn (call $wave_size))
+    (f32.store offset=20 (global.get $CARRIER_OFF) (f32.const 0.0))
+    ;; A module still falling when the wave ends goes with it: the shield is
+    ;; refilled on a wave clear anyway, so carrying it over would be a free
+    ;; catch at the start of the next wave.
+    (f32.store offset=12 (global.get $MODULE_OFF) (f32.const 0.0))
+    (if (i32.eqz (i32.rem_s (global.get $level) (global.get $CARRIER_EVERY)))
+      (then (call $spawn_carrier)))
+    ;; A lander wave: its squad comes out of the drip's count.
+    (f32.store offset=16 (global.get $LANDER_OFF) (f32.const 0.0))
+    (global.set $landerT (f32.const -1.0))
+    (if (i32.eq (i32.rem_s (global.get $level) (global.get $CARRIER_EVERY)) (global.get $LANDER_AT))
+      (then
+        (global.set $toSpawn (i32.sub (global.get $toSpawn) (call $lander_squad)))
+        (global.set $landerT (global.get $LANDER_DELAY))))
     ;; The first attacker arrives after a beat, not instantly: a wave that
     ;; began mid-screen would punish a player still reading the last one. The
     ;; beat is short, though — at level 1 an attacker enters at the top edge
@@ -770,6 +1169,7 @@
     ;; first, because the meters and the wave built below all read it
     (call $apply_difficulty)
     (global.set $rng (i32.const 88675123))
+    (global.set $rng2 (i32.const 362436069))
     (global.set $level (i32.const 1))
     (global.set $gameOver (i32.const 0))
     (global.set $score (f32.const 0.0))
@@ -787,6 +1187,17 @@
     (global.set $leaks (i32.const 0))
     (global.set $breaches (i32.const 0))
     (global.set $waves (i32.const 0))
+    (global.set $carriers (i32.const 0))
+    (global.set $carrierHits (i32.const 0))
+    (global.set $carrierDowns (i32.const 0))
+    (global.set $bayDrops (i32.const 0))
+    (global.set $denied (i32.const 0))
+    (global.set $modDrops (i32.const 0))
+    (global.set $modCatches (i32.const 0))
+    (global.set $landers (i32.const 0))
+    (global.set $landerHits (i32.const 0))
+    (global.set $landerDowns (i32.const 0))
+    (global.set $landings (i32.const 0))
     (f32.store (global.get $PLAYER_OFF) (f32.mul (global.get $WORLD_W) (f32.const 0.5)))
     (f32.store offset=4 (global.get $PLAYER_OFF) (global.get $PLAYER_Y))
     (f32.store offset=8 (global.get $PLAYER_OFF) (f32.const 1.0))
@@ -810,7 +1221,7 @@
     (global.set $fireIn (local.get $fire)))
 
   (func $step (export "step") (param $dt f32)
-    (local $d f32)
+    (local $d f32) (local $e i32)
     (if (i32.ne (global.get $gameOver) (i32.const 0)) (then (return)))
     (local.set $d (call $clampf (local.get $dt) (f32.const 0.0) (f32.const 0.05)))
 
@@ -827,23 +1238,42 @@
 
     ;; Attackers arrive on a drip rather than all at once, so a wave is a
     ;; stream to be managed rather than a wall to be survived.
-    (if (i32.gt_s (global.get $toSpawn) (i32.const 0))
+    ;; On a carrier wave the same drip runs from the bay, and only once the
+    ;; carrier has landed.
+    (if (i32.and (i32.gt_s (global.get $toSpawn) (i32.const 0))
+                 (i32.or (i32.eqz (call $carrier_active)) (call $carrier_landed)))
       (then
         (global.set $spawnAcc (f32.add (global.get $spawnAcc) (local.get $d)))
         (if (f32.ge (global.get $spawnAcc) (call $spawn_gap))
           (then
             (global.set $spawnAcc (f32.sub (global.get $spawnAcc) (call $spawn_gap)))
-            (call $spawn_enemy)
-            (global.set $toSpawn (i32.sub (global.get $toSpawn) (i32.const 1)))))))
+            (local.set $e (call $spawn_enemy))
+            (if (i32.and (call $carrier_active) (i32.ne (local.get $e) (i32.const 0)))
+              (then
+                (f32.store offset=0 (local.get $e) (f32.load offset=0 (global.get $CARRIER_OFF)))
+                (f32.store offset=4 (local.get $e)
+                  (f32.add (f32.load offset=4 (global.get $CARRIER_OFF)) (global.get $CARRIER_DROP_Y)))
+                (global.set $bayDrops (i32.add (global.get $bayDrops) (i32.const 1)))))
+            (global.set $toSpawn (i32.sub (global.get $toSpawn) (i32.const 1)))))
+        (if (call $carrier_active)
+          (then (f32.store offset=24 (global.get $CARRIER_OFF)
+                  (f32.max (f32.sub (call $spawn_gap) (global.get $spawnAcc)) (f32.const 0.0)))))))
+    (call $step_carrier (local.get $d))
+    (call $step_lander (local.get $d))
 
     (call $step_enemies (local.get $d))
     (if (i32.ne (global.get $gameOver) (i32.const 0)) (then (return)))
     (call $step_pbullets (local.get $d))
     (call $step_ebullets (local.get $d))
+    (call $step_module (local.get $d))
     (if (i32.ne (global.get $gameOver) (i32.const 0)) (then (return)))
 
-    (if (i32.and (i32.le_s (global.get $toSpawn) (i32.const 0))
-                 (i32.eqz (call $enemies_alive)))
+    ;; Over when nothing is left to arrive — including a squad still aboard a
+    ;; lander, or one not yet launched.
+    (if (i32.and (i32.and (i32.le_s (global.get $toSpawn) (i32.const 0))
+                          (i32.eqz (call $enemies_alive)))
+                 (i32.and (i32.eqz (call $lander_loaded))
+                          (f32.lt (global.get $landerT) (f32.const 0.0))))
       (then (call $next_wave))))
 
   ;; ---------------- readers ----------------
@@ -862,6 +1292,9 @@
   (func $get_to_spawn (export "get_to_spawn") (result i32) (global.get $toSpawn))
   (func $get_player_x (export "get_player_x") (result f32) (call $player_x))
   (func $get_calm (export "get_calm") (result f32) (global.get $calm))
+  ;; How long calm has to last before the shield recovers. The difficulty table
+  ;; moves it, so the widget asks rather than assuming Normal's 2.6.
+  (func $get_shield_delay (export "get_shield_delay") (result f32) (global.get $SHIELD_DELAY))
   (func $is_game_over (export "is_game_over") (result i32) (global.get $gameOver))
   (func $get_shots (export "get_shots") (result i32) (global.get $shots))
   (func $get_kills (export "get_kills") (result i32) (global.get $kills))
@@ -869,4 +1302,15 @@
   (func $get_leaks (export "get_leaks") (result i32) (global.get $leaks))
   (func $get_breaches (export "get_breaches") (result i32) (global.get $breaches))
   (func $get_waves (export "get_waves") (result i32) (global.get $waves))
+  (func $get_carriers (export "get_carriers") (result i32) (global.get $carriers))
+  (func $get_carrier_hits (export "get_carrier_hits") (result i32) (global.get $carrierHits))
+  (func $get_carrier_downs (export "get_carrier_downs") (result i32) (global.get $carrierDowns))
+  (func $get_bay_drops (export "get_bay_drops") (result i32) (global.get $bayDrops))
+  (func $get_landers (export "get_landers") (result i32) (global.get $landers))
+  (func $get_lander_hits (export "get_lander_hits") (result i32) (global.get $landerHits))
+  (func $get_lander_downs (export "get_lander_downs") (result i32) (global.get $landerDowns))
+  (func $get_landings (export "get_landings") (result i32) (global.get $landings))
+  (func $get_denied (export "get_denied") (result i32) (global.get $denied))
+  (func $get_module_drops (export "get_module_drops") (result i32) (global.get $modDrops))
+  (func $get_module_catches (export "get_module_catches") (result i32) (global.get $modCatches))
 )

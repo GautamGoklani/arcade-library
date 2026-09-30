@@ -60,6 +60,7 @@
   ;;                  byte 0  seg + 1, or 0 for no spawn on this step
   ;;                  byte 1  kind
   ;;                  byte 2  spent  (1 once this step has been played)
+  ;;                  byte 3  lead   seg + 1 of the melody note on this step, or 0
   ;;                  ends at 64
   ;; enemies  @64   : stride 32, MAX_ENEMIES = 32
   ;;                  seg, depth, hp, maxHp, kind, active, flash, hopT
@@ -67,8 +68,13 @@
   ;; bolts    @1088 : stride 24, MAX_BOLTS = 24
   ;;                  seg, depth, dmg, active, onBeat, speed
   ;;                  ends at 1088 + 24*24 = 1664
+  ;; chimes   @1664 : stride 12, MAX_CHIMES = 8
+  ;;                  seg, depth, active
+  ;;                  ends at 1664 + 8*12 = 1760
   ;;
-  ;; enemy kinds: 0 = drone, 1 = skipper, 2 = hulk, 3 = mirror
+  ;; enemy kinds: 0 = drone, 1 = skipper, 2 = hulk, 3 = mirror, 4 = conductor
+  ;; (the conductor is never written into the bar plan; it is the boss, and the
+  ;; plan's kinds stay 0-3)
   ;;
   ;; `depth` runs 0 at the centre of the tube to 1 at the rim, which is where
   ;; the player is. Everything is in that unit rather than in pixels, because
@@ -88,9 +94,10 @@
   ;; reads. It fails if any line here disagrees with the prose, overflows
   ;; its stride, or disagrees with the FIELD table at the top of the widget
   ;; — so a field that moves has to move in all three places at once.
-  ;; @fields bar   u8 BAR_STRIDE: seg kind spent
+  ;; @fields bar   u8 BAR_STRIDE: seg kind spent lead
   ;; @fields enemy f32 ENEMY_STRIDE: seg depth hp maxHp kind active flash hopT
   ;; @fields bolt  f32 BOLT_STRIDE: seg depth dmg active onBeat speed
+  ;; @fields chime f32 CHIME_STRIDE: seg depth active
   ;; ===================================================
 
   (global $BAR_OFF i32 (i32.const 0))
@@ -102,6 +109,15 @@
   (global $BOLTS_OFF i32 (i32.const 1088))
   (global $BOLT_STRIDE i32 (i32.const 24))
   (global $MAX_BOLTS i32 (i32.const 24))
+  ;; The lead line's chimes have a pool of their own. They lived in the enemy
+  ;; pool at first, and the bench caught it: a chime holding a slot moved where
+  ;; the next enemy landed, which changed which of two overlapping enemies a
+  ;; bolt found first, and the bass line's kills came out one different by
+  ;; level 2. A pool of their own leaves the enemy song bit for bit alone.
+  ;; Eight is plenty: a chime lives four steps and a bar holds at most three.
+  (global $CHIMES_OFF i32 (i32.const 1664))
+  (global $CHIME_STRIDE i32 (i32.const 12))
+  (global $MAX_CHIMES i32 (i32.const 8))
 
   ;; Twelve segments. Not sixteen: the player has to be able to cross the tube
   ;; inside a bar, and at the move rate below twelve is about three quarters of
@@ -165,6 +181,65 @@
   ;; repair there is, and it is deliberately a *bar* rather than a kill: the
   ;; unit of play here is the pattern, so the unit of reward is too.
   (global $PERFECT_BAR_HEAL f32 (f32.const 12.0))
+
+  ;; ---- the lead line ----
+  ;; The second instrument. Until now the song had one line — every spawn is
+  ;; a bass note on its segment — and the melody was the player's own shots.
+  ;; From level 2 each bar also carries a short **lead** phrase on steps the
+  ;; bass left empty, and every lead note releases a **chime** up its segment.
+  ;; A chime climbs a quarter of the tube a step, so it reaches the rim exactly
+  ;; one beat after its note sounded. Be in that segment when it lands and it
+  ;; is caught: groove, and score at the multiplier.
+  ;;
+  ;; TASKS.md ruled power-ups out for this title because a faster gun is a way
+  ;; to stop listening. A chime is the opposite: it is only catchable by
+  ;; listening to a second line and moving to it on time, while the first line
+  ;; is still asking you to shoot. Missing one costs nothing. And catching one
+  ;; is a double-edged prize, because groove is what raises the tempo.
+  ;;
+  ;; The phrase is written from a random stream of its own, $rng2, so the bass
+  ;; line — every spawn, every kind, every segment — is exactly the song the
+  ;; engine without a lead line played. Chimes live in a pool of their own
+  ;; (see $CHIMES_OFF), cannot be shot and never leak.
+  (global $LEAD_FROM_LEVEL i32 (i32.const 2))
+  (global $LEAD_NOTES i32 (i32.const 2))        ;; per bar, +1 from level 5
+  (global $CHIME_RISE f32 (f32.const 0.25))     ;; depth per step: rim in one beat
+  (global $CHIME_GROOVE f32 (f32.const 0.06))
+  (global $SCORE_CHIME f32 (f32.const 40.0))
+
+  ;; ---- the drop ----
+  ;; Every fourth level opens on a **drop**, and the drop has a boss in it:
+  ;; the **conductor**. The bar before is written empty — the build-up, a bar
+  ;; of nothing but the beat, which is the one warning a song can give that
+  ;; everyone already knows how to hear. Then the conductor appears inside the
+  ;; tube, and for the next four bars it plays them: every spawn comes out of
+  ;; its segment, and it moves there on the note. The bar ring the HUD already
+  ;; draws is therefore its route — the plan says where it will be on every
+  ;; step, so a player reading the ring knows where to wait.
+  ;;
+  ;; It is hurt only by shots on the beat, as the mirror is, and for the same
+  ;; reason: it is the test of the one thing the game is about. Break it inside
+  ;; the four bars and it pays a large score and shield back. Survive to the
+  ;; end of the drop with it still standing and it leaves the way a drop ends —
+  ;; with a hit, one and a half leaks' worth to the shield.
+  (global $DROP_EVERY i32 (i32.const 4))
+  (global $DROP_BARS i32 (i32.const 4))
+  ;;
+  ;; **The beat alone was not enough, so it is hurt by the groove as well.** An
+  ;; on-beat shot does its 3 times the multiplier, 1 to 5. The first draft took
+  ;; plain on-beat damage, and the bench found a button-masher landing 4.9
+  ;; on-beat hits a drop against the metronome's 5.8. The notes it plays come
+  ;; out of its own segment and soak up bolts, so the limit was reaching it,
+  ;; not timing, and a masher's accidental 40% reached it nearly as often.
+  ;; Groove is the one number here that only playing in time raises. A
+  ;; masher's is near zero, so at 45 the masher broke none of twelve while the
+  ;; metronome broke ten and a player with a normal 35ms spread broke eight.
+  ;; (30 let the masher through twice; 60 left the human at three.)
+  (global $CONDUCTOR_HP f32 (f32.const 45.0))
+  (global $CONDUCTOR_DEPTH f32 (f32.const 0.3))
+  (global $SLAM_MUL f32 (f32.const 1.5))       ;; times $LEAK_COST
+  (global $DROP_HEAL f32 (f32.const 25.0))
+  (global $SCORE_CONDUCTOR f32 (f32.const 600.0))
 
   ;; ---- scoring ----
   (global $SCORE_KILL f32 (f32.const 25.0))
@@ -262,6 +337,7 @@
   (global $BAR_EVERY (mut i32) (i32.const 2))    ;; levels per extra spawn
 
   (global $rng (mut i32) (i32.const 707406378))
+  (global $rng2 (mut i32) (i32.const 1234567891))   ;; the lead line only
   (global $gameOver (mut i32) (i32.const 0))
   (global $score (mut f32) (f32.const 0.0))
   (global $shield (mut f32) (f32.const 100.0))
@@ -274,6 +350,12 @@
   (global $stepIdx (mut i32) (i32.const 0))
   (global $barIdx (mut i32) (i32.const 0))
   (global $barClean (mut i32) (i32.const 1))   ;; nothing has reached the rim this bar
+  ;; 0 = no drop, 1 = the build-up bar, 2 = the drop. $dropEnd is the bar
+  ;; index at which a drop that is still running ends; $cond is the pool
+  ;; address of the live conductor, or -1.
+  (global $dropState (mut i32) (i32.const 0))
+  (global $dropEnd (mut i32) (i32.const 0))
+  (global $cond (mut i32) (i32.const -1))
 
   (global $pseg (mut i32) (i32.const 0))
   (global $moveCd (mut f32) (f32.const 0.0))
@@ -302,6 +384,12 @@
   (global $leaks (mut i32) (i32.const 0))
   (global $perfects (mut i32) (i32.const 0))
   (global $moves (mut i32) (i32.const 0))
+  (global $drops (mut i32) (i32.const 0))       ;; a conductor walked on
+  (global $condHits (mut i32) (i32.const 0))    ;; an on-beat shot into it
+  (global $condKills (mut i32) (i32.const 0))
+  (global $slams (mut i32) (i32.const 0))       ;; a drop ended with it standing
+  (global $leadNotes (mut i32) (i32.const 0))   ;; a lead note played (a chime released)
+  (global $chimes (mut i32) (i32.const 0))      ;; a chime caught
 
   ;; ---------------- helpers ----------------
 
@@ -326,6 +414,16 @@
   ;; can.
   (func $rand_below (param $n i32) (result i32)
     (i32.rem_u (call $rand_u) (local.get $n)))
+
+  ;; The same, on the lead line's own stream.
+  (func $rand2_below (param $n i32) (result i32)
+    (local $x i32)
+    (local.set $x (global.get $rng2))
+    (local.set $x (i32.xor (local.get $x) (i32.shl (local.get $x) (i32.const 13))))
+    (local.set $x (i32.xor (local.get $x) (i32.shr_u (local.get $x) (i32.const 17))))
+    (local.set $x (i32.xor (local.get $x) (i32.shl (local.get $x) (i32.const 5))))
+    (global.set $rng2 (local.get $x))
+    (i32.rem_u (i32.and (local.get $x) (i32.const 2147483647)) (local.get $n)))
 
   (func $clampf (param $v f32) (param $lo f32) (param $hi f32) (result f32)
     (local $r f32)
@@ -421,9 +519,15 @@
         (br $clp)))
 
     (local.set $n (call $bar_spawns))
+    ;; the build-up: a bar of nothing but the beat
+    (if (i32.eq (global.get $dropState) (i32.const 1)) (then (local.set $n (i32.const 0))))
     (local.set $i (i32.const 0))
     (local.set $tries (i32.const 0))
     (local.set $lastSeg (global.get $pseg))
+    ;; During the drop the route starts where the conductor stands, so the
+    ;; plan is one continuous walk rather than a jump at the barline.
+    (if (i32.ge_s (global.get $cond) (i32.const 0))
+      (then (local.set $lastSeg (i32.trunc_f32_s (f32.load offset=0 (global.get $cond))))))
 
     (block $done
       (loop $lp
@@ -448,6 +552,36 @@
 
         (i32.store8 (local.get $a) (i32.add (local.get $seg) (i32.const 1)))
         (i32.store8 offset=1 (local.get $a) (call $rand_below (call $kinds_in_play)))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $lp)))
+    (call $plan_lead))
+
+  ;; The lead phrase: a few notes on steps the bass left empty, preferring the
+  ;; off-eighths so it answers the bass rather than doubling it, on segments
+  ;; that step by one or two from the last — a melody, not a scatter, and
+  ;; one a player can follow round the ring.
+  (func $plan_lead
+    (local $n i32) (local $i i32) (local $tries i32) (local $st i32) (local $a i32)
+    (local $seg i32)
+    (if (i32.lt_s (global.get $level) (global.get $LEAD_FROM_LEVEL)) (then (return)))
+    (local.set $n (i32.add (global.get $LEAD_NOTES)
+      (if (result i32) (i32.ge_s (global.get $level) (i32.const 5)) (then (i32.const 1)) (else (i32.const 0)))))
+    (local.set $seg (global.get $pseg))
+    (block $done
+      (loop $lp
+        (br_if $done (i32.ge_s (local.get $i) (local.get $n)))
+        (br_if $done (i32.gt_s (local.get $tries) (i32.const 60)))
+        (local.set $tries (i32.add (local.get $tries) (i32.const 1)))
+        (local.set $st (call $rand2_below (global.get $STEPS_PER_BAR)))
+        ;; off-eighths (2, 6, 10, 14) three times as likely as the rest
+        (br_if $lp (i32.and (i32.ne (i32.rem_u (local.get $st) (i32.const 4)) (i32.const 2))
+                            (i32.ne (call $rand2_below (i32.const 3)) (i32.const 0))))
+        (local.set $a (call $bar_addr (local.get $st)))
+        (br_if $lp (i32.ne (i32.load8_u (local.get $a)) (i32.const 0)))
+        (br_if $lp (i32.ne (i32.load8_u offset=3 (local.get $a)) (i32.const 0)))
+        (local.set $seg (call $wrap_seg (i32.add (local.get $seg)
+          (i32.sub (call $rand2_below (i32.const 5)) (i32.const 2)))))
+        (i32.store8 offset=3 (local.get $a) (i32.add (local.get $seg) (i32.const 1)))
         (local.set $i (i32.add (local.get $i) (i32.const 1)))
         (br $lp))))
 
@@ -500,6 +634,79 @@
         (local.set $i (i32.add (local.get $i) (i32.const 1)))
         (br $lp))))
 
+  ;; The conductor goes into the enemy pool like anything else, so bolts find
+  ;; it, the widget draws it and a restart clears it with no new code. It is
+  ;; placed opposite the player, so the first thing the drop asks is to cross.
+  (func $spawn_conductor
+    (local $i i32) (local $a i32)
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $lp
+        (br_if $done (i32.ge_s (local.get $i) (global.get $MAX_ENEMIES)))
+        (local.set $a (call $enemy_addr (local.get $i)))
+        (if (f32.eq (f32.load offset=20 (local.get $a)) (f32.const 0.0))
+          (then
+            (f32.store offset=0 (local.get $a) (f32.convert_i32_s
+              (call $wrap_seg (i32.add (global.get $pseg) (i32.const 6)))))
+            (f32.store offset=4 (local.get $a) (global.get $CONDUCTOR_DEPTH))
+            (f32.store offset=8 (local.get $a) (global.get $CONDUCTOR_HP))
+            (f32.store offset=12 (local.get $a) (global.get $CONDUCTOR_HP))
+            (f32.store offset=16 (local.get $a) (f32.const 4.0))
+            (f32.store offset=20 (local.get $a) (f32.const 1.0))
+            (f32.store offset=24 (local.get $a) (f32.const 0.0))
+            (f32.store offset=28 (local.get $a) (f32.const 0.0))
+            (global.set $cond (local.get $a))
+            (global.set $drops (i32.add (global.get $drops) (i32.const 1)))
+            (return)))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $lp))))
+
+  (func $chime_addr (param $i i32) (result i32)
+    (i32.add (global.get $CHIMES_OFF) (i32.mul (local.get $i) (global.get $CHIME_STRIDE))))
+
+  (func $spawn_chime (param $seg i32)
+    (local $i i32) (local $a i32)
+    (global.set $leadNotes (i32.add (global.get $leadNotes) (i32.const 1)))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $lp
+        (br_if $done (i32.ge_s (local.get $i) (global.get $MAX_CHIMES)))
+        (local.set $a (call $chime_addr (local.get $i)))
+        (if (f32.eq (f32.load offset=8 (local.get $a)) (f32.const 0.0))
+          (then
+            (f32.store offset=0 (local.get $a) (f32.convert_i32_s (local.get $seg)))
+            (f32.store offset=4 (local.get $a) (f32.const 0.0))
+            (f32.store offset=8 (local.get $a) (f32.const 1.0))
+            (return)))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $lp))))
+
+  ;; Every chime climbs a quarter-tube on the step and lands on the beat: in
+  ;; the player's segment it is caught, anywhere else it is gone.
+  (func $on_step_chimes
+    (local $i i32) (local $a i32)
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $lp
+        (br_if $done (i32.ge_s (local.get $i) (global.get $MAX_CHIMES)))
+        (local.set $a (call $chime_addr (local.get $i)))
+        (if (f32.gt (f32.load offset=8 (local.get $a)) (f32.const 0.0))
+          (then
+            (f32.store offset=4 (local.get $a)
+              (f32.add (f32.load offset=4 (local.get $a)) (global.get $CHIME_RISE)))
+            (if (f32.ge (f32.load offset=4 (local.get $a)) (f32.const 0.999))
+              (then
+                (f32.store offset=8 (local.get $a) (f32.const 0.0))
+                (if (i32.eq (i32.trunc_f32_s (f32.load offset=0 (local.get $a))) (global.get $pseg))
+                  (then
+                    (global.set $chimes (i32.add (global.get $chimes) (i32.const 1)))
+                    (global.set $groove (call $clampf
+                      (f32.add (global.get $groove) (global.get $CHIME_GROOVE))
+                      (f32.const 0.0) (global.get $GROOVE_MAX)))
+                    (call $add_score (f32.mul (global.get $SCORE_CHIME) (call $mult)))))))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $lp))))
+
   (func $enemies_alive (export "enemies_alive") (result i32)
     (local $i i32) (local $n i32)
     (local.set $i (i32.const 0))
@@ -542,6 +749,15 @@
         (br $lp))))
 
   (func $kill_enemy (param $a i32) (param $onBeat i32)
+    (if (i32.eq (local.get $a) (global.get $cond))
+      (then
+        (global.set $condKills (i32.add (global.get $condKills) (i32.const 1)))
+        (global.set $cond (i32.const -1))
+        (global.set $dropState (i32.const 0))
+        (global.set $shield (call $clampf
+          (f32.add (global.get $shield) (global.get $DROP_HEAL))
+          (f32.const 0.0) (global.get $SHIELD_MAX)))
+        (call $add_score (f32.mul (global.get $SCORE_CONDUCTOR) (call $mult)))))
     (f32.store offset=20 (local.get $a) (f32.const 0.0))
     (global.set $kills (i32.add (global.get $kills) (i32.const 1)))
     (if (i32.ne (local.get $onBeat) (i32.const 0))
@@ -564,8 +780,10 @@
                       (f32.sub (f32.load offset=24 (local.get $a)) (local.get $dt)))))
             (local.set $kind (i32.trunc_f32_s (f32.load offset=16 (local.get $a))))
             (local.set $d (f32.load offset=4 (local.get $a)))
-            ;; A skipper moves only on the step, in $on_step_enemies.
-            (if (i32.ne (local.get $kind) (i32.const 1))
+            ;; A skipper moves only on the step, in $on_step_enemies, and the
+            ;; conductor only when it plays a note, in $on_step.
+            (if (i32.and (i32.ne (local.get $kind) (i32.const 1))
+                         (i32.ne (local.get $kind) (i32.const 4)))
               (then
                 (local.set $d (f32.add (local.get $d)
                   (f32.mul (call $enemy_speed (local.get $kind)) (local.get $dt))))))
@@ -630,7 +848,7 @@
 
   (func $step_bolts (param $dt f32)
     (local $i i32) (local $j i32) (local $a i32) (local $e i32)
-    (local $d f32) (local $seg i32) (local $onBeat i32) (local $kind i32)
+    (local $d f32) (local $seg i32) (local $onBeat i32) (local $kind i32) (local $dmg f32)
     (local.set $i (i32.const 0))
     (block $done
       (loop $lp
@@ -668,12 +886,20 @@
                         ;; It is the only enemy that *requires* the beat rather
                         ;; than rewarding it, which is why it does not arrive
                         ;; until level 6.
-                        (if (i32.and (i32.eq (local.get $kind) (i32.const 3))
+                        ;; The conductor is the same rule, as a boss.
+                        (if (i32.and (i32.ge_s (local.get $kind) (i32.const 3))
                                      (i32.eqz (local.get $onBeat)))
                           (then (br $hit)))
+                        (local.set $dmg (f32.load offset=8 (local.get $a)))
+                        ;; ... and hurt by the groove, not only by the beat.
+                        ;; See $CONDUCTOR_HP for why the beat alone was not
+                        ;; enough.
+                        (if (i32.eq (local.get $kind) (i32.const 4))
+                          (then
+                            (global.set $condHits (i32.add (global.get $condHits) (i32.const 1)))
+                            (local.set $dmg (f32.mul (local.get $dmg) (call $mult)))))
                         (f32.store offset=8 (local.get $e)
-                          (f32.sub (f32.load offset=8 (local.get $e))
-                                   (f32.load offset=8 (local.get $a))))
+                          (f32.sub (f32.load offset=8 (local.get $e)) (local.get $dmg)))
                         (if (f32.le (f32.load offset=8 (local.get $e)) (f32.const 0.0))
                           (then (call $kill_enemy (local.get $e) (local.get $onBeat))))
                         (br $hit)))
@@ -741,8 +967,17 @@
     (if (i32.ne (local.get $seg) (i32.const 0))
       (then
         (i32.store8 offset=2 (local.get $a) (i32.const 1))
+        ;; the conductor steps to the note it is about to play
+        (if (i32.ge_s (global.get $cond) (i32.const 0))
+          (then (f32.store offset=0 (global.get $cond)
+                  (f32.convert_i32_s (i32.sub (local.get $seg) (i32.const 1))))))
         (call $spawn_enemy (i32.sub (local.get $seg) (i32.const 1))
                            (i32.load8_u offset=1 (local.get $a)))))
+    (call $on_step_chimes)
+    ;; the lead line's note on this step, if the phrase has one
+    (local.set $seg (i32.load8_u offset=3 (local.get $a)))
+    (if (i32.ne (local.get $seg) (i32.const 0))
+      (then (call $spawn_chime (i32.sub (local.get $seg) (i32.const 1)))))
     (call $on_step_enemies))
 
   (func $on_bar
@@ -765,6 +1000,38 @@
     ;; the best pilot on the bench was dead in forty-six.
     (if (i32.eqz (i32.rem_u (global.get $barIdx) (i32.const 8)))
       (then (global.set $level (i32.add (global.get $level) (i32.const 1)))))
+
+    ;; ---- the drop ----
+    ;; The drop ran its four bars and the conductor is still standing: it
+    ;; leaves on the barline, and the barline is where it hits.
+    (if (i32.and (i32.eq (global.get $dropState) (i32.const 2))
+                 (i32.ge_s (global.get $barIdx) (global.get $dropEnd)))
+      (then
+        (if (i32.ge_s (global.get $cond) (i32.const 0))
+          (then
+            (f32.store offset=20 (global.get $cond) (f32.const 0.0))
+            (global.set $cond (i32.const -1))
+            (global.set $slams (i32.add (global.get $slams) (i32.const 1)))
+            (global.set $groove (f32.mul (global.get $groove) (f32.const 0.4)))
+            (global.set $shield (f32.sub (global.get $shield)
+              (f32.mul (global.get $LEAK_COST) (global.get $SLAM_MUL))))
+            (if (f32.le (global.get $shield) (f32.const 0.0))
+              (then
+                (global.set $shield (f32.const 0.0))
+                (global.set $gameOver (i32.const 1))))))
+        (global.set $dropState (i32.const 0))))
+    ;; the last bar before a drop level is the build-up
+    (if (i32.and (i32.eq (i32.rem_u (global.get $barIdx) (i32.const 8)) (i32.const 7))
+                 (i32.eqz (i32.rem_u (i32.add (global.get $level) (i32.const 1))
+                                     (global.get $DROP_EVERY))))
+      (then (global.set $dropState (i32.const 1))))
+    ;; and the first bar of it is the drop
+    (if (i32.and (i32.eqz (i32.rem_u (global.get $barIdx) (i32.const 8)))
+                 (i32.eqz (i32.rem_u (global.get $level) (global.get $DROP_EVERY))))
+      (then
+        (global.set $dropState (i32.const 2))
+        (global.set $dropEnd (i32.add (global.get $barIdx) (global.get $DROP_BARS)))
+        (call $spawn_conductor)))
     (call $plan_bar))
 
   ;; ---------------- state machine ----------------
@@ -832,6 +1099,9 @@
     ;; first, because the first bar planned below reads it
     (call $apply_difficulty)
     (global.set $rng (i32.const 707406378))
+    (global.set $rng2 (i32.const 1234567891))
+    (global.set $leadNotes (i32.const 0))
+    (global.set $chimes (i32.const 0))
     (global.set $gameOver (i32.const 0))
     (global.set $score (f32.const 0.0))
     (global.set $shield (global.get $SHIELD_MAX))
@@ -857,10 +1127,19 @@
     (global.set $leaks (i32.const 0))
     (global.set $perfects (i32.const 0))
     (global.set $moves (i32.const 0))
+    (global.set $drops (i32.const 0))
+    (global.set $condHits (i32.const 0))
+    (global.set $condKills (i32.const 0))
+    (global.set $slams (i32.const 0))
+    (global.set $dropState (i32.const 0))
+    (global.set $dropEnd (i32.const 0))
+    (global.set $cond (i32.const -1))
     (call $clear_pool (global.get $ENEMIES_OFF) (global.get $ENEMY_STRIDE)
                       (global.get $MAX_ENEMIES) (i32.const 20))
     (call $clear_pool (global.get $BOLTS_OFF) (global.get $BOLT_STRIDE)
                       (global.get $MAX_BOLTS) (i32.const 12))
+    (call $clear_pool (global.get $CHIMES_OFF) (global.get $CHIME_STRIDE)
+                      (global.get $MAX_CHIMES) (i32.const 8))
     (call $plan_bar)
     ;; The first bar is planned but not played: the song starts one bar of
     ;; silence in, so a player hears the tempo before anything arrives on it.
@@ -935,4 +1214,18 @@
   (func $get_leaks (export "get_leaks") (result i32) (global.get $leaks))
   (func $get_perfects (export "get_perfects") (result i32) (global.get $perfects))
   (func $get_moves (export "get_moves") (result i32) (global.get $moves))
+  (func $get_drops (export "get_drops") (result i32) (global.get $drops))
+  (func $get_cond_hits (export "get_cond_hits") (result i32) (global.get $condHits))
+  (func $get_cond_kills (export "get_cond_kills") (result i32) (global.get $condKills))
+  (func $get_slams (export "get_slams") (result i32) (global.get $slams))
+  (func $get_lead_notes (export "get_lead_notes") (result i32) (global.get $leadNotes))
+  (func $get_chimes (export "get_chimes") (result i32) (global.get $chimes))
+  ;; 0 none, 1 the build-up bar, 2 the drop — so the widget can play the
+  ;; riser and light the HUD from the engine's idea of the song, not its own.
+  (func $get_drop_state (export "get_drop_state") (result i32) (global.get $dropState))
+  ;; Bars left in the drop, counting the one playing.
+  (func $get_drop_bars_left (export "get_drop_bars_left") (result i32)
+    (if (result i32) (i32.eq (global.get $dropState) (i32.const 2))
+      (then (i32.sub (global.get $dropEnd) (global.get $barIdx)))
+      (else (i32.const 0))))
 )

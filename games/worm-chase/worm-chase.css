@@ -81,6 +81,12 @@
 }
 .wc-hud .wc-a { color: #7cf2ff; text-shadow: 0 0 6px #7cf2ff; }
 .wc-hud .wc-r { color: #ff4d6d; text-shadow: 0 0 6px #ff4d6d; }
+/* Effects in force, beside LIVES: a square in the capsule's own colour for as
+   long as the engine says it lasts. */
+.wc-fx { display: inline-flex; align-items: center; gap: 5px; margin-left: 8px; vertical-align: middle; }
+.wc-fx i { display: none; width: 10px; height: 10px; }
+.wc-fx .wc-fx-f { background: #7fd4ff; }
+.wc-fx .wc-fx-s { background: #ffe14d; }
 .wc-hud .wc-v { color: #ffd166; text-shadow: 0 0 6px #ffd166; }
 
 .wc-mute {
@@ -244,6 +250,9 @@
   .wc-msg { font-size: 7vw; }
   .wc-banner { font-size: 6.5vw; }
   .wc-idle { font-size: 3.2vw; }
-  .wc-hud { gap: 3.5vw; font-size: 2.9vw; padding: 4px 10px; letter-spacing: 1px; }
+  /* Wraps rather than widening the page: with PAUSE and the difficulty button
+     beside SOUND the HUD no longer fits 375px on one line, and a flex row
+     that cannot wrap pushed the whole widget 20-80px past a phone's edge. */
+  .wc-hud { flex-wrap: wrap; gap: 3.5vw; row-gap: 4px; font-size: 2.9vw; padding: 4px 10px; letter-spacing: 1px; }
   .wc-mute { font-size: 2.4vw; padding: 2px 6px; }
 }

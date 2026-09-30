@@ -144,6 +144,32 @@
   (global $PICKUP_HALF f32 (f32.const 18.0))
   (global $CAP_PERIOD f32 (f32.const 1.35))     ;; seconds per capacitor flip
 
+  ;; ---- gauntlets ----
+  ;; This title has no boss, because it has nothing to shoot; TASKS.md gave it
+  ;; a named stretch of board instead. Every $G_EVERY_KM, from $G_FIRST_KM,
+  ;; the random rows stop and a **gauntlet** runs: a hand-shaped sequence with
+  ;; a name the HUD announces, so it is a place in the run you recognise the
+  ;; second time rather than a density you notice.
+  ;;
+  ;;   1  THE SERPENTINE     one open lane, sweeping side to side a lane a row
+  ;;   2  THE BUS            a straight lane between two walls of chips, with
+  ;;                         charge along it — the breather
+  ;;   3  THE CAPACITOR BANK capacitors either side of a wandering path, and
+  ;;                         the charges sit *in* their lanes
+  ;;
+  ;; All three keep the one rule the board is built on: the open path moves by
+  ;; at most one lane a row. So a gauntlet is a shape, not a wall; the
+  ;; serpentine is the hardest thing the path rule allows, and it is still
+  ;; passable by construction. Clearing one without a hit pays $G_REFILL
+  ;; current back — the meter is this game's life, so that is the reward.
+  (global $G_FIRST_KM f32 (f32.const 4.0))
+  (global $G_EVERY_KM f32 (f32.const 8.0))
+  (global $G_REFILL f32 (f32.const 25.0))
+  (global $SCORE_GAUNTLET f32 (f32.const 300.0))
+  ;; How much clear time a gauntlet row leaves around a lane change, past the
+  ;; slide itself. See $gauntlet_gap.
+  (global $G_SLACK f32 (f32.const 0.28))
+
   ;; ---- scoring ----
   (global $SCORE_PER_PX f32 (f32.const 0.05))
   (global $SCORE_CHARGE f32 (f32.const 40.0))
@@ -216,6 +242,16 @@
   ;; The lane the guaranteed path runs through. It wanders by at most one lane
   ;; per row and no part may ever cover it — see $spawn_row.
   (global $pathLane (mut i32) (i32.const 2))
+  ;; The gauntlet in progress (0 = none, 1-3 as above), how many of its rows
+  ;; have been laid, which way the serpentine is sweeping, and the distance at
+  ;; which its last row will have passed the runner.
+  (global $gauntlet (mut i32) (i32.const 0))
+  (global $gRow (mut i32) (i32.const 0))
+  (global $gDir (mut i32) (i32.const 1))
+  (global $gEnd (mut f32) (f32.const 0.0))
+  (global $gHit (mut i32) (i32.const 0))
+  (global $gCount (mut i32) (i32.const 0))
+  (global $nextGauntlet (mut f32) (f32.const 4000.0))
 
   ;; input, as reported by set_input each frame
   (global $moveIn (mut i32) (i32.const 0))       ;; -1, 0 or 1, edge-triggered
@@ -228,6 +264,8 @@
   (global $charges (mut i32) (i32.const 0))
   (global $boosts (mut i32) (i32.const 0))
   (global $rows (mut i32) (i32.const 0))
+  (global $gauntlets (mut i32) (i32.const 0))     ;; one began
+  (global $gauntletClears (mut i32) (i32.const 0)) ;; one ended without a hit
 
   ;; ---------------- helpers ----------------
 
@@ -504,6 +542,101 @@
         (br $lp)))
     (i32.const -1))
 
+  ;; ---------------- gauntlets ----------------
+
+  ;; The spacing between gauntlet rows. **Not the board's own**, and that is
+  ;; the finding that shaped this feature. A gauntlet leaves one lane open,
+  ;; so every move of the path is forced, and a move is only safe if the
+  ;; runner crosses the lane boundary while neither row overlaps it: that
+  ;; clear stretch is the row gap less 112px (a part's 60 plus the runner's
+  ;; 52), and the slide takes 0.18s. At 14km the board's own gap left 76px of
+  ;; it at 502px/s — 0.15s, less than the slide — and the capacitor bank, the
+  ;; gauntlet that lands there, was cleared once in nineteen tries while the
+  ;; serpentine at 4km was cleared 23 in 25. Same shape rules, different
+  ;; board speed. So a gauntlet row is spaced for 112px plus the distance
+  ;; the board covers in $G_SLACK seconds, or the board's gap if that is wider.
+  (func $gauntlet_gap (result f32)
+    (f32.max (call $row_gap)
+             (f32.add (f32.const 112.0) (f32.mul (call $speed) (global.get $G_SLACK)))))
+
+  (func $g_length (param $g i32) (result i32)
+    (if (result i32) (i32.eq (local.get $g) (i32.const 1)) (then (i32.const 8)) (else (i32.const 6))))
+
+  ;; Block every lane from `from` to `to` inclusive with the fewest parts:
+  ;; chips (two lanes) where two fit, a resistor where one is left over. Few
+  ;; parts matters — a row of five single parts, five rows deep, would fill
+  ;; the 24-part pool, and a full pool silently drops parts, which here would
+  ;; open a lane the shape did not mean to.
+  (func $g_fill (param $from i32) (param $to i32) (param $one i32)
+    (local $l i32)
+    (local.set $l (local.get $from))
+    (block $done
+      (loop $lp
+        (br_if $done (i32.gt_s (local.get $l) (local.get $to)))
+        (if (i32.le_s (i32.add (local.get $l) (i32.const 1)) (local.get $to))
+          (then
+            (call $spawn_part (local.get $l) (i32.const 2) (i32.const 2))
+            (local.set $l (i32.add (local.get $l) (i32.const 2))))
+          (else
+            (call $spawn_part (local.get $l) (local.get $one) (i32.const 1))
+            (local.set $l (i32.add (local.get $l) (i32.const 1)))))
+        (br $lp))))
+
+  ;; One row of the running gauntlet. The path is moved first, by the
+  ;; gauntlet's own rule, never more than one lane.
+  (func $gauntlet_row
+    (local $p i32) (local $side i32)
+    (if (i32.eq (global.get $gauntlet) (i32.const 1))
+      (then
+        ;; the serpentine: sweep, and turn at the edges
+        (if (i32.or (i32.lt_s (i32.add (global.get $pathLane) (global.get $gDir)) (i32.const 0))
+                    (i32.ge_s (i32.add (global.get $pathLane) (global.get $gDir)) (global.get $LANES)))
+          (then (global.set $gDir (i32.sub (i32.const 0) (global.get $gDir)))))
+        (global.set $pathLane (i32.add (global.get $pathLane) (global.get $gDir)))))
+    (if (i32.eq (global.get $gauntlet) (i32.const 3))
+      (then
+        ;; the bank wanders like an ordinary row
+        (global.set $pathLane
+          (call $clampi
+            (i32.add (global.get $pathLane) (i32.sub (call $rand_below (i32.const 3)) (i32.const 1)))
+            (i32.const 0) (i32.sub (global.get $LANES) (i32.const 1))))))
+    ;; the bus holds its lane
+    (local.set $p (global.get $pathLane))
+
+    (if (i32.eq (global.get $gauntlet) (i32.const 3))
+      (then
+        ;; capacitors either side of the path, chips beyond them
+        (if (i32.gt_s (local.get $p) (i32.const 0))
+          (then (call $spawn_part (i32.sub (local.get $p) (i32.const 1)) (i32.const 1) (i32.const 1))))
+        (if (i32.lt_s (local.get $p) (i32.sub (global.get $LANES) (i32.const 1)))
+          (then (call $spawn_part (i32.add (local.get $p) (i32.const 1)) (i32.const 1) (i32.const 1))))
+        (call $g_fill (i32.const 0) (i32.sub (local.get $p) (i32.const 2)) (i32.const 0))
+        (call $g_fill (i32.add (local.get $p) (i32.const 2)) (i32.sub (global.get $LANES) (i32.const 1)) (i32.const 0))
+        ;; a charge in a capacitor lane: take it when the gate is down
+        (if (i32.and (global.get $gRow) (i32.const 1))
+          (then
+            (local.set $side (if (result i32) (i32.gt_s (local.get $p) (i32.const 0))
+              (then (i32.sub (local.get $p) (i32.const 1))) (else (i32.add (local.get $p) (i32.const 1)))))
+            (call $spawn_pickup (local.get $side) (i32.const 0)))))
+      (else
+        ;; the serpentine and the bus: every lane but the path is closed
+        (call $g_fill (i32.const 0) (i32.sub (local.get $p) (i32.const 1)) (i32.const 0))
+        (call $g_fill (i32.add (local.get $p) (i32.const 1)) (i32.sub (global.get $LANES) (i32.const 1)) (i32.const 0))
+        ;; charge on the path: every other row in the serpentine, every
+        ;; third on the bus, which is long and straight and would otherwise
+        ;; refill the meter just for staying still
+        (if (i32.eqz (i32.rem_u (global.get $gRow)
+                                (if (result i32) (i32.eq (global.get $gauntlet) (i32.const 1))
+                                  (then (i32.const 2)) (else (i32.const 3)))))
+          (then (call $spawn_pickup (local.get $p) (i32.const 0))))))
+
+    (global.set $gRow (i32.add (global.get $gRow) (i32.const 1)))
+    (global.set $rows (i32.add (global.get $rows) (i32.const 1)))
+    (if (i32.ge_s (global.get $gRow) (call $g_length (global.get $gauntlet)))
+      (then
+        ;; the last row spawns at y -60 and must travel to the runner and past
+        (global.set $gEnd (f32.add (global.get $dist) (f32.const 700.0))))))
+
   ;; ---------------- the runner ----------------
 
   (func $set_input (export "set_input") (param $move i32)
@@ -549,6 +682,7 @@
 
   (func $take_hit (param $a i32)
     (global.set $hits (i32.add (global.get $hits) (i32.const 1)))
+    (if (global.get $gauntlet) (then (global.set $gHit (i32.const 1))))
     (global.set $stun (global.get $STUN_TIME))
     (global.set $overclock (f32.const 0.0))
     ;; The part is consumed. Leaving it live would re-trigger every frame the
@@ -717,6 +851,11 @@
     (global.set $charges (i32.const 0))
     (global.set $boosts (i32.const 0))
     (global.set $rows (i32.const 0))
+    (global.set $gauntlets (i32.const 0))
+    (global.set $gauntletClears (i32.const 0))
+    (global.set $gauntlet (i32.const 0))
+    (global.set $gCount (i32.const 0))
+    (global.set $nextGauntlet (f32.mul (global.get $G_FIRST_KM) (f32.const 1000.0)))
     (call $clear_pool (global.get $PARTS_OFF) (global.get $PART_STRIDE)
                       (global.get $MAX_PARTS) (i32.const 16))
     (call $clear_pool (global.get $PICKUPS_OFF) (global.get $PICKUP_STRIDE)
@@ -763,10 +902,58 @@
     (if (f32.le (global.get $current) (f32.const 0.0))
       (then (global.set $gameOver (i32.const 1)) (return)))
 
+    ;; A gauntlet is due: the next rows are its shape, not the generator's.
+    (if (i32.and (f32.ge (global.get $dist) (global.get $nextGauntlet))
+                 (i32.eqz (global.get $gauntlet)))
+      (then
+        (global.set $nextGauntlet (f32.add (global.get $nextGauntlet)
+                                           (f32.mul (global.get $G_EVERY_KM) (f32.const 1000.0))))
+        (global.set $gauntlet (i32.add (i32.rem_u (global.get $gCount) (i32.const 3)) (i32.const 1)))
+        (global.set $gCount (i32.add (global.get $gCount) (i32.const 1)))
+        (global.set $gRow (i32.const 0))
+        (global.set $gHit (i32.const 0))
+        (global.set $gEnd (f32.const 1e30))
+        (global.set $gDir (if (result i32) (i32.lt_s (global.get $pathLane) (i32.const 3))
+                            (then (i32.const 1)) (else (i32.const -1))))
+        (global.set $gauntlets (i32.add (global.get $gauntlets) (i32.const 1)))
+        ;; A lead-in: one row's worth of empty board before the shape starts.
+        ;; A gauntlet opens only the path lane, and a runner standing in some
+        ;; other open lane of the last ordinary row can be several lanes from
+        ;; it — the slow pilot's hits in the bus, which never moves, were all
+        ;; on the way in. The name is on screen by now; this is the time to act
+        ;; on it.
+        (global.set $nextRow (f32.add (global.get $nextRow) (call $gauntlet_gap)))))
+
     (if (f32.ge (global.get $dist) (global.get $nextRow))
       (then
-        (global.set $nextRow (f32.add (global.get $nextRow) (call $row_gap)))
-        (call $spawn_row)))
+        (global.set $nextRow (f32.add (global.get $nextRow)
+          (if (result f32) (i32.ne (global.get $gauntlet) (i32.const 0))
+            (then (call $gauntlet_gap)) (else (call $row_gap)))))
+        ;; (i32.ne ... 0), not the id itself: i32.and is bitwise, and the
+        ;; bus is gauntlet 2, so "2 and 1" is 0. The first draft wrote it that
+        ;; way and the bus never laid a row — and, below, never ended — which
+        ;; left the board empty from 9km on. The bench found it by a pilot
+        ;; that lived oddly long doing nothing.
+        (if (i32.and (i32.ne (global.get $gauntlet) (i32.const 0))
+                     (i32.lt_s (global.get $gRow) (call $g_length (global.get $gauntlet))))
+          (then (call $gauntlet_row))
+          (else
+            ;; between the gauntlet's last row and its end, the board stays
+            ;; clear, so the clean bonus is decided by the shape alone
+            (if (i32.eqz (global.get $gauntlet)) (then (call $spawn_row)))))))
+
+    ;; The gauntlet's last row is behind the runner: settle up.
+    (if (i32.and (i32.ne (global.get $gauntlet) (i32.const 0))
+                 (f32.ge (global.get $dist) (global.get $gEnd)))
+      (then
+        (if (i32.eqz (global.get $gHit))
+          (then
+            (global.set $gauntletClears (i32.add (global.get $gauntletClears) (i32.const 1)))
+            (call $add_score (global.get $SCORE_GAUNTLET))
+            (global.set $current (call $clampf
+              (f32.add (global.get $current) (global.get $G_REFILL))
+              (f32.const 0.0) (global.get $CURRENT_MAX)))))
+        (global.set $gauntlet (i32.const 0))))
 
     (call $step_parts (local.get $d))
     (if (i32.ne (global.get $gameOver) (i32.const 0)) (then (return)))
@@ -794,4 +981,9 @@
   (func $get_charges (export "get_charges") (result i32) (global.get $charges))
   (func $get_boosts (export "get_boosts") (result i32) (global.get $boosts))
   (func $get_rows (export "get_rows") (result i32) (global.get $rows))
+  (func $get_gauntlets (export "get_gauntlets") (result i32) (global.get $gauntlets))
+  (func $get_gauntlet_clears (export "get_gauntlet_clears") (result i32) (global.get $gauntletClears))
+  ;; Which gauntlet is running, 0-3; the widget owns the names, since a name
+  ;; is presentation, and keys them off this.
+  (func $get_gauntlet (export "get_gauntlet") (result i32) (global.get $gauntlet))
 )

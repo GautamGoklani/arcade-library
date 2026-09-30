@@ -123,8 +123,10 @@ Multiple instances on one page are supported — each `mount()` is independent.
 |---|---|---|
 | Choose a tool | 1 / 2 / 3 / 4, or the toolbar | the toolbar |
 | Place or sell | click a square | tap a square |
+| Upgrade a tower | click it with any build tool; the tool's label shows the price | tap it with any build tool |
 | Sell without switching tool | right-click | — |
 | Call the wave in early | Space, or the SPACE button | the SPACE button |
+| Purge every gun's heat | 5, or the PURGE button | the PURGE button |
 | Difficulty | the EASY / NORMAL / HARD button; changing it starts a fresh run | the same button |
 | Pause | P or Esc; losing focus too | the PAUSE button; tap the board to resume |
 | Restart | R | tap the GAME OVER text |
@@ -135,7 +137,7 @@ the left stick or d-pad walks the cursor a square at a time (a first step, a
 pause, then a faster run — a held arrow key's rhythm, because one flick of a
 stick would otherwise cross the board), `A` builds with the selected tool, `B`
 sells, `X` cycles the tool, `Y` calls the wave in early, `Start` pauses, `Back`
-restarts, a shoulder button mutes. Restart is `Back` alone here, unlike the
+restarts, a shoulder button mutes, and the left trigger purges. Restart is `Back` alone here, unlike the
 other titles, because `Y` is worth more as "send the next wave" on a board where
 waiting is a decision. It is polled once a frame rather than listened for,
 because `getGamepads()` only refreshes its snapshots when called.
@@ -160,7 +162,7 @@ click does are the same sentence.
 ## Gameplay rules
 
 - **The core has 20 integrity.** A crawler or sprinter that reaches it costs 1,
-  a damper 2, a hauler 3. Zero ends the run.
+  a damper 2, a hauler 3, a leader 5. Zero ends the run.
 - **Twenty-eight towers, ever.** Not a memory limit — a game rule. See the note
   under Tuning.
 - **Build phase, then wave.** The build clock starts at 14s and shortens by
@@ -175,6 +177,16 @@ click does are the same sentence.
 - **Towers shoot the enemy furthest along the route** in reach, not the nearest
   one. The nearest is by definition the one with the most board left to walk,
   so shooting it wastes every tower behind you.
+- **Upgrade a tower in place, twice.** Click one of your towers with any
+  build tool. Each tier adds 15% to what it does (damage, or a vent's
+  cooling) and nothing to its heat, for 4× the tower's cost and then 8×. Gold
+  pips on the tower show its tier. Selling refunds 65% of everything spent on
+  it. See [Upgrades](#upgrades-september-2026).
+- **The purge: once a wave, buy every gun's heat back.** While a wave is
+  walking, it vents every tower to zero heat and clears every trip, for
+  20 scrap plus 10 a wave (70 on wave 5, 220 on wave 20). It refreshes when
+  the wave is cleared and is refused in the build phase, when guns cool on their
+  own. See [The purge](#the-purge-september-2026).
 - **Score counts the core you kept.** 25 a point, added at the end — without it
   there is no difference between surviving a wave by ten and surviving it by
   one, and defending well would score the same as defending barely.
@@ -209,8 +221,9 @@ see on the grid rather than one they have to be told.
 | ▲ | **Sprinter** | 16 | 172 | 1 | punishes a *gap* in coverage; from wave 2 |
 | ■ | **Hauler** | 92 | 62 | 3 | punishes not having *enough* coverage; from wave 4 |
 | ◆ | **Damper** | 46 | 84 | 2 | adds 21 heat/s to every tower within 145px; from wave 6 |
+| ⬢ | **Leader** | 120 | 56 | 5 | armour takes 8 off every hit; anything within 90px walks at its pace; every fifth wave |
 
-Health scales at +26% a wave, which is deliberately gentle: this is a game
+Health scales at +26% a wave (the leader's too), which is deliberately gentle: this is a game
 about coverage, and health inflation is the cheapest and least interesting way
 to ask for more of it.
 
@@ -274,9 +287,9 @@ did nothing.
 
 | region | offset | stride | count | fields |
 |--------|--------|--------|-------|--------|
-| grid | 0 | 4 B | 192 | byte 0 kind (0 open, 1 path, 2 core), byte 1 tower index+1, byte 2 path step |
+| grid | 0 | 4 B | 192 | byte 0 kind (0 open, 1 path, 2 core), byte 1 tower index+1, byte 2 path step, byte 3 tier (0-2) |
 | towers | 768 | 40 B | 28 | x, y, kind, heat, cd, active, aimX, aimY, tracer, tripped |
-| enemies | 1888 | 40 B | 40 | x, y, hp, maxHp, kind, active, step, t, flash, spare |
+| enemies | 1888 | 40 B | 40 | x, y, hp, maxHp, kind (0 crawler, 1 sprinter, 2 hauler, 3 damper, 4 leader), active, step, t, flash, spare |
 | shells | 3488 | 32 B | 24 | x, y, vx, vy, tx, ty, active, dmg |
 | path | 4256 | 8 B | 120 | px, py — the world centre of each route square, in order |
 
@@ -310,9 +323,13 @@ get_cost(kind) · get_range(kind) · get_splash() · get_heat_max() · get_early
 is_game_over()
 get_builds() · get_sells() · get_shots() · get_booms() · get_kills()
 get_leaks() · get_trips() · get_waves() · get_refused()
+is_leader_wave(level) · get_leader_reach()
+get_leaders() · get_leader_kills() · get_clinks()
+can_purge() · get_purge_cost() · get_purge_ready() · get_purges()
+can_upgrade(col, row) · get_upgrade_cost(col, row) · get_upgrades()
 ```
 
-`verb` is 0 none, 1-3 build pylon/mortar/vent, 4 sell, 5 call the wave.
+`verb` is 0 none, 1-3 build pylon/mortar/vent, 4 sell, 5 call the wave, 6 purge, 7 upgrade the tower on (col, row).
 
 ## Findings from benching
 
@@ -404,6 +421,10 @@ The constants worth touching are all at the top of `game.wat`:
 | `$VENT_RANGE` / `$VENT_COOL` | the eight neighbours, and by how much | 92 / 20 |
 | `$HEAT_MAX` / `$HEAT_RESET` / `$HEAT_COOL` | trip point, resume point, passive cooling | 100 / 40 / 9 |
 | `$DAMPER_RANGE` / `$DAMPER_HEAT` | the enemy that attacks the heat system | 145 / 21 |
+| `$LEADER_EVERY` / `$LEADER_HP` / `$LEADER_ARMOUR` | the boss: how often, health before scaling, flat damage off every hit | 5 / 120 / 8 |
+| `$LEADER_SPEED` / `$LEADER_REACH` | its pace, and the radius that walks at it | 56 / 90 |
+| `$PURGE_BASE` / `$PURGE_PER_LEVEL` | the purge's price, and how it rises | 20 / +10 a wave |
+| `$TIER_MAX` / `$TIER_GAIN` / `$UPGRADE_MUL` | upgrades: how many, what each adds, price per tier as a multiple of the tower's cost | 2 / +15% / ×4 |
 | `$CORE_MAX` / `$START_SCRAP` | how much room a new player has | 20 / 95 |
 | `$BUILD_TIME` / `$BUILD_TIME_MIN` / `$EARLY_RATE` | the quiet part of the loop | 14s / 8s / 3 |
 | `$SELL_FRACTION` | what a tower is worth second-hand | 0.65 |
@@ -420,7 +441,7 @@ The difficulty curve, per wave:
 | enemy health | +26% of the base |
 | spawn spacing | −0.014s, from 0.55s, floored at 0.18s |
 | build time | −0.5s, from 14s, floored at 8s |
-| kinds in play | crawler from 1, sprinter from 2, hauler from 4, damper from 6 |
+| kinds in play | crawler from 1, sprinter from 2, hauler from 4, damper from 6; a leader every fifth wave |
 
 The health row, the core, the starting scrap and the wave bonus are the
 **Normal** column of the difficulty table rather than fixed constants. See
@@ -500,13 +521,259 @@ the bad pilot. A tower defence that loses nothing until it loses everything is
 the genre working as intended — a leak is a defence that has already failed —
 and the table moves the failure point rather than the shape of it.
 
-**What the bench does not cover:** selling, re-placing, and any placement smarter
-than reading order. Both pilots build in the first free square next to the
-track, so how much a *good* placement is worth on each setting is untested.
+### What placement is worth
+
+Both pilots above build in the first free square next to the track. To price a
+*good* square, the mixed pilot's build order (pylon, pylon, mortar, vent,
+repeating, never calling a wave) was kept exactly and only the square choice
+changed. A gun goes where the most route squares fall inside its reach, plus a
+bonus for sitting beside a vent. A vent goes where it touches the most guns,
+with pylons counted double because they run hotter. The route and the waves
+come from the seed, so the seed was rewritten to get **24 boards per setting**:
+
+| Waves cleared: worst / median / best | Reading order | By coverage | Gained (median) |
+|---|---|---|---|
+| Easy | 17 / 20 / 24 | 26 / **33** / 45 | +13 |
+| Normal | 12 / 16 / 18 | 20 / **24** / 30 | +8 |
+| Hard | 12 / 14 / 16 | 16 / **19** / 24 | +5 |
+
+**Where you put a tower is worth more than which tower you put there.** The
+heat plan (mixing in mortars and vents) is worth seven or eight waves on every
+setting. Placement is worth thirteen on Easy and eight on Normal on top of it,
+and the worst coverage board beats the best reading-order board on Easy and
+Normal. This is the skill a player brings that no setting touches. It also
+means the bad-pilot figures above say little about a player who looks at the
+route before building, and more about one who does not.
+
+It shrinks with the setting (+13, +8, +5). Why was not measured; faster health
+growth leaving less time for a good square to pay is the obvious guess, and
+only a guess. The reading-order pilot here uses a
+slightly different "next to the track" rule from the one in the table above:
+on the README's own board it matches Easy and Normal to within a wave (20 and
+18 against 21 and 17) but gets only 6 on Hard, not 13. The comparison is still
+like for like, because both columns use the same build order on the same 24
+boards.
+
+**Still not covered: selling.** No pilot here sells or re-places a tower, so
+what the 65% refund buys is unmeasured.
 
 **Best scores are kept per setting.** The page shell records Normal under the
 same key as before, so a best set before difficulty existed is still Normal's,
 and Easy and Hard get `tower-defense:easy` and `tower-defense:hard`.
+
+## The leader, September 2026
+
+TASKS.md's boss-wave idea for this title was *"an armoured leader among the
+damper wave"*. On every fifth wave the enemy in the middle of the wave is a
+**leader**. Its base health is 120 before the wave's scaling (245 on wave 5,
+401 on wave 10, 557 on wave 15). It walks at 56 px/s, costs 5 core if it gets
+through, and pays 50 scrap and 250 score. It does two things nothing else does:
+
+- **Armour.** Every hit loses a flat 8. A pylon's 9 becomes 1 and a mortar's
+  26 becomes 18. A pylon still heats at the full rate, so a row of pylons
+  spends its heat on the leader for a ninth of the damage.
+- **An escort.** Any enemy within 90 px of it walks no faster than it does, so
+  the wave bunches up around it on the way in. The ring is drawn at the radius
+  the engine checks.
+
+The build phase announces it — "BUILD 12s · LEADER" — from
+`is_leader_wave(level)`, because a boss you could only learn about by losing to
+it is not one you can build for. Its kind is drawn from the random stream as
+usual and then replaced, so the draw sequence, and every wave's make-up, is the
+one the game had before. Replaying random input through the committed engine
+and this one gave byte-identical memory, score, scrap and core on every frame
+up to wave 5, on all three settings.
+
+### What the bench found
+
+The three pilots from the Difficulty section: **bad** (pylons in reading order),
+**mixed** (pylon, pylon, mortar, vent in reading order) and **placed** (the same
+order, placed by coverage). 24 routes each on Normal, waves cleared as
+worst / median / best:
+
+| | Before | With the leader | Leaders killed: wave 5 · 10 · 15 · 20 |
+|---|---|---|---|
+| Bad | 9 / 10 / 12 | 9 / 9 / 12 | 23/24 · 2/6 · — · — |
+| Mixed | 11 / 15 / 17 | 11 / 14 / 17 | 24/24 · 23/24 · 6/8 · — |
+| Placed | 19 / 23 / 29 | 17 / 22 / 29 | 24/24 · 24/24 · 23/24 · 10/19 |
+
+(A dash means no run got that far.) On Easy and Hard the medians moved by one
+wave or less, except Easy's placed pilot, which lost two (32 to 30). The bad
+pilot on Hard did not move at all (8). **The leader costs
+about one wave of run length.** It is a step in the curve, not a wall. The
+first leader is a warning that almost every board survives. The second is where
+a board of nothing but pylons stops getting through it: 2 kills out of 6
+against the mixed board's 23 of 24.
+
+**Switching each half off in turn** showed which half does what. On Normal:
+
+| | Bad: wave-10 leader | Placed: wave-15 leader | Placed: wave-20 leader |
+|---|---|---|---|
+| Armour and escort (as shipped) | 2/6 | 23/24 | 10/19 |
+| Armour, no escort | 1/17 | 20/24 | 5/18 |
+| Escort, no armour | 19/20 | 24/24 | 22/22 |
+| Neither | 12/18 | 23/24 | 19/20 |
+
+**The armour is the threat.** Without it the leader is a slow hauler, and even
+the pylons-only pilot kills it 19 times in 20. **The escort is the leader's
+weakness.** Without it the leader was killed *less* often, not more. A wave held
+to 56 px/s spends longer in reach of every gun, and a bunched wave is what a
+mortar's splash is for. It was meant as pressure — a bunched wave is the one
+that asks guns to fire without stopping — and the bench says the defender comes
+out ahead. It stays anyway, because it points the same way as the armour: the
+leader asks for mortars twice, once to get through the plate and once for the
+crowd it gathers. And "the wave walks at the leader's pace" is what makes it a
+*leader* rather than a large hauler.
+
+**Lighter and harder-plated beat the first draft.** The draft was 240 health
+behind 6 armour. Against it the placed pilot killed 11 of 16 wave-15 leaders
+and 2 of 9 on wave 20. At 120 and 8 that became 15 of 16 and 4 of 11, with the
+pylons-only board no better off. A boss that dies to a well-built board and
+not to a big one tests what you built rather than how much.
+
+One thing the bench cannot say is whether the announcement lands. None of these
+pilots reads the HUD. A player who sees "LEADER" and builds a mortar the wave
+before should do better than any row here, and nothing measured that.
+
+## The purge, September 2026
+
+TASKS.md's power-up idea for this title was *"a bought one-shot ability rather
+than a pickup, since nothing there flies over the board to collect"*. There is
+one, and it is about heat.
+
+**PURGE** (5, the toolbar button, or the left trigger) vents every gun on the
+board to zero heat and clears every trip, at once. It costs **20 scrap plus 10
+a wave**. It can be used **once a wave**, refreshes when the wave is cleared,
+and works only while a wave is walking. In the build phase every gun cools on
+its own, so a purge there would be scrap thrown away. The engine refuses it,
+and the button reads as unavailable, rather than letting a player learn that by
+paying for it.
+
+It is the heat system's answer to itself. Dampers and the leader attack heat,
+not towers, and until now the only defence against that was built in advance:
+a vent, placed before you knew where the pressure would land. The purge is the
+same relief bought at the moment you need it, and it costs what everything here
+costs, which is scrap that is not a tower. The button shows the current price
+from `get_purge_cost()`, because the price moves.
+
+A run that never purges is the game it was before. Replaying random builds,
+sells and early calls through the previous engine and this one gave
+byte-identical memory, score, scrap and core over 180,000 frames per setting,
+re-initialising on every loss.
+
+### What the bench found
+
+The pilots from the leader bench (bad, a pylons-only board placed by coverage,
+mixed and placed), each flown without the purge and then with a rule: purge when
+at least 40% of the guns are tripped and it can. Waves cleared, worst / median /
+best:
+
+| | Never purges | Purges | Purges per run |
+|---|---|---|---|
+| Normal, pylons only | 9 / 9 / 12 | 9 / 9 / 13 | 3.0 |
+| Normal, mixed | 11 / 14 / 17 | 12 / **16** / 19 | 5.5 |
+| Normal, placed | 17 / 22 / 29 | 19 / **24** / 33 | 6.0 |
+| Easy, placed | 28 / 31 / 39 | 30 / **36** / 41 | 11.8 |
+| Hard, placed | 14 / 17 / 19 | 15 / **18** / 21 | 4.7 |
+
+(24 routes on Normal, 12 on Easy and Hard.) **It is worth two waves to a board
+with mortars on it and nothing to a board of pylons.** That is this README's
+second finding again, from the other side: cooling pays only when it keeps
+something worth running firing. A pylon trips and recovers on its own
+rhythm; a mortar that trips mid-wave is a big gun silent for most of the wave.
+The purge rewards the same board the vent does, and it does not rescue the one
+the vent cannot.
+
+**The price rises with the wave because a flat one stopped being a price.**
+The first version cost a flat 30, and 30, 45, 60 and 80 all bought *exactly* the
+same waves. The trace showed why. These pilots fill all 28 slots by wave 9, and
+from then on they bank 150-190 scrap a wave with nothing to spend it on — 1,900
+by wave 19 on one route. By the time the purge was wanted, it was free. 20 + 10 a
+wave is three pylons on wave 5 and about one wave's income by wave 20. 20 a wave
+and 30 a wave were benched too. They mostly priced it out of the middle of the
+run (1.2 and 0.8 purges a run for the pylon board, 3.2 and 1.9 for the mixed
+one), and the middle is where the choice against a tower is the interesting one.
+
+**A finding the purge turned up about the game underneath it.** Once the board
+is full, money stops being the thing you do not have. The note above
+`$enemy_bounty` says it must stay scarce, and it does, for eight waves. These
+pilots never sell and rebuild, which a person might, but a hoard of a thousand
+scrap by wave 15 is not scarcity for anyone. The purge was, for a while, the only sink for
+it. Upgrades, below, are the answer that shipped: they give a full board
+something to buy, and the hoard is gone.
+
+## Upgrades, September 2026
+
+TASKS.md listed this as the title's own idea: *upgrade a tower in place*.
+
+Click one of your towers with any build tool (on a gamepad, `A` over it) and
+it goes up a tier, to a maximum of two. Each tier adds **15%** to what the tower
+does: a gun's damage, or a vent's cooling. It adds **nothing to heat**, because
+a gun heats by the shot, not by the damage. So an upgrade is more damage per
+degree, the one thing this game is really short of. The first tier costs **4×**
+the tower and the second **8×**: 80 and 160 for a pylon, 180 and 360 for a
+mortar. Selling refunds the usual 65% of everything spent, upgrades included.
+Two gold pips on a tower show its tier, and over one of your towers the
+selected build tool's label changes to the upgrade price, or "fully upgraded".
+
+There was no new toolbar button. The bar already holds six, and a build tool
+on your own tower had no other meaning — before this it was simply refused.
+
+**Why in place.** The board holds 28 towers, and the bench's pilots fill it by
+wave 9. From then on the only way to make a board stronger was to sell a tower
+at a 35% loss and build a better one on the same square, so scrap piled up with
+nothing to buy. The purge's notes record 1,900 banked by wave 19. An upgrade is
+what a full board spends money on.
+
+The tier lives in the grid cell's spare byte, not in the tower record, whose
+forty bytes are full. Widening the record would have moved every pool after
+it, and a tower never leaves its cell. A run that never upgrades is the game it
+was: 180,000 frames per setting of random builds, sells and early calls gave
+identical memory, score, scrap and core against the engine without upgrades.
+
+### What the bench found
+
+The mixed and placed pilots from the leader bench, flown as before and then
+again with an upgrade rule: once all 28 slots are full, upgrade whenever it
+can, mortars first, then pylons, then vents, lowest tier first. 12 routes,
+waves cleared (worst / median / best), and the scrap left when the run ended:
+
+| | Never upgrades | Upgrades | Scrap left: before → after |
+|---|---|---|---|
+| Normal, mixed | 11 / 14 / 16 | 11 / 14 / 17 | 1,022 → 59 |
+| Normal, placed | 19 / 21 / 28 | 20 / **25** / 35 | 2,356 → 104 |
+| Easy, placed | 28 / 31 / 39 | 35 / **43** / 54 | 4,975 → 98 |
+| Hard, placed | 14 / 17 / 19 | 15 / **18** / 22 | 1,395 → 39 |
+
+**Money is scarce again.** Every setting's board now ends the run with a
+hundred scrap or less instead of a hoard, which is what the note above
+`$enemy_bounty` says the economy is for. The mixed pilot reaches the tower
+cap late and so gains least. Easy gains most, because Easy's wave bonus pays for
+every upgrade on the board.
+
+**The numbers are small because damage per degree is worth so much.** Every
+larger version benched ran away with the game on Normal's placed board:
+
+| Per tier | Tiers | Price per tier | Placed board, Normal | Scrap left |
+|---|---|---|---|---|
+| +50% | 2 | ×1.5, ×3 | 21 → **49** waves | 5,721 |
+| +20% | 2 | ×1.5, ×3 | 21 → 35 | 2,233 |
+| +20% | 2 | ×4, ×8 | 21 → 28 | 186 |
+| +25% | 1 | ×3 | 21 → 29 | 1,989 |
+| +30% | 1 | ×4 | 21 → 30 | 1,494 |
+| +10% | 2 | ×4, ×8 | 21 → 24 | 185 |
+| **+15%** | **2** | **×4, ×8** | **21 → 25** | **104** |
+
+The first draft more than doubled the run and still left thousands unspent.
+A single larger tier also left the hoard behind, because 28 upgrades were not
+enough to spend it. Two small tiers at a steep price is the version that both
+moves the board and empties the bank, and +15% a tier is the least that a
+player can still see in a tower's output.
+
+What no pilot here does is choose *which* tower to upgrade with any thought.
+The one that sees the most route, or the mortar a vent is already cooling, is
+worth more than the next one in the list. A player who picks will do better
+than the rule above, and nothing here measured that.
 
 ## Rebuilding the engine
 

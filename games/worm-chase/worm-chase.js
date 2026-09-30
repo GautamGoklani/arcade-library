@@ -28,18 +28,20 @@
   var CELLS = COLS * ROWS;
   var GRID_OFF = 0, CELL_STRIDE = 4;
   var CHASER_OFF = 6144, CHASER_STRIDE = 32, MAX_CHASERS = 8;
+  var CAPSULE_OFF = 6400, CAPSULE_STRIDE = 24, MAX_CAPSULES = 2;
   // Field positions inside each record — bytes for a cell, i32 slots for a
   // chaser — the `@fields` lines in game.wat, copied. Every read goes through
   // this table rather than a bare `u8[a + 3]`, so scripts/check-layout.mjs can
   // see a field that moved.
   var FIELD = {
     cell: { state: 0, hazard: 1, mark: 2, epoch: 3 },
-    chaser: { cx: 0, cy: 1, pcx: 2, pcy: 3, dx: 4, dy: 5, active: 6, pad: 7 },
+    chaser: { cx: 0, cy: 1, pcx: 2, pcy: 3, dx: 4, dy: 5, active: 6, kind: 7 },
+    capsule: { col: 0, row: 1, kind: 2, life: 3, active: 4, pad: 5 },
   };
   var PXS = 3;  // chunky pixel scale for the ASCII sprites: 8 glyphs -> 24px
   var LOW_SCALE = 3;  // 1/3-size buffer, blown up — see the retro adapter in mount()
 
-  var WASM_B64 = "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";
+  var WASM_B64 = "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";
 
   // ============================================================
   // PIXEL SPRITES (ASCII grids -> offscreen canvases)
@@ -102,6 +104,22 @@
     'D..RR..D',
   ];
 
+  // The hunter: a chaser with horns and a split jaw, in violet, so it reads as
+  // a different animal by shape and not only by colour. It goes for the
+  // trail rather than the head, and the player has to know which one is
+  // which at a glance.
+  var HUNTER_PAL = { R: '#d86bff', D: '#5a1a78', K: '#1e0630', W: '#ffffff' };
+  var hunterRows = [
+    'D......D',
+    'RD.RR.DR',
+    'RRRRRRRR',
+    'RKKRRKKR',
+    'RRRRRRRR',
+    'RWRWWRWR',
+    'R.R..R.R',
+    'D.D..D.D',
+  ];
+
   var HAZARD_PAL = { H: '#ffb02e', D: '#6d3a05' };
   var hazardRows = [
     '...HH...',
@@ -113,6 +131,19 @@
     '..HHHH..',
     '...HH...',
   ];
+
+  // Capsules: one per kind, in the order of the engine's kind field (0 freeze,
+  // 1 surge). The frame is the kind's colour, and so are the HUD pips and the
+  // tint a frozen chaser takes, so a capsule and what it did read as one thing.
+  var CAPSULE_COLOURS = ['#7fd4ff', '#ffe14d'];
+  var capsuleRows = [
+    [ // freeze: a six-armed star
+      '.FFFFFF.', 'F..G...F', 'F.GGG..F', 'FGGGGG.F', 'F.GGG..F', 'F..G...F', 'F......F', '.FFFFFF.' ],
+    [ // surge: a bolt
+      '.FFFFFF.', 'F...GG.F', 'F..GG..F', 'F.GGGG.F', 'F..GG..F', 'F.GG...F', 'F......F', '.FFFFFF.' ],
+  ];
+  // A frozen chaser: the same silhouette in ice, so it still reads as a chaser.
+  var FROZEN_PAL = { R: '#bfe9ff', D: '#4a88b0', K: '#12324a' };
 
   // Territory fill, indexed by the epoch byte the engine stamps on capture.
   // Six shades cycling means the board records its own history: you can see
@@ -188,6 +219,15 @@
       kill:    function () { tone(880, 180, 0.16, 'sawtooth', 0.06); noise(0.12, 0.06); },
       die:     function () { tone(320, 60, 0.5, 'sawtooth', 0.07); noise(0.3, 0.09); },
       level:   function () { tone(520, 1040, 0.3, 'triangle', 0.06); },
+      // A capsule appearing is a small, high blip: something to look for, not
+      // an alarm. Taking one is two rising notes, the way good news sounds
+      // everywhere else in the arcade.
+      // The hunter's arrival is low and rising, a warning; its fall is the
+      // biggest sound in the game, because it is the rarest good news.
+      hunter:     function () { tone(110, 220, 0.5, 'sawtooth', 0.05); },
+      hunterDown: function () { noise(0.5, 0.1); tone(880, 110, 0.6, 'square', 0.06); },
+      drop:    function () { tone(1300, 1500, 0.05, 'triangle', 0.025); },
+      grab:    function () { tone(660, 660, 0.07, 'square', 0.04); tone(990, 990, 0.12, 'square', 0.04); },
       over:    function () { tone(240, 55, 0.9, 'sawtooth', 0.08); },
       setMuted: function (m) { muted = m; },
       close: function () { if (ctx && ctx.close) { try { ctx.close(); } catch (e) {} } ctx = null; },
@@ -208,7 +248,11 @@
     root.innerHTML =
       '<div class="wc-hud">' +
         '<span>SCORE <b class="wc-a" data-wc="score">0</b></span>' +
-        '<span>LIVES <b class="wc-r" data-wc="lives">5</b></span>' +
+        '<span>LIVES <b class="wc-r" data-wc="lives">5</b>' +
+        '<span class="wc-fx">' +
+          '<i class="wc-fx-f" data-wc="fxf" title="Freeze"></i>' +
+          '<i class="wc-fx-s" data-wc="fxs" title="Surge"></i>' +
+        '</span></span>' +
         '<span>LEVEL <b class="wc-v" data-wc="level">1</b></span>' +
         '<span>HELD <b data-wc="held">3%</b> / <span data-wc="target">34%</span></span>' +
         '<button type="button" class="wc-mute" data-wc="mute">SOUND ON</button>' +
@@ -328,6 +372,8 @@
     var cellFlash = new Float32Array(CELLS);
     var prevState = new Uint8Array(CELLS);
     var prevLevel = 1, prevCaps = 0, prevDeaths = 0, prevKills = 0, prevOver = 0;
+    var prevDrops = 0, prevGrabs = 0, prevHunters = 0, prevHunterKills = 0;
+    var fxF = q('fxf'), fxS = q('fxs');
     var bannerT = 0, idleT = 0;
 
     // ---------- sprites ----------
@@ -338,6 +384,12 @@
       rows = rotateRows(rows);
     }
     var sprChaser = makeSprite(chaserRows, CHASER_PAL, PXS);
+    var sprChaserFrozen = makeSprite(chaserRows, FROZEN_PAL, PXS);
+    var sprHunter = makeSprite(hunterRows, HUNTER_PAL, PXS);
+    var sprHunterFrozen = makeSprite(hunterRows, { R: FROZEN_PAL.R, D: FROZEN_PAL.D, K: FROZEN_PAL.K, W: '#ffffff' }, PXS);
+    var sprCapsule = capsuleRows.map(function (rows, k) {
+      return makeSprite(rows, { F: CAPSULE_COLOURS[k], G: '#ffffff' }, PXS);
+    });
     var sprHazard = makeSprite(hazardRows, HAZARD_PAL, PXS);
 
     // ---------- input ----------
@@ -702,8 +754,32 @@
       }
     }
 
+    // Capsules blink over their last three seconds, so one fading is never a
+    // surprise; the engine says how long each has left.
+    function drawCapsules() {
+      var f32 = new Float32Array(wasm.exports.memory.buffer, CAPSULE_OFF, MAX_CAPSULES * CAPSULE_STRIDE / 4);
+      var K = FIELD.capsule;
+      for (var i = 0; i < MAX_CAPSULES; i++) {
+        var o = i * CAPSULE_STRIDE / 4;
+        if (f32[o + K.active] <= 0) continue;
+        if (f32[o + K.life] < 3 && Math.floor(tGlobal * 8) % 2) continue;
+        var spr = sprCapsule[f32[o + K.kind] | 0];
+        ctx.drawImage(spr,
+          Math.round(cellCenterX(f32[o + K.col]) - spr.width / 2),
+          Math.round(cellCenterY(f32[o + K.row]) - spr.height / 2));
+      }
+    }
+
+    // Shown for as long as the engine says an effect has left, blinking over
+    // its last second.
+    function setPip(el, t) {
+      el.style.display = t > 0 ? 'inline-block' : 'none';
+      el.style.visibility = (t > 0 && t < 1 && Math.floor(tGlobal * 8) % 2) ? 'hidden' : 'visible';
+    }
+
     function drawChasers() {
       var f = wasm.exports.get_chase_frac();
+      var frozen = wasm.exports.get_freeze_t() > 0;
       // One view over the whole buffer, made once at boot. A fresh
       // Int32Array per chaser per frame would be 480 throwaway objects a
       // second for eight records that never move.
@@ -713,9 +789,11 @@
         if (!i32[w + C.active]) continue;
         var cx = i32[w + C.pcx] + (i32[w + C.cx] - i32[w + C.pcx]) * f;
         var cy = i32[w + C.pcy] + (i32[w + C.cy] - i32[w + C.pcy]) * f;
-        ctx.drawImage(sprChaser,
-          Math.round(cx * CELL + CELL / 2 - sprChaser.width / 2),
-          Math.round(cy * CELL + CELL / 2 - sprChaser.height / 2));
+        var spr = i32[w + C.kind] ? (frozen ? sprHunterFrozen : sprHunter)
+                                  : (frozen ? sprChaserFrozen : sprChaser);
+        ctx.drawImage(spr,
+          Math.round(cx * CELL + CELL / 2 - spr.width / 2),
+          Math.round(cy * CELL + CELL / 2 - spr.height / 2));
       }
     }
 
@@ -756,8 +834,26 @@
         prevCaps = caps;
       }
 
+      var drops = e.get_drops();
+      if (drops > prevDrops) { sound.drop(); prevDrops = drops; }
+      var grabs = e.get_grabs();
+      if (grabs > prevGrabs) {
+        sound.grab();
+        burst(cellCenterX(e.get_head_x()), cellCenterY(e.get_head_y()), 16,
+              e.get_freeze_t() > 0 ? CAPSULE_COLOURS[0] : CAPSULE_COLOURS[1], 170);
+        prevGrabs = grabs;
+      }
+
       var kills = e.get_kills();
       if (kills > prevKills) { sound.kill(); shake = Math.max(shake, 0.18); prevKills = kills; }
+      // Fencing in the hunter is the boss going down, and gets its weight.
+      var hk = e.get_hunter_kills();
+      if (hk > prevHunterKills) {
+        sound.hunterDown();
+        shake = Math.max(shake, 0.4);
+        burst(cellCenterX(e.get_head_x()), cellCenterY(e.get_head_y()), 36, HUNTER_PAL.R, 230);
+        prevHunterKills = hk;
+      }
 
       var deaths = e.get_deaths();
       if (deaths > prevDeaths) {
@@ -771,7 +867,9 @@
       var level = e.get_level();
       if (level !== prevLevel) {
         sound.level();
-        bannerEl.textContent = 'LEVEL ' + level;
+        // the hunter is placed as the level is built, so it is already there
+        bannerEl.textContent = 'LEVEL ' + level + (e.get_hunters() > prevHunters ? ' \u00b7 HUNTER' : '');
+        if (e.get_hunters() > prevHunters) { sound.hunter(); prevHunters = e.get_hunters(); }
         bannerT = 1.3;
         prevLevel = level;
         cellFlash.fill(0);
@@ -815,6 +913,7 @@
       }
 
       drawBoard(dt);
+      drawCapsules();
       drawChasers();
       drawWorm();
       stepParticles(dt);
@@ -845,6 +944,8 @@
       hudLevel.textContent = wasm.exports.get_level();
       hudHeld.textContent = Math.round(owned / total * 100) + '%';
       hudTarget.textContent = Math.round(wasm.exports.get_target() / total * 100) + '%';
+      setPip(fxF, wasm.exports.get_freeze_t());
+      setPip(fxS, wasm.exports.get_surge_t());
 
       rafId = requestAnimationFrame(loop);
     }
@@ -865,6 +966,10 @@
       prevCaps = wasm.exports.get_capture_count();
       prevDeaths = wasm.exports.get_deaths();
       prevKills = wasm.exports.get_kills();
+      prevHunters = wasm.exports.get_hunters();
+      prevHunterKills = wasm.exports.get_hunter_kills();
+      prevDrops = wasm.exports.get_drops();
+      prevGrabs = wasm.exports.get_grabs();
       prevOver = 0;
       msgEl.style.display = 'none';
       bannerEl.style.opacity = '0';

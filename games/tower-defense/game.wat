@@ -52,7 +52,7 @@
   ;;                 byte 0  kind    0 = open, 1 = path, 2 = core
   ;;                 byte 1  tower   pool index + 1, or 0 for none
   ;;                 byte 2  step    index along the path, meaningless if kind 0
-  ;;                 byte 3  spare
+  ;;                 byte 3  tier    0-2, the tower here's upgrades; 0 if none
   ;;                 cell (c,r) is at (r*COLS + c)*4
   ;;                 ends at 192*4 = 768
   ;; towers  @768  : stride 40, MAX_TOWERS = 28
@@ -69,7 +69,7 @@
   ;;                 ends at 4256 + 120*8 = 5216
   ;;
   ;; tower kinds:  0 = pylon, 1 = mortar, 2 = vent
-  ;; enemy kinds:  0 = crawler, 1 = sprinter, 2 = hauler, 3 = damper
+  ;; enemy kinds:  0 = crawler, 1 = sprinter, 2 = hauler, 3 = damper, 4 = leader
   ;;
   ;; `tripped` is 1 while a tower is over its heat limit and refusing to fire;
   ;; it clears at $HEAT_RESET rather than at 100, because a tower that resumes
@@ -86,7 +86,7 @@
   ;; reads. It fails if any line here disagrees with the prose, overflows
   ;; its stride, or disagrees with the FIELD table at the top of the widget
   ;; — so a field that moves has to move in all three places at once.
-  ;; @fields cell  u8 CELL_STRIDE: kind tower step spare
+  ;; @fields cell  u8 CELL_STRIDE: kind tower step tier
   ;; @fields tower f32 TOWER_STRIDE: x y kind heat cd active aimX aimY tracer tripped
   ;; @fields enemy f32 ENEMY_STRIDE: x y hp maxHp kind active step t flash spare
   ;; @fields shell f32 SHELL_STRIDE: x y vx vy tx ty active dmg
@@ -183,7 +183,101 @@
   (global $DAMPER_RANGE f32 (f32.const 145.0))
   (global $DAMPER_HEAT f32 (f32.const 21.0))  ;; added per second, per damper
 
-  ;; ---- the run ----
+  ;; ---- the leader ----
+  ;; Every fifth wave has a boss in the middle of it: an armoured **leader**,
+  ;; slow, heavy, and — the part that makes it a leader — the pace of everything
+  ;; around it. Any enemy within $LEADER_REACH of it walks no faster than it
+  ;; does, so the wave bunches up around it on the way in.
+  ;;
+  ;; The armour is the threat. It is a flat subtraction, not a percentage: a
+  ;; pylon's 9 becomes 1 while a mortar's 26 becomes 18. A pylon still heats
+  ;; at the full rate for a ninth of the damage, so a board of nothing but
+  ;; pylons spends its heat on the leader and gets almost nothing for it.
+  ;;
+  ;; The escort turned out to be the leader's weakness, and it stays for that
+  ;; reason. The bench switched each half off in turn (README, "The leader").
+  ;; Without armour the leader is just a slow hauler: every board kills it.
+  ;; Without the escort it was killed *less* often, not more — a wave held to
+  ;; 56px/s spends longer in reach of every gun, and a bunched one is what a
+  ;; mortar's splash is for. So the leader asks for mortars twice: they get
+  ;; through the plate, and the escort it gathers stands in their splash.
+  ;;
+  ;; 120 and 8 against a first draft of 240 and 6. The draft's leader got
+  ;; away from a well-placed mixed board from wave 15 on (11 of 16 killed);
+  ;; this one still dies there (15 of 16). The plate is what separates boards:
+  ;; with none, the pylon-only pilot killed the wave-10 leader 19 times in 20,
+  ;; and at 8 it managed 2 in 6. Lighter and harder-plated is a leader that
+  ;; tests *what* you built rather than how much.
+  (global $LEADER_EVERY i32 (i32.const 5))
+  (global $LEADER_HP f32 (f32.const 120.0))      ;; before the level's hp scale
+  (global $LEADER_ARMOUR f32 (f32.const 8.0))
+  (global $LEADER_SPEED f32 (f32.const 56.0))
+  (global $LEADER_REACH f32 (f32.const 90.0))
+
+  ;; ---- upgrades ----
+  ;; A tower can be upgraded where it stands, twice. Each tier adds 15%: a
+  ;; gun hits x1.15 and then x1.3 as hard, a vent cools x1.15 and then x1.3 as
+  ;; much. What does *not* change is heat — a gun heats by the shot, not by
+  ;; the damage — so an upgrade is more damage per degree, which is the one
+  ;; currency this game is really short of.
+  ;;
+  ;; Why in place, and why it matters here: the board holds 28 towers, and
+  ;; the bench's pilots fill it by wave 9. From then on the only way to make a
+  ;; board stronger used to be selling a tower and building a better one on
+  ;; the same square — at a 35% loss — so scrap piled up with nothing to buy
+  ;; (the purge's notes record 1,900 banked by wave 19). An upgrade is what a
+  ;; full board spends money on.
+  ;;
+  ;; The tier lives in the grid cell's spare byte rather than in the tower
+  ;; record, whose forty bytes are full: widening the stride would have moved
+  ;; every pool after it, and the tower never leaves its cell anyway.
+  ;;
+  ;; Price: the tower's cost x4 for the first tier and x8 for the second, so
+  ;; a fully upgraded pylon is 260 scrap in one slot against 20. Selling refunds
+  ;; the usual 65% of everything spent on it, upgrades included.
+  ;;
+  ;; **Both numbers are small because damage per degree is worth so much.**
+  ;; The first draft was +50% a tier at x1.5 and x3, and it more than doubled
+  ;; how long a well-placed board lasted — 21 waves to 49 on Normal — while
+  ;; still leaving thousands of scrap unspent. +20% a tier at x4 was still +7
+  ;; waves. One tier of +25-30% was +8 or 9 and left the hoard behind, because
+  ;; 28 upgrades were not enough to spend it. Two tiers of 15% at x4 is +4 on
+  ;; Normal (21 to 25), and the median board ends the run with about 100 scrap
+  ;; instead of 2,356 — money is the thing you do not have again. See the
+  ;; README, "Upgrades".
+  (global $TIER_MAX i32 (i32.const 2))
+  (global $TIER_GAIN f32 (f32.const 0.15))       ;; per tier, of the base
+  (global $UPGRADE_MUL f32 (f32.const 4.0))     ;; x cost, per tier being bought
+
+  ;; ---- the purge ----
+  ;; The one ability, and the only thing in the game you buy that is not a
+  ;; box on the board. It dumps every gun's heat at once — heat to zero, trips
+  ;; cleared — for scrap, once a wave.
+  ;;
+  ;; It is the heat system's answer to itself. Dampers and the leader attack
+  ;; heat rather than towers, and until now the only defence against that was
+  ;; built in advance: a vent, placed before you knew where the pressure would
+  ;; land. The purge is the same relief bought at the moment you need it, and
+  ;; it costs what everything here costs — scrap that is not a tower. That is
+  ;; why it is an *ability* and not a pickup: nothing flies over this board to
+  ;; be collected, and the economy is the thing every choice here goes through.
+  ;;
+  ;; Once a wave, refreshed when the wave is cleared, and only while a wave is
+  ;; walking: in the build phase every gun cools on its own, so a purge there
+  ;; is scrap thrown away, and the engine refuses it rather than let a player
+  ;; learn that by paying for it.
+  ;;
+  ;; **The price rises with the wave, because a flat one stopped being a
+  ;; price.** The bench's pilots fill all 28 slots by wave 9 and then bank
+  ;; 150-190 scrap a wave with nothing to spend it on; at a flat 30, 45, 60 or
+  ;; 80 the purge made exactly the same difference, because by the time it was
+  ;; wanted it was free. 20 + 10 a wave is three pylons on wave 5 and roughly
+  ;; one wave's income by wave 20. Steeper slopes (20 and 30 a wave) mostly
+  ;; priced it out of the middle of the run, where the choice against a tower
+  ;; is the interesting one.
+  (global $PURGE_BASE f32 (f32.const 20.0))
+  (global $PURGE_PER_LEVEL f32 (f32.const 10.0))
+
   ;; Mutable because the difficulty table writes them — see $apply_difficulty.
   ;; The initialisers are Normal's values, which is what makes a Normal run
   ;; identical to the engine that had no settings at all. The widget reads
@@ -263,6 +357,12 @@
   (global $toSpawn (mut i32) (i32.const 0))
   (global $spawnT (mut f32) (f32.const 0.0))
   (global $pathLen (mut i32) (i32.const 0))
+  (global $purgeReady (mut i32) (i32.const 1))
+  ;; Where the live leader is, as of the start of this frame's walk; $ldrOn is
+  ;; 0 when there is none. There is never more than one.
+  (global $ldrOn (mut i32) (i32.const 0))
+  (global $ldrX (mut f32) (f32.const 0.0))
+  (global $ldrY (mut f32) (f32.const 0.0))
 
   ;; input, as reported by set_input each frame. `action` is edge-triggered by
   ;; the widget and consumed here on the frame it arrives, so a held mouse
@@ -283,6 +383,11 @@
   (global $trips (mut i32) (i32.const 0))
   (global $waves (mut i32) (i32.const 0))
   (global $refused (mut i32) (i32.const 0))   ;; a build the rules would not allow
+  (global $leaders (mut i32) (i32.const 0))   ;; a leader walked on
+  (global $leaderKills (mut i32) (i32.const 0))
+  (global $clinks (mut i32) (i32.const 0))    ;; a hit the armour took most of
+  (global $purges (mut i32) (i32.const 0))    ;; a purge bought
+  (global $upgrades (mut i32) (i32.const 0))  ;; a tower upgraded
 
   ;; ---------------- helpers ----------------
 
@@ -359,6 +464,52 @@
       (else (if (result f32) (i32.eq (local.get $kind) (i32.const 2))
         (then (global.get $COST_VENT))
         (else (global.get $COST_PYLON))))))
+
+  ;; The grid cell a tower stands on, from its centre. Towers never move, so
+  ;; this is the cell it was built in.
+  (func $tower_cell (param $a i32) (result i32)
+    (call $cell_addr
+      (i32.trunc_f32_s (f32.div (f32.load offset=0 (local.get $a)) (global.get $CELL)))
+      (i32.trunc_f32_s (f32.div (f32.load offset=4 (local.get $a)) (global.get $CELL)))))
+
+  ;; x1, x1.5 or x2 — what a tower's damage or cooling is multiplied by.
+  (func $tier_mul (param $a i32) (result f32)
+    (f32.add (f32.const 1.0)
+      (f32.mul (f32.convert_i32_u (i32.load8_u offset=3 (call $tower_cell (local.get $a))))
+               (global.get $TIER_GAIN))))
+
+  ;; Scrap to buy the next tier of the tower on (c,r), or -1 if there is no
+  ;; tower there or it is already at the top.
+  (func $upgrade_cost (export "get_upgrade_cost") (param $c i32) (param $r i32) (result f32)
+    (local $cell i32) (local $t i32) (local $tier i32)
+    (if (i32.eqz (call $in_bounds (local.get $c) (local.get $r))) (then (return (f32.const -1.0))))
+    (local.set $cell (call $cell_addr (local.get $c) (local.get $r)))
+    (local.set $t (i32.load8_u offset=1 (local.get $cell)))
+    (if (i32.eqz (local.get $t)) (then (return (f32.const -1.0))))
+    (local.set $tier (i32.load8_u offset=3 (local.get $cell)))
+    (if (i32.ge_s (local.get $tier) (global.get $TIER_MAX)) (then (return (f32.const -1.0))))
+    (f32.mul (f32.mul (call $tower_cost (i32.trunc_f32_s (f32.load offset=8
+                        (call $tower_addr (i32.sub (local.get $t) (i32.const 1))))))
+                      (global.get $UPGRADE_MUL))
+             (f32.convert_i32_s (i32.add (local.get $tier) (i32.const 1)))))
+
+  ;; Exported for the same reason as can_build: the cursor asks, so what it
+  ;; promises and what a click does are the same sentence.
+  (func $can_upgrade (export "can_upgrade") (param $c i32) (param $r i32) (result i32)
+    (local $cost f32)
+    (local.set $cost (call $upgrade_cost (local.get $c) (local.get $r)))
+    (i32.and (f32.ge (local.get $cost) (f32.const 0.0))
+             (f32.ge (global.get $scrap) (local.get $cost))))
+
+  (func $do_upgrade (param $c i32) (param $r i32)
+    (local $cell i32)
+    (if (i32.eqz (call $can_upgrade (local.get $c) (local.get $r)))
+      (then (global.set $refused (i32.add (global.get $refused) (i32.const 1))) (return)))
+    (global.set $scrap (f32.sub (global.get $scrap) (call $upgrade_cost (local.get $c) (local.get $r))))
+    (local.set $cell (call $cell_addr (local.get $c) (local.get $r)))
+    (i32.store8 offset=3 (local.get $cell)
+      (i32.add (i32.load8_u offset=3 (local.get $cell)) (i32.const 1)))
+    (global.set $upgrades (i32.add (global.get $upgrades) (i32.const 1))))
 
   ;; ---------------- the board ----------------
 
@@ -505,23 +656,33 @@
     (global.set $refused (i32.add (global.get $refused) (i32.const 1))))
 
   (func $do_sell (param $c i32) (param $r i32)
-    (local $cell i32) (local $t i32) (local $a i32)
+    (local $cell i32) (local $t i32) (local $a i32) (local $tier i32)
     (if (i32.eqz (call $in_bounds (local.get $c) (local.get $r))) (then (return)))
     (local.set $cell (call $cell_addr (local.get $c) (local.get $r)))
     (local.set $t (i32.load8_u offset=1 (local.get $cell)))
     (if (i32.eqz (local.get $t))
       (then (global.set $refused (i32.add (global.get $refused) (i32.const 1))) (return)))
     (local.set $a (call $tower_addr (i32.sub (local.get $t) (i32.const 1))))
+    ;; 65% of everything spent on it: the tower, and each tier at cost x1.5
+    ;; and x3 — so a tier-n tower cost 1 + 1.5 * n(n+1)/2 times its price
+    (local.set $tier (i32.load8_u offset=3 (local.get $cell)))
     (global.set $scrap (f32.add (global.get $scrap)
-      (f32.mul (call $tower_cost (i32.trunc_f32_s (f32.load offset=8 (local.get $a))))
+      (f32.mul (f32.mul (call $tower_cost (i32.trunc_f32_s (f32.load offset=8 (local.get $a))))
+                        (f32.add (f32.const 1.0)
+                          (f32.mul (global.get $UPGRADE_MUL)
+                            (f32.convert_i32_s (i32.div_s (i32.mul (local.get $tier)
+                                                                   (i32.add (local.get $tier) (i32.const 1)))
+                                                          (i32.const 2))))))
                (global.get $SELL_FRACTION))))
     (f32.store offset=20 (local.get $a) (f32.const 0.0))
     (i32.store8 offset=1 (local.get $cell) (i32.const 0))
+    (i32.store8 offset=3 (local.get $cell) (i32.const 0))
     (global.set $sells (i32.add (global.get $sells) (i32.const 1))))
 
   ;; ---------------- enemies ----------------
 
   (func $enemy_hp (param $kind i32) (result f32)
+    (if (i32.eq (local.get $kind) (i32.const 4)) (then (return (global.get $LEADER_HP))))
     (if (result f32) (i32.eq (local.get $kind) (i32.const 1))
       (then (f32.const 16.0))
       (else (if (result f32) (i32.eq (local.get $kind) (i32.const 2))
@@ -536,6 +697,7 @@
   ;; watching and a losing run thirteen minutes long. 96 puts the crossing at
   ;; about 30s, and the rest are scaled from it.
   (func $enemy_speed (param $kind i32) (result f32)
+    (if (i32.eq (local.get $kind) (i32.const 4)) (then (return (global.get $LEADER_SPEED))))
     (if (result f32) (i32.eq (local.get $kind) (i32.const 1))
       (then (f32.const 172.0))
       (else (if (result f32) (i32.eq (local.get $kind) (i32.const 2))
@@ -547,7 +709,11 @@
   ;; What reaching the core costs. A hauler is worth three crawlers of damage
   ;; as well as three of health, so letting one through is the mistake the run
   ;; actually turns on.
+  ;; A leader through the gate costs five: more than a hauler, less than the
+  ;; wave it walked in with, so letting it past hurts without ending the run
+  ;; on its own.
   (func $enemy_leak (param $kind i32) (result f32)
+    (if (i32.eq (local.get $kind) (i32.const 4)) (then (return (f32.const 5.0))))
     (if (result f32) (i32.eq (local.get $kind) (i32.const 2))
       (then (f32.const 3.0))
       (else (if (result f32) (i32.eq (local.get $kind) (i32.const 3))
@@ -561,6 +727,8 @@
   ;; everything, everywhere", and none of the choices this game is made of
   ;; mean anything any more. Money has to stay the thing you do not have.
   (func $enemy_bounty (param $kind i32) (result f32)
+    ;; mean like the rest: two and a half pylons, not a new board
+    (if (i32.eq (local.get $kind) (i32.const 4)) (then (return (f32.const 50.0))))
     (if (result f32) (i32.eq (local.get $kind) (i32.const 2))
       (then (f32.const 6.0))
       (else (if (result f32) (i32.eq (local.get $kind) (i32.const 3))
@@ -606,9 +774,26 @@
       (i32.add (i32.const 5) (i32.mul (i32.sub (global.get $level) (i32.const 1)) (i32.const 2)))
       (i32.const 5) (i32.const 34)))
 
+  ;; Does this level's wave bring a leader? Exported so the build phase can
+  ;; say so before it arrives — a boss you could only learn about by losing to
+  ;; it is not a thing you can build for.
+  (func $is_leader_wave (export "is_leader_wave") (param $lv i32) (result i32)
+    (i32.and (i32.gt_s (local.get $lv) (i32.const 0))
+             (i32.eqz (i32.rem_s (local.get $lv) (global.get $LEADER_EVERY)))))
+
   (func $spawn_enemy
     (local $i i32) (local $a i32) (local $kind i32) (local $hp f32)
     (local.set $kind (call $pick_kind))
+    ;; The leader walks on in the middle of the wave, so it has an escort in
+    ;; front to slow and one behind to catch up. The kind is drawn first and
+    ;; then replaced, so the draw sequence — and every wave after this one — is
+    ;; exactly what it would have been without a leader in it.
+    (if (i32.and (call $is_leader_wave (global.get $level))
+                 (i32.eq (global.get $toSpawn)
+                         (i32.add (i32.div_s (call $wave_size) (i32.const 2)) (i32.const 1))))
+      (then
+        (local.set $kind (i32.const 4))
+        (global.set $leaders (i32.add (global.get $leaders) (i32.const 1)))))
     (local.set $hp (f32.mul (call $enemy_hp (local.get $kind)) (call $hp_scale)))
     (local.set $i (i32.const 0))
     (block $done
@@ -644,6 +829,10 @@
     (local.get $n))
 
   (func $kill_enemy (param $a i32)
+    (if (f32.eq (f32.load offset=16 (local.get $a)) (f32.const 4.0))
+      (then
+        (global.set $leaderKills (i32.add (global.get $leaderKills) (i32.const 1)))
+        (call $add_score (f32.const 250.0))))
     (f32.store offset=20 (local.get $a) (f32.const 0.0))
     (global.set $kills (i32.add (global.get $kills) (i32.const 1)))
     (global.set $scrap (f32.add (global.get $scrap)
@@ -651,15 +840,43 @@
     (call $add_score (global.get $SCORE_KILL)))
 
   (func $hurt_enemy (param $a i32) (param $dmg f32)
+    (if (f32.eq (f32.load offset=16 (local.get $a)) (f32.const 4.0))
+      (then
+        (if (f32.lt (local.get $dmg) (f32.mul (global.get $LEADER_ARMOUR) (f32.const 2.0)))
+          (then (global.set $clinks (i32.add (global.get $clinks) (i32.const 1)))))
+        (local.set $dmg (f32.max (f32.sub (local.get $dmg) (global.get $LEADER_ARMOUR))
+                                 (f32.const 1.0)))))
     (f32.store offset=8 (local.get $a) (f32.sub (f32.load offset=8 (local.get $a)) (local.get $dmg)))
     (f32.store offset=32 (local.get $a) (f32.const 0.12))
     (if (f32.le (f32.load offset=8 (local.get $a)) (f32.const 0.0))
       (then (call $kill_enemy (local.get $a)))))
 
+  ;; Find the live leader, if any, so the walk below can hold its escort to
+  ;; its pace. Read once, before anyone moves, so every escort answers to the
+  ;; same position and the order enemies sit in the pool cannot matter.
+  (func $find_leader
+    (local $i i32) (local $a i32)
+    (global.set $ldrOn (i32.const 0))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $lp
+        (br_if $done (i32.ge_s (local.get $i) (global.get $MAX_ENEMIES)))
+        (local.set $a (call $enemy_addr (local.get $i)))
+        (if (i32.and (f32.gt (f32.load offset=20 (local.get $a)) (f32.const 0.0))
+                     (f32.eq (f32.load offset=16 (local.get $a)) (f32.const 4.0)))
+          (then
+            (global.set $ldrOn (i32.const 1))
+            (global.set $ldrX (f32.load offset=0 (local.get $a)))
+            (global.set $ldrY (f32.load offset=4 (local.get $a)))
+            (return)))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $lp))))
+
   (func $step_enemies (param $dt f32)
     (local $i i32) (local $a i32) (local $step i32) (local $t f32)
     (local $sp f32) (local $seg f32) (local $ax f32) (local $ay f32)
     (local $bx f32) (local $by f32)
+    (call $find_leader)
     (local.set $i (i32.const 0))
     (block $done
       (loop $lp
@@ -674,6 +891,12 @@
             (local.set $step (i32.trunc_f32_s (f32.load offset=24 (local.get $a))))
             (local.set $t (f32.load offset=28 (local.get $a)))
             (local.set $sp (call $enemy_speed (i32.trunc_f32_s (f32.load offset=16 (local.get $a)))))
+            ;; the escort: nothing near the leader outruns it
+            (if (i32.and (global.get $ldrOn)
+                  (f32.le (call $dist (f32.load offset=0 (local.get $a)) (f32.load offset=4 (local.get $a))
+                                      (global.get $ldrX) (global.get $ldrY))
+                          (global.get $LEADER_REACH)))
+              (then (local.set $sp (f32.min (local.get $sp) (global.get $LEADER_SPEED)))))
 
             (block $walked
               (loop $wlp
@@ -862,7 +1085,8 @@
                                     (f32.load offset=0 (local.get $a))
                                     (f32.load offset=4 (local.get $a)))
                         (global.get $VENT_RANGE))
-              (then (local.set $sum (f32.add (local.get $sum) (global.get $VENT_COOL)))))))
+              (then (local.set $sum (f32.add (local.get $sum)
+                      (f32.mul (global.get $VENT_COOL) (call $tier_mul (local.get $a)))))))))
         (local.set $i (i32.add (local.get $i) (i32.const 1)))
         (br $lp)))
     (local.get $sum))
@@ -949,7 +1173,7 @@
                             (call $spawn_shell (local.get $x) (local.get $y)
                                   (f32.load offset=0 (local.get $e))
                                   (f32.load offset=4 (local.get $e))
-                                  (global.get $MORTAR_DMG))
+                                  (f32.mul (global.get $MORTAR_DMG) (call $tier_mul (local.get $a))))
                             (local.set $cd (global.get $MORTAR_RELOAD))
                             (local.set $heat (f32.add (local.get $heat) (global.get $MORTAR_HEAT))))
                           (else
@@ -958,7 +1182,8 @@
                             ;; spend most of its life in the air and miss a
                             ;; sprinter that had already left, which reads as
                             ;; the tower being broken rather than outrun.
-                            (call $hurt_enemy (local.get $e) (global.get $PYLON_DMG))
+                            (call $hurt_enemy (local.get $e)
+                              (f32.mul (global.get $PYLON_DMG) (call $tier_mul (local.get $a))))
                             (f32.store offset=32 (local.get $a) (global.get $TRACER_TIME))
                             (local.set $cd (global.get $PYLON_RELOAD))
                             (local.set $heat (f32.add (local.get $heat) (global.get $PYLON_HEAT)))))))))
@@ -966,6 +1191,35 @@
                 (f32.store offset=12 (local.get $a)
                   (call $clampf (local.get $heat) (f32.const 0.0) (global.get $HEAT_MAX)))
                 (f32.store offset=16 (local.get $a) (f32.max (local.get $cd) (f32.const -1.0)))))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $lp))))
+
+  ;; ---------------- the purge ----------------
+
+  (func $purge_cost (export "get_purge_cost") (result f32)
+    (f32.add (global.get $PURGE_BASE)
+             (f32.mul (f32.convert_i32_s (global.get $level)) (global.get $PURGE_PER_LEVEL))))
+
+  (func $can_purge (export "can_purge") (result i32)
+    (i32.and (i32.and (global.get $purgeReady) (i32.eq (global.get $phase) (i32.const 1)))
+             (f32.ge (global.get $scrap) (call $purge_cost))))
+
+  (func $do_purge
+    (local $i i32) (local $a i32)
+    (if (i32.eqz (call $can_purge))
+      (then (global.set $refused (i32.add (global.get $refused) (i32.const 1))) (return)))
+    (global.set $scrap (f32.sub (global.get $scrap) (call $purge_cost)))
+    (global.set $purgeReady (i32.const 0))
+    (global.set $purges (i32.add (global.get $purges) (i32.const 1)))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $lp
+        (br_if $done (i32.ge_s (local.get $i) (global.get $MAX_TOWERS)))
+        (local.set $a (call $tower_addr (local.get $i)))
+        (if (f32.gt (f32.load offset=20 (local.get $a)) (f32.const 0.0))
+          (then
+            (f32.store offset=12 (local.get $a) (f32.const 0.0))
+            (f32.store offset=36 (local.get $a) (f32.const 0.0))))
         (local.set $i (i32.add (local.get $i) (i32.const 1)))
         (br $lp))))
 
@@ -1019,6 +1273,7 @@
                (f32.mul (f32.convert_i32_s (global.get $level))
                         (global.get $WAVE_BOUNTY_PER_LEVEL)))))
     (call $add_score (global.get $SCORE_WAVE))
+    (global.set $purgeReady (i32.const 1))
     (global.set $level (i32.add (global.get $level) (i32.const 1)))
     (global.set $phaseT (call $build_time)))
 
@@ -1098,6 +1353,13 @@
     (global.set $trips (i32.const 0))
     (global.set $waves (i32.const 0))
     (global.set $refused (i32.const 0))
+    (global.set $leaders (i32.const 0))
+    (global.set $leaderKills (i32.const 0))
+    (global.set $clinks (i32.const 0))
+    (global.set $purges (i32.const 0))
+    (global.set $upgrades (i32.const 0))
+    (global.set $purgeReady (i32.const 1))
+    (global.set $ldrOn (i32.const 0))
     (call $clear_pool (global.get $TOWERS_OFF) (global.get $TOWER_STRIDE)
                       (global.get $MAX_TOWERS) (i32.const 20))
     (call $clear_pool (global.get $ENEMIES_OFF) (global.get $ENEMY_STRIDE)
@@ -1108,7 +1370,7 @@
     (call $lay_path))
 
   ;; `action`: 0 none, 1 build pylon, 2 build mortar, 3 build vent, 4 sell,
-  ;; 5 call the wave in early. Edge-triggered by the widget and consumed here,
+  ;; 5 call the wave in early, 6 purge (the cell is ignored), 7 upgrade. Edge-triggered by the widget and consumed here,
   ;; so holding a mouse button cannot lay a row of towers.
   (func $set_input (export "set_input") (param $c i32) (param $r i32) (param $action i32)
     (global.set $inC (local.get $c))
@@ -1129,6 +1391,9 @@
     (if (i32.eq (local.get $act) (i32.const 4))
       (then (call $do_sell (global.get $inC) (global.get $inR))))
     (if (i32.eq (local.get $act) (i32.const 5)) (then (call $call_wave)))
+    (if (i32.eq (local.get $act) (i32.const 6)) (then (call $do_purge)))
+    (if (i32.eq (local.get $act) (i32.const 7))
+      (then (call $do_upgrade (global.get $inC) (global.get $inR))))
 
     ;; ---- the phase clock ----
     (if (i32.eqz (global.get $phase))
@@ -1199,4 +1464,14 @@
   (func $get_trips (export "get_trips") (result i32) (global.get $trips))
   (func $get_waves (export "get_waves") (result i32) (global.get $waves))
   (func $get_refused (export "get_refused") (result i32) (global.get $refused))
+  (func $get_leaders (export "get_leaders") (result i32) (global.get $leaders))
+  (func $get_leader_kills (export "get_leader_kills") (result i32) (global.get $leaderKills))
+  (func $get_clinks (export "get_clinks") (result i32) (global.get $clinks))
+  (func $get_purges (export "get_purges") (result i32) (global.get $purges))
+  (func $get_upgrades (export "get_upgrades") (result i32) (global.get $upgrades))
+  ;; 1 while this wave's purge is unspent — distinct from can_purge, which
+  ;; also needs the scrap and a wave walking.
+  (func $get_purge_ready (export "get_purge_ready") (result i32) (global.get $purgeReady))
+  ;; The escort's radius, so the widget draws the ring the rule uses.
+  (func $get_leader_reach (export "get_leader_reach") (result f32) (global.get $LEADER_REACH))
 )

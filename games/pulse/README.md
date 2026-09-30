@@ -188,6 +188,18 @@ the game is about not needing.
   has asked for a reaction to a beat nobody has heard yet.
 - **A level every eight bars**, which raises the tempo floor, the number of
   spawns in a bar and the climb rate.
+- **From level 2 the song has a second line.** Each bar carries a short lead
+  phrase, a bell two octaves above the bass, drawn as a mint ring outside the
+  bar ring. Every lead note releases a **chime** up its segment that lands on
+  the rim exactly one beat later. Be in that segment when it lands to catch it,
+  for groove and score. Chimes cannot be shot and never leak; missing one costs
+  nothing. See [The lead line](#the-lead-line-october-2026).
+- **Every fourth level opens on a drop.** The bar before it is empty, with a
+  riser, and then the **conductor** appears inside the tube for four bars.
+  Every note in those bars comes out of its segment, and only on-beat shots
+  hurt it, multiplied by your groove. Break it for 600 × the multiplier and 25
+  shield. If it is still standing when the drop ends, it costs one and a half
+  leaks. See [The drop](#the-drop-september-2026).
 
 ### The four enemies
 
@@ -197,6 +209,7 @@ the game is about not needing.
 | **Skipper** | 3 | **hops on the step**, and sidesteps a segment every quarter note | the one you can hear moving |
 | **Hulk** | 6 | slow | from level 4; wants on-beat shots because three of them beat six |
 | **Mirror** | 4 | medium | from level 6. **An off-beat shot does nothing at all to it.** |
+| **Conductor** | 45 | does not climb; steps to each note it plays | the boss of the drop, every fourth level. Hurt only on the beat, and by the groove |
 
 The skipper is the reason the step counter belongs to the engine and not the
 widget: it moves *on the note*, so a player who is listening knows where it
@@ -274,11 +287,12 @@ same on its side, playing up to four notes for one frame's worth of steps.
 
 | region | offset | stride | count | fields |
 |--------|--------|--------|-------|--------|
-| bar | 0 | 4 B | 16 | byte 0 segment+1 (0 = no spawn), byte 1 kind, byte 2 spent |
-| enemies | 64 | 32 B | 32 | seg, depth, hp, maxHp, kind, active, flash, hopT |
+| bar | 0 | 4 B | 16 | byte 0 segment+1 (0 = no spawn), byte 1 kind, byte 2 spent, byte 3 lead note's segment+1 (0 = none) |
+| enemies | 64 | 32 B | 32 | seg, depth, hp, maxHp, kind (0 drone, 1 skipper, 2 hulk, 3 mirror, 4 conductor), active, flash, hopT |
 | bolts | 1088 | 24 B | 24 | seg, depth, dmg, active, onBeat, speed |
+| chimes | 1664 | 12 B | 8 | seg, depth, active |
 
-Total 1,664 bytes of a single 64 KiB page. `depth` runs 0 at the centre to 1 at
+Total 1,760 bytes of a single 64 KiB page. `depth` runs 0 at the centre to 1 at
 the rim. Shield, groove, score and the song clock are globals rather than
 memory, as in the other recent titles.
 
@@ -302,6 +316,9 @@ get_step_phase() · get_beat_error() · get_beat_window() · get_bar()
 get_fire_cd() · is_game_over()
 get_steps() · get_bars() · get_spawns() · get_shots() · get_beat_shots()
 get_kills() · get_beat_kills() · get_leaks() · get_perfects() · get_moves()
+get_drops() · get_cond_hits() · get_cond_kills() · get_slams()
+get_drop_state() · get_drop_bars_left()
+get_lead_notes() · get_chimes()
 ```
 
 `get_beat_error()` is how far the song clock is from the nearest eighth note,
@@ -390,6 +407,11 @@ The constants worth touching are all at the top of `game.wat`:
 | `$SHIELD_MAX` / `$LEAK_COST` / `$PERFECT_BAR_HEAL` | the tube | 100 / 20 / 12 |
 | `$FIRE_CD` / `$FIRE_CD_GROOVE` | reload, cold and at full groove | 0.16s / 0.07s |
 | `$MOVE_CD` | how fast holding a direction sweeps the ring | 0.085s |
+| `$LEAD_FROM_LEVEL` / `$LEAD_NOTES` | the lead line: from which level, how many notes a bar | 2 / 2 (+1 from level 5) |
+| `$CHIME_RISE` / `$CHIME_GROOVE` | depth a chime climbs a step (so it lands in one beat); groove for catching one | 0.25 / 0.06 |
+| `$DROP_EVERY` / `$DROP_BARS` | a drop every Nth level, and how long it lasts | 4 / 4 bars |
+| `$CONDUCTOR_HP` / `$CONDUCTOR_DEPTH` | the boss's health, and where in the tube it stands | 45 / 0.3 |
+| `$SLAM_MUL` / `$DROP_HEAL` / `$SCORE_CONDUCTOR` | a drop survived, a drop won | 1.5 leaks / 25 / 600 × mult |
 
 The difficulty curve:
 
@@ -525,6 +547,165 @@ change is the only one.
 **Best scores are kept per setting.** The page shell records Normal under the
 same key as before, so a best set before difficulty existed is still Normal's,
 and Easy and Hard get `pulse:easy` and `pulse:hard`.
+
+## The drop, September 2026
+
+TASKS.md's boss idea for this title was *"a boss on the drop, killable only on
+the beat, which its bar already knows how to express"*. Each part of that
+sentence became a rule.
+
+**On the drop.** Every fourth level opens with one. The last bar of the level
+before is written empty: the build-up, a bar of nothing but the beat, while the
+widget plays a riser and counts "DROP IN 4, 3, 2, 1" on the quarter notes. It
+is the one warning a song can give that everybody already knows how to hear.
+Then the **conductor** appears inside the tube, opposite you, at depth 0.3, and
+stays for four bars.
+
+**Its bar already knows how to express it.** The conductor *plays* the drop.
+Every spawn in those four bars comes out of its segment, and it steps there on
+the note. The bar ring the HUD already draws, sixteen ticks of the coming
+pattern, is therefore its route, and during the drop each note on it is ringed
+in the conductor's gold. A player reading the ring knows where it will be on
+every step. The plan starts each bar from where the conductor stands, so the
+route is one walk rather than a jump at the barline.
+
+**Killable only on the beat** — and, as it turned out, only by the groove.
+Like the mirror, an off-beat shot does nothing to it. That was not enough on
+its own. The notes it plays climb out of its own segment and soak up bolts,
+so the limit on hurting it was *reaching* it, not timing. A button-masher
+landed 4.9 on-beat hits a drop by accident against the metronome's 5.8, and
+at 36 health neither broke a single one. So an on-beat hit on the conductor
+does its 3 times the multiplier (×1 to ×5). Groove is the one number in this
+game that only playing in time raises. A masher's sits near zero whatever its
+accidental hit rate is.
+
+Break it inside the drop and it pays 600 × the multiplier and 25 shield. The
+drop is over and the next bar is an ordinary one. If it is still standing when
+the four bars run out, it leaves on the barline with a hit: one and a half
+leaks' worth of shield (30 on Normal) and the same cut to groove a leak takes.
+
+Its segment is lit as a band across the whole width of the tube. Its health
+is that band burning down from both ends, so there is no separate bar to look
+away to.
+
+Before the build-up, the song is untouched. Replaying a timing pilot with
+random jitter through the committed engine and this one gave byte-identical
+memory and thirteen readers on every frame up to bar 22, on all three settings.
+Bar 23, the build-up, is the first bar that differs.
+
+### What the bench found
+
+The three pilots from the Difficulty section plus the human one (aims at every
+eighth and misses by σ = 35 ms), twelve songs each. Conductors broken out of
+drops met:
+
+| | Easy | Normal | Hard |
+|---|---|---|---|
+| metronome | 12 of 14 | **10 of 12** | 3 of 12 |
+| human (σ 35 ms) | 11 of 12 | **8 of 12** | 0 of 1 |
+| mash | 0 of 12 | **0 of 12** | 0 of 6 |
+| loose | 1 of 12 | none met | none met |
+
+(Metronome on Easy met 14 and resolved 12: it died inside two of them.) The
+health sweep, on Normal, with the groove multiplier in:
+
+| Conductor health | metronome | human | mash |
+|---|---|---|---|
+| 30 | 11/12 | 10/12 | 2/12 |
+| **45** | **10/12** | **8/12** | **0/12** |
+| 60 | 9/12 | 3/12 | 0/12 |
+
+30 let the masher through. At 60 the drop stopped being winnable for a person
+with an ordinary spread. 45 is where playing in time wins it and mashing never
+does.
+
+**It changes how long a run lasts very little.** Median survival, before →
+after, on Normal: metronome 69 → 70 s, human 66 → 66, masher 93 → 85, loose
+43 → 43. The masher loses the most, because it takes the slam every time. On
+Easy and Hard every pilot is within four seconds of where it was. The drop is a
+score event and a test, not a new ceiling: the metronome's score per second
+went *up* on every setting (1,100 → 1,134 on Normal). That is what a drop
+should be.
+
+**Hard is where it bites.** The metronome broke only 3 of 12. Hard's bars fill
+faster, so more notes stand between you and the conductor. That is Hard doing
+its job rather than a tuning fault, but it is the setting to watch if the
+drop feels unfair in play.
+
+These pilots are this bench's, written to the Difficulty section's
+descriptions, so their survival lands near that table's numbers rather than on
+them. The loose pilot here reaches level 3 on Normal and so never meets a drop.
+The first drop is at level 4 on purpose: the loose pilots in this README's
+tables reach level 3 or 4. A player who has not found the beat yet does not
+meet a boss that asks for nothing else.
+
+## The lead line, October 2026
+
+TASKS.md listed this title's own idea as *a second instrument line*. Until now
+the song had one line — every spawn is a bass note on its segment's degree of a
+pentatonic scale — and the only melody was the player's own shots.
+
+**From level 2, each bar also carries a lead phrase**: two notes (three from
+level 5) on steps the bass left empty, preferring the off-eighths so the phrase
+answers the bass rather than doubling it, on segments that step by at most two
+from the last so it walks round the ring as a melody rather than a scatter. It
+plays as a bell two octaves above the bass on the same scale, so the two lines
+cannot clash. The HUD draws it as a **second ring of ticks** outside the bar
+ring, in a pale mint no creature wears. The bar plan already had a spare byte
+per step, so the phrase went there, and the widget reads the coming bar's
+melody the same way it reads its bass.
+
+**Every lead note releases a chime** up its segment. A chime climbs a quarter
+of the tube a step, so it reaches the rim exactly **one beat after its note
+sounded**, lit white for its last quarter. Be in that segment when it lands and
+it is caught: +0.06 groove and 40 × the multiplier. Anywhere else it is simply
+gone. Chimes cannot be shot and never leak.
+
+It is a pickup of a kind, and TASKS.md ruled power-ups out for this title
+because a faster gun is a way to stop listening. A chime is the opposite. It is
+catchable only by listening to a second line and moving to it on time, while
+the first line is still asking you to shoot. It is also a double-edged prize,
+because groove is what raises the tempo.
+
+**The bass line is untouched**, and making sure of that took a second go. The
+phrase is written from a random stream of its own, so every spawn, kind and
+segment is the song the engine without a lead line played. The first version
+still diverged by level 2. Its chimes lived in the enemy pool, so a chime
+holding a slot moved where the next enemy landed, which changed which of two
+overlapping enemies a bolt found first: one kill different. Chimes now have a
+pool of their own after the bolts (`$CHIMES_OFF`), and replaying a timing
+pilot with jitter through both engines gives identical scores, kills, leaks and
+every other reader on every frame until the first chime is caught, on all
+three settings and through the drops.
+
+### What the bench found
+
+The four pilots from the drop's bench, 12 songs on Normal, flown twice: as
+before, ignoring chimes, and again moving to a chime that is about to land
+whenever nothing else is above half depth.
+
+| | Ignores chimes: survived, caught | Follows them: survived, caught | Conductors broken, ignoring → following |
+|---|---|---|---|
+| metronome | 70 → 66 s, 9% | 65 s, 27% | 10 → 3 of 12 |
+| human (σ 35 ms) | 66 → 67 s, 8% | 61 s, 25% | 8 → 3 |
+| mash | 85 → 85 s, 8% | 84 s, 33% | 0 → 0 |
+| loose | 43 → 42 s, 7% | 41 s, 28% | — |
+
+**Ignored, it changes almost nothing.** Pilots catch 7–9% of chimes by
+standing in the right place, and survival moves by a few seconds. On Hard the
+accidental catches were enough to cost 5–12% of a run, through the tempo that
+groove raises. That is the double edge, measured.
+
+**Chasing it is a real choice, not a free lunch.** Following the melody
+roughly triples the catch rate and costs the drop: the metronome broke 3
+conductors in 12 instead of 10, because the melody pulled it off the boss's
+segment. The masher gains most from following (score per second 185 → 207),
+because chime groove is the one groove it can earn without timing its shots.
+It is still a fifth of the metronome's rate, so precision remains the game.
+
+What the bench cannot say is whether a person *hears* the second line as a
+line. The ring shows it and the bell plays it; whether the two together read
+as something to follow is for a player to say.
 
 ## Rebuilding the engine
 

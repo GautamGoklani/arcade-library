@@ -88,7 +88,10 @@
 }
 .am-hud .am-a { color: #6cf0ff; text-shadow: 0 0 6px #6cf0ff; }
 .am-hud .am-r { color: #ff5470; text-shadow: 0 0 6px #ff5470; }
+.am-hud .am-power { color: #e0b64a; }
+.am-hud .am-power:empty { display: none; }
 .am-hud .am-v { color: #b98cff; text-shadow: 0 0 6px #b98cff; }
+.am-hud .am-g { color: #7dff9a; text-shadow: 0 0 6px #7dff9a; }   /* the depot's green */
 
 /* The fuel gauge is a bar rather than a number: what the player needs from it
    is "can I get home", which is a proportion, not a value. */
@@ -194,6 +197,44 @@
   opacity: 0;
   transition: opacity 0.15s;
 }
+
+/* The depot's refit menu. Shown only while docked, directly under the DOCKED
+   note, and the one overlay that takes a press: each item is a real button,
+   so a mouse click, a tap and a key all buy the same thing. `transform` is
+   the overlay's centring, so the row is centred and not merely left-aligned
+   at 50%. */
+.am-shop {
+  top: 22%;
+  display: none;
+  gap: 1.2em;
+  font-size: 13px;
+  letter-spacing: 1px;
+  white-space: nowrap;
+  pointer-events: auto;
+}
+.am-shop.am-open { display: flex; }
+.am-shop-credit { align-self: center; color: #7dff9a; }
+.am-shop button {
+  padding: 4px 8px;
+  border: 1px solid rgba(125, 255, 154, 0.7);
+  background: rgba(4, 20, 10, 0.75);
+  color: #7dff9a;
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: bold;
+  letter-spacing: inherit;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+.am-shop button:hover, .am-shop button.am-pick { background: rgba(125, 255, 154, 0.2); }
+/* Unaffordable or sold out: still shown, because a price you cannot pay yet
+   is what tells you what to come back for. */
+.am-shop button:disabled {
+  border-color: rgba(125, 255, 154, 0.25);
+  color: rgba(125, 255, 154, 0.4);
+  cursor: default;
+}
+.am-shop button:disabled:hover { background: rgba(4, 20, 10, 0.75); }
 
 /* ---------------- touch controls (shown only on coarse-pointer devices) ---- */
 
@@ -308,37 +349,14 @@
   .am-msg { font-size: 7vw; }
   .am-banner { font-size: 6vw; }
   .am-note { font-size: 3vw; }
-  /* The CRT layer: scanlines and a corner-darkening vignette, over the canvas
-   and under everything interactive. Done in CSS rather than in the frame loop
-   because it never changes — a per-frame version would be 240 fill calls a
-   frame to draw the same thing, and it would also be scaled by the canvas's
-   responsive width instead of sitting at true display resolution, which is
-   where scanlines have to be to look like scanlines.
-
-   Pointer-events off, so it cannot swallow a touch meant for the stick. */
-.am-scan {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  background:
-    repeating-linear-gradient(
-      to bottom,
-      rgba(0, 0, 0, 0.26) 0 1px,
-      rgba(0, 0, 0, 0) 1px 3px),
-    radial-gradient(
-      ellipse at center,
-      rgba(0, 0, 0, 0) 52%,
-      rgba(0, 0, 0, 0.5) 100%);
-}
-
-/* Someone who has asked the system to cut down on motion and effects does not
-   want a simulated failing monitor. */
-@media (prefers-reduced-motion: reduce) {
-  .am-scan { background: none; }
-  .am-bar.am-low { animation: none; }
-}
-
-.am-hud { gap: 2.4vw; font-size: 2.5vw; padding: 4px 8px; letter-spacing: 1px; }
+  /* The HUD already shows the bank; at phone width the menu needs the room. */
+  .am-shop { font-size: 2.4vw; top: 23%; gap: 0.7em; }
+  .am-shop-credit { display: none; }
+  .am-shop button { padding: 2px 4px; }
+  /* Wraps rather than widening the page: with PAUSE and the difficulty button
+     beside SOUND the HUD no longer fits 375px on one line, and a flex row
+     that cannot wrap pushed the whole widget 20-80px past a phone's edge. */
+  .am-hud { flex-wrap: wrap; gap: 2.4vw; row-gap: 4px; font-size: 2.5vw; padding: 4px 8px; letter-spacing: 1px; }
   .am-bar { width: 14vw; height: 2vw; }
   .am-mute { font-size: 2.2vw; padding: 2px 5px; }
 }

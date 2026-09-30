@@ -142,6 +142,24 @@ ask for `-1`, `0` or `1`, and the engine never learns which produced the value.
   plus whatever shield is left. Without the repair a single bad wave early is
   carried for the whole run, and the game becomes about a mistake made minutes
   ago.
+- **Every fifth wave comes by carrier.** A heavy ship descends to the top of
+  the field, patrols, and drops the wave's attackers from its bay (its lights
+  blink before each drop) instead of letting them walk in from the top edge.
+  Bring it down and whatever is still in the bay never arrives: 300, plus 40
+  for each attacker denied. Once the bay is empty it climbs away. See
+  [Carrier waves](#carrier-waves-september-2026).
+- **Waves 3, 8, 13 and on bring a lander.** Three seconds in, a small orange
+  craft dives from the top edge toward the far side of the field from you, to a
+  landing spot at mid-field marked with blinking brackets, and puts a squad of
+  three to five attackers down there at once. The squad is part of the wave's
+  count, not extra. Six rounds (two more each lander) bring it down on the way
+  in and deny the squad: 150, plus 40 an attacker. See
+  [The lander](#the-lander-october-2026).
+- **A kill sometimes drops a shield module** (1 in 20). It falls straight
+  down from where the attacker died, with a tick on your line showing where it
+  will land. Catch it and the shield is full at once, with no recovery pause,
+  plus 50 points. Miss it and it falls through the line. See
+  [The shield module](#the-shield-module-september-2026).
 - The sector reaching zero is the only way to lose.
 
 ### The four attackers
@@ -167,6 +185,9 @@ what keeps a formation unreadable without making any single attacker unfair.
 |---|---|
 | kill | 20 × multiplier (1× to 4×) |
 | wave cleared | 150 + shield remaining |
+| carrier brought down | 300 + 40 per attacker still in the bay |
+| lander brought down | 150 + 40 per attacker aboard |
+| shield module caught | 50 |
 
 ## Architecture
 
@@ -202,8 +223,13 @@ what keeps a formation unreadable without making any single attacker unfair.
 | enemies  | 16     | 40 B   | 24    | x, y, vx, vy, hp, kind, active, phase, cd, targetX |
 | pbullets | 976    | 24 B   | 20    | x, y, vx, vy, life, active |
 | ebullets | 1456   | 24 B   | 30    | x, y, vx, vy, life, active |
+| carrier  | 2176   | —      | 1     | x, y, vx, hp, maxHp, active, bay (seconds to the next drop), flash |
+| module   | 2208   | —      | 1     | x, y, vy, active |
+| lander   | 2224   | —      | 1     | x, y, landY, hp, active, squad, flash, climbing |
 
-**Total: 2,176 bytes.** Kinds are 0 drifter, 1 weaver, 2 diver, 3 hulk.
+**Total: 2,256 bytes.** The carrier went in after the bullet pools, the module
+after the carrier and the lander after the module, so nothing that existed
+before any of them moved. Kinds are 0 drifter, 1 weaver, 2 diver, 3 hulk.
 Scalars — score, shield, sector, combo — live in globals rather than memory, as
 in Worm Chase and Asteroid Miner: the `get_*` readers are the only consumer.
 
@@ -222,13 +248,22 @@ the cheapest place to put it is in the record JavaScript is already walking.
 `memory`, and the readers: `get_score`, `get_level`, `get_shield`,
 `get_shield_max`, `get_sector`, `get_sector_max`, `get_sector_y`, `get_combo`,
 `get_best_combo`, `get_combo_timer`, `get_combo_window`, `get_to_spawn`,
-`get_player_x`, `get_calm`, `is_game_over`, and the event counters
-`get_shots`, `get_kills`, `get_hurts`, `get_leaks`, `get_breaches`,
-`get_waves`.
+`get_player_x`, `get_calm`, `get_shield_delay`, `is_game_over`, and the
+event counters `get_shots`, `get_kills`, `get_hurts`, `get_leaks`,
+`get_breaches`, `get_waves`, `get_carriers`, `get_carrier_hits`,
+`get_carrier_downs`, `get_bay_drops`, `get_denied`, `get_module_drops`,
+`get_module_catches`, `get_landers`, `get_lander_hits`, `get_lander_downs`,
+`get_landings`. A lander's denied squad is added to `get_denied` with the
+carrier's.
 
 `get_calm` — seconds since the last hit landed — exists so the HUD can show
 *which state the shield is in* rather than leaving the player to infer it from
-a bar that has started moving.
+a bar that has started moving. `get_shield_delay` is the pause it has to reach.
+The widget used to compare against a hard-coded 2.6, which is Normal's value.
+The difficulty table sets 2.0 on Easy and 3.4 on Hard, so on those settings the
+bracket over the defender changed colour at the wrong moment. It was found
+while adding the module, and it is the mistake CLAUDE.md warns about: a number
+the table can move, shown by the widget from its own copy.
 
 ## The graphics
 
@@ -371,11 +406,227 @@ is byte-identical to it, so it is not something the table could fix without
 changing what Normal is. Easy is quieter still by design. Only Hard starts
 taking sector damage in the middle of a run rather than at the end of one. A
 player who wants the fight to begin earlier wants Hard, and that is now a real
-answer rather than a shrug.
+answer rather than a shrug. **Decided, September 2026: left as it is.**
 
 **Best scores are kept per setting.** The page shell records Normal under the
 same key as before, so a best set before difficulty existed is still Normal's,
 and Easy and Hard get `sector-defense:easy` and `sector-defense:hard`.
+
+## Carrier waves, September 2026
+
+The boss wave from the menu of features for the other eight titles, as the
+menu described it: *a carrier that lands attackers instead of walking in*.
+
+Every fifth wave, a carrier descends to the top of the field (y 96) and patrols
+side to side, 80 px/s and 12 faster each carrier. The wave's attackers come out
+of its bay at its position, on the wave's usual drip, instead of spawning along
+the top edge. They start about 150 px lower, so they reach the line sooner, and they
+arrive where the carrier is rather than anywhere at all. The bay's lights
+blink for the last 0.6 s before each drop. It takes 24 rounds (8 more each
+carrier) and never fires. Its threat is its payload.
+
+**What it adds is a decision the other waves do not ask.** Shoot the carrier,
+which is tough and far away, or the attackers it has already dropped, which are
+falling toward the line. Bringing it down denies whatever is still in the bay:
+**300, plus 40 for each attacker denied**, and those attackers never arrive.
+Once the bay is empty it climbs away. That is no penalty, only a forgone bonus,
+so a wave can never stall on a ship with nothing left to do. A round that
+strikes no attacker carries on up and can still strike it, so stray fire
+counts.
+
+**Nothing about it is random.** Its path is a fixed patrol and it draws nothing
+from `$rng`. A carrier wave's attackers roll their kinds exactly as a walking
+wave's would, and **waves 1-4 replay the engine that had no carrier**: 72 runs
+(24 seeds × 3 settings, 241,841 frames) identical byte for byte over the old
+2,176 bytes and every old reader, up to wave 5.
+
+### What it costs, and what shooting it is worth
+
+Three pilots, each on 24 seeds per setting, all tracking with a 200 ms lag:
+the old engine; the new one flown by a pilot that only ever shoots attackers
+(the pilot the difficulty table was benched with); and the new one flown by a
+pilot that goes after the carrier while it has a payload, unless an attacker is
+already below the halfway line. Sector lost on the wave, mean:
+
+| | Wave 5 | Wave 10 | Wave 15 | Carriers brought down | Denied, per carrier |
+|---|---|---|---|---|---|
+| Normal, no carriers | 5.0 | 8.9 | 13.2 | — | — |
+| Normal, carrier ignored | 9.5 | 21.7 | 32.8 | 4 / 68 | 0.2 |
+| Normal, **carrier first** | **0.9** | **6.3** | 31.4 | 52 / 72 | 5.2 |
+| Hard, no carriers | 5.7 | 25.5 | — | — | — |
+| Hard, carrier ignored | 9.6 | 35.4 | — | 6 / 44 | 0.5 |
+| Hard, **carrier first** | **2.8** | **14.2** | — | 43 / 46 | 5.6 |
+
+**Ignore it and a carrier wave costs about twice as much as a walking wave**,
+because its attackers start closer to the line. **Shoot it first and the wave is
+cheaper than a walking one**, and shorter: on Normal wave 5 took 11 s against
+21 s ignored, and wave 10 took 17 s against 26. That gap is the decision, and it
+is the right way round. Stray fire alone almost never brings one down (4 of 68),
+so the payoff comes only from choosing to.
+
+By wave 15 on Normal the choice stops mattering for this pilot (31.4 against
+32.8). The wave is so dense by then that "unless an attacker is below the
+halfway line" is nearly always true, so it rarely gets to shoot the carrier.
+A player who picks their moment will do better than that rule.
+
+**Overall, carriers take a little off a run rather than moving the curve**:
+median survival 547 / 354 / 217 s without them, and 509-513 / 347-348 /
+203-207 s with them, depending on the pilot. The difficulty table did not need
+re-tuning, and a carrier wave is a spike with a decision in it, not a wall.
+
+**What the bench cannot tell you** is how well a person reads the bay lights.
+Both pilots ignore them. The lights say *where the next attacker will appear*,
+which is worth most to a player lining up under the carrier to shoot it, and no
+pilot here does that on purpose.
+
+## The shield module, September 2026
+
+The power-up from the menu of features for the other eight titles, as the menu
+described it: *drop a shield module from a kill*.
+
+One kill in twenty drops a module. It falls straight down at 140 px/s from where
+the attacker died. A tick on the defender's line marks exactly where it will
+land, and a soft two-note chime says one has fallen, so it is heard while you
+are watching the attackers. **Catch it and the shield is full at once**, with no
+recovery pause, plus 50 points. Miss it and it falls through the line and is
+gone. One falls at a time, and a module still falling when the wave ends goes
+with it. A cleared wave refills the shield anyway, so carrying it over would be
+a free catch.
+
+It restores the **shield**, not the sector, on purpose. The sector is the thing
+being defended and the only way to lose, and nothing falling from the sky
+should mend it; that would be a second life. The shield is the meter this game
+already asks you to manage. The module is the one way to get it back without
+breaking contact, and it costs exactly what breaking contact costs: it lands
+where the attacker died, so reaching it means leaving the column you were
+holding, usually for the one under the fire you were avoiding.
+
+**It is drawn from a random stream of its own**, as Pixel Wave's and Worm
+Chase's pickups are. The main stream never sees the roll, so the attackers,
+their shots and their turns are the ones the engine without modules made. A
+module that is never caught leaves the run exactly as it was. Replaying the
+same input through both engines on all three settings gave identical memory
+(the old 2,208 bytes) and fourteen readers on every frame until the first
+catch. That covered 90,000 frames per setting, with 51 modules dropped and
+missed along the way.
+
+### What the bench found
+
+The 200 ms-lag pilot the difficulty table and the carrier were benched with
+(tracks the lowest attacker, fires constantly), in four versions: the engine
+before modules; the new one flown by the same pilot, which ignores modules but
+catches some by being in the way; and two that go for a falling module if they
+can reach it and nothing is below y 520 — one whenever the shield is under 100,
+one only under 50. 24 seeds each, median survival:
+
+| | Before | Ignores it | Goes for it below 100 | Below 50 | Only when empty, and near |
+|---|---|---|---|---|---|
+| Easy | 513 s | 516 s | 527 s | 523 s | 513 s |
+| Normal | 348 s | 353 s | 335 s | 345 s | 341 s |
+| Hard | 203 s | 203 s | 203 s | 207 s | 203 s |
+
+On Normal, the pilot going for every module caught 106 of 195. The pilot that
+ignores them caught 45 of 204 just by standing in the way.
+
+**It moves the curve by less than this bench can see, and that is the finding,
+not a failure to find one.** Every row is within a few percent of the others.
+Doubling the drop rate to 1 in 10 gave the same picture. The shield already
+takes about 85% of the hits — 33 of 38 on Normal — so a refill saves perhaps a
+leak or two a run. What ends a run is attackers crossing the line: 9 breaches
+at 18 against 5 leaks at 10. And leaving your column to catch a module is
+exactly how an attacker gets past. The refill and the column it cost come out
+roughly even. That is a real choice with no dominant answer, and it is why the
+difficulty table did not need re-tuning.
+
+**The alternative that was benched.** Since breaches decide runs, a module that
+armed a barrier on the line — stop the next attacker to cross — was tried
+instead of the refill. It did little more: Normal came out 371 / 353 / 350 s for
+the ignoring, empty-only and below-50 pilots against 348 before, and Easy and
+Hard moved by under 3%. The best of that is the *ignoring* pilot, catching
+modules by accident, which says more about noise than about the barrier. It was
+not worth a second meaning for "shield", so the refill shipped. If play shows
+the module is too slight to notice, the barrier, or a higher drop rate, are the
+two measured levers.
+
+What no pilot here does is manage the shield — none of them breaks contact to
+let it recover, which a person does. A player who plays the shield will value a
+refill more than these pilots can, and nothing here measured that.
+
+## The lander, October 2026
+
+The title's own idea from the menu of features for the other eight titles,
+*a carrier that lands attackers*. The carrier wave above already delivers its
+wave from a bay, so this is the other reading of the line: a craft that
+**lands** its attackers well down the field instead of letting them walk in.
+It was built to ask the opposite of what the carrier asks. The carrier is
+slow, far away and tough, and its threat is a steady drip. The lander is fast,
+close and fragile, and its threat is one burst, put down in the middle of the
+field.
+
+- **When.** On waves 3, 8, 13 and every fifth wave after, two before each
+  carrier, 3 seconds into the wave.
+- **Where.** It aims at the *mirror* of the defender's column at the moment it
+  launches (clamped 120px off the walls), dives at 150 px/s to y 380, and
+  unloads there. The spot is marked with blinking corner brackets from the
+  moment it launches, and it sits on the side of the field you are not on, so
+  getting under it means leaving the column you were holding.
+- **What.** A squad of 3, one more every other lander, to 5, put down side by
+  side 44px apart so one burst of fire cannot take them all. The squad comes
+  **out of** the wave's count: a lander wave sends the same number of
+  attackers as any other, some of them starting 300px closer to the line.
+  A harder wave, not a longer one.
+- **The answer.** 6 rounds (2 more each lander, with its hits left shown as
+  pips under it) bring it down before it lands, for 150 plus 40 an attacker
+  aboard, and the squad never arrives. It is in the air for about 2.8 s. Once
+  it has unloaded it climbs away and cannot be hit: nothing aboard, nothing to
+  deny.
+
+**Nothing about it is random.** Its x is the player's, reflected, and it
+draws nothing from `$rng`. The squad's attackers roll their kinds as the drip
+would have. **Waves 1-2 replay the engine without a lander byte for byte**:
+random flying through both engines on all three settings, 108,000 frames,
+gave identical memory over the old 2,224 bytes and every old reader until
+wave 3.
+
+### What it costs, and what shooting it is worth
+
+The carrier bench's pilot, 200 ms late, 16 seeds a setting: on the engine
+without landers; on this one, ignoring the lander; and on this one, going
+under a loaded lander and shooting it unless an attacker is already below
+y 480. All three shoot the carrier first, as the better carrier pilot did.
+Sector lost on the wave, mean:
+
+| | Wave 3 | Wave 8 | Wave 13 | Landers brought down | Median survival |
+|---|---|---|---|---|---|
+| Easy, no landers | 0.0 | 2.3 | 2.9 | — | 520 s |
+| Easy, lander ignored | 0.0 | 11.9 | 21.0 | 0 / 79 | 470 s |
+| Easy, **lander first** | 0.0 | **4.5** | **12.5** | 33 / 82 | 462 s |
+| Normal, no landers | 0.0 | 4.2 | 16.8 | — | 346 s |
+| Normal, lander ignored | 3.4 | 10.3 | 42.2 | 1 / 51 | 312 s |
+| Normal, **lander first** | **1.3** | 10.3 | **29.7** | 32 / 50 | 314 s |
+| Hard, no landers | 0.0 | 15.9 | 20.0 | — | 212 s |
+| Hard, lander ignored | 3.4 | 22.9 | — | 1 / 38 | 209 s |
+| Hard, **lander first** | **1.1** | **12.4** | 39.0 | 24 / 35 | 208 s |
+
+**Ignored, a lander wave costs from one and a half to seven times what the same
+wave cost without one.** The squad lands 300px closer to the line than a walking
+attacker starts, and on the side of the field the defender is not covering.
+**Shooting it first gets most of that back**, and on Hard's wave 8 more than
+all of it. What it does not do is lengthen the run for this pilot: landers
+take about 30-50 s off a run on Easy and Normal whichever way it plays them,
+and nothing measurable on Hard, where the runs end before the second lander
+matters. Its rule gives up the lander whenever an attacker is low, which by
+wave 13 is most of the time. It brought down about two landers in three on
+Normal and Hard, and two in five on Easy.
+
+The difficulty table was not re-tuned for it. A lander wave is a spike with a
+decision in it, like the carrier's, and runs end within a minute of where
+they did.
+
+**What the bench cannot tell you** is what the brackets do for a person. The
+pilot reads the lander's position; a player reads the spot, and the spot says
+where the squad will be three seconds from now, which is what decides whether
+to chase the lander or get ready for what it brings.
 
 ## Rebuilding the engine
 

@@ -31,14 +31,16 @@
   var BAR_OFF = 0, BAR_STRIDE = 4;
   var ENEMIES_OFF = 64, ENEMY_STRIDE = 32, MAX_ENEMIES = 32;
   var BOLTS_OFF = 1088, BOLT_STRIDE = 24, MAX_BOLTS = 24;
+  var CHIMES_OFF = 1664, CHIME_STRIDE = 12, MAX_CHIMES = 8;
   // Field positions inside each record — bytes for a bar step, f32 slots for
   // the rest — the `@fields` lines in game.wat, copied. Every read goes through
   // this table rather than a bare `f32[a + 5]`, so scripts/check-layout.mjs can
   // see a field that moved.
   var FIELD = {
-    bar: { seg: 0, kind: 1, spent: 2 },
+    bar: { seg: 0, kind: 1, spent: 2, lead: 3 },
     enemy: { seg: 0, depth: 1, hp: 2, maxHp: 3, kind: 4, active: 5, flash: 6, hopT: 7 },
     bolt: { seg: 0, depth: 1, dmg: 2, active: 3, onBeat: 4, speed: 5 },
+    chime: { seg: 0, depth: 1, active: 2 },
   };
   var LOW_SCALE = 3;   // 320x240 buffer, blown up — see asteroid-miner.js
 
@@ -47,7 +49,7 @@
   // drawing decision it has no opinion about.
   var CX = 480, CY = 352, R_IN = 46, R_OUT = 292;
 
-  var WASM_B64 = "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";
+  var WASM_B64 = "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";
 
   // Palette. No glow anywhere — brightness is a brighter colour.
   // The tube has to read at 320x240 through a scanline overlay and a vignette,
@@ -58,6 +60,12 @@
   var RIM = '#e0cbff';
   var KIND_COL = ['#6ee7ff', '#7cff9a', '#ffb02e', '#ff8bd0'];
   var KIND_DARK = ['#1d5a70', '#2a6b3a', '#7a5410', '#7a3a60'];
+  // The conductor: white-gold, the one warm light inside the tube. Every
+  // other creature is a colour of the bar ring; this one is what plays it.
+  var COND_COL = '#fff0b8', COND_DARK = '#8a6a1c', COND_HURT = '#ffb02e';
+  // The lead line: a pale mint no creature wears, so its ring and its chimes
+  // read as a second voice rather than as more of the first.
+  var LEAD_COL = '#b8ffe0', LEAD_DARK = '#2f7a62';
 
   function base64ToBytes(b64) {
     var bin = atob(b64);
@@ -174,6 +182,36 @@
         osc(523.25, 523.25, 0.34, 'triangle', 0.04, 0.08);
       },
       leak: function () { noise(0.3, 0.1, 200); osc(90, 40, 0.34, 'sawtooth', 0.08); },
+      // The build-up: a note on every sixteenth, climbing the bar, so the
+      // drop is heard coming for a whole bar before it lands.
+      riser: function (stepIdx) {
+        var f = 220 * Math.pow(2, stepIdx / 12);
+        osc(f, f * 1.02, 0.08, 'sawtooth', 0.02 + stepIdx * 0.002);
+      },
+      drop: function () {
+        osc(80, 30, 0.6, 'sine', 0.22);
+        noise(0.45, 0.12, 120);
+        osc(220, 110, 0.5, 'sawtooth', 0.06);
+      },
+      condHit: function () { osc(880, 1760, 0.07, 'square', 0.04); },
+      condDown: function () {
+        noise(0.5, 0.12, 300);
+        osc(261.63, 523.25, 0.5, 'triangle', 0.06);
+        osc(392.0, 783.99, 0.5, 'triangle', 0.05, 0.06);
+        osc(523.25, 1046.5, 0.6, 'triangle', 0.045, 0.12);
+      },
+      // The lead: a bell two octaves above the bass, on the segment's degree,
+      // so the melody walks the same scale the spawns do and cannot clash.
+      lead: function (seg) {
+        var f = SCALE[seg % SCALE.length] * 4;
+        osc(f, f, 0.28, 'sine', 0.05);
+        osc(f * 2, f * 2, 0.12, 'sine', 0.015);
+      },
+      chime: function (seg) {
+        var f = SCALE[seg % SCALE.length] * 4;
+        osc(f, f * 1.5, 0.16, 'triangle', 0.05);
+      },
+      slam: function () { noise(0.5, 0.16, 80); osc(70, 25, 0.6, 'sawtooth', 0.1); },
       over: function () { osc(220, 36, 1.1, 'sawtooth', 0.09); },
       setMuted: function (m) { muted = m; },
       close: function () { if (ctx && ctx.close) { try { ctx.close(); } catch (e) {} } ctx = null; },
@@ -272,6 +310,10 @@
     var prevSteps = 0, prevSpawns = 0, prevShots = 0, prevBeatShots = 0;
     var prevKills = 0, prevLeaks = 0, prevPerfects = 0, prevOver = 0;
     var noteT = 0, noteText = '';
+    var prevDrops = 0, prevCondHits = 0, prevCondKills = 0, prevSlams = 0, prevChimes = 0;
+    // Where the conductor was last drawn, so its fall has somewhere to burst:
+    // by the frame the counter says so, it has left the pool.
+    var condX = 480, condY = 352;
 
     // ---------- input ----------
     var KEY_MAP = {
@@ -536,6 +578,7 @@
       // the rim at any sensible display size, which is a HUD element nobody
       // can read.
       var r = R_OUT + 38;
+      var dropping = e.get_drop_state() === 2;
       for (var i = 0; i < n; i++) {
         var a = (i / n) * Math.PI * 2 - Math.PI / 2;
         var x = CX + Math.cos(a) * r, y = CY + Math.sin(a) * r;
@@ -545,11 +588,29 @@
         var strong = (i % 4 === 0);
         if (seg !== 0) {
           dot(x, y, strong ? 2.4 : 1.8, kindCol);
+          // During the drop every note on the ring is one the conductor will
+          // step to, so the ring is its route — ringed in its colour.
+          if (dropping) {
+            g.fillStyle = COND_COL;
+            var rr = (strong ? 3.4 : 2.8) * LOW_SCALE;
+            for (var k = 0; k < 8; k++) {
+              var tt = (k / 8) * Math.PI * 2;
+              g.fillRect(snap(x + Math.cos(tt) * rr), snap(y + Math.sin(tt) * rr), LOW_SCALE, LOW_SCALE);
+            }
+          }
         } else {
           // Empty steps still have to be *there*. At the first pass they were
           // #241a3e on #0b0818 and the ring read as four amber dots floating in
           // nothing rather than as sixteen positions, three of which were full.
           dot(x, y, strong ? 1.6 : 1.0, strong ? '#7a63b0' : '#4a3a75');
+        }
+        // The lead line's ring, outside the bass ring: a mint tick where the
+        // phrase has a note, nothing where it does not — two rings are two
+        // lines, which is what the player is reading.
+        var ld = u8[cell + FIELD.bar.lead];
+        if (ld !== 0) {
+          var lx = CX + Math.cos(a) * (r + 18), ly = CY + Math.sin(a) * (r + 18);
+          dot(lx, ly, i === here ? 2.2 : 1.5, LEAD_COL);
         }
         if (i === here) {
           // the playhead
@@ -568,6 +629,7 @@
         var kind = f32[a + E.kind] | 0, hp = f32[a + E.hp], maxHp = f32[a + E.maxHp];
         var flash = f32[a + E.flash];
         pos(seg, depth, P);
+        if (kind === 4) { drawConductor(seg, depth, hp, maxHp, flash); continue; }
         // a wedge that grows as it climbs, so "nearly at the rim" is legible
         // from the size as well as from the position
         var size = 1.1 + depth * 1.9;
@@ -592,6 +654,64 @@
           g.fillStyle = '#ff5470';
           g.fillRect(snap(P[0]) - LOW_SCALE * 3, snap(P[1]) - (size + 1.6) * LOW_SCALE,
                      Math.round(6 * (1 - hp / maxHp)) * LOW_SCALE, LOW_SCALE);
+        }
+      }
+    }
+
+    /**
+     * The conductor: a band across the whole width of its segment, not a dot,
+     * because it is the one thing in the tube you are meant to line up on and
+     * hold. Its health is the band itself, burning down from both ends, so
+     * there is no separate bar to look away to.
+     */
+    function drawConductor(seg, depth, hp, maxHp, flash) {
+      var frac = Math.max(0, hp / maxHp);
+      var hit = flash > 0 && Math.sin(flash * 120) > 0;
+      var r = R_IN + (R_OUT - R_IN) * depth;
+      var a0 = seg / segs * Math.PI * 2 - Math.PI / 2;
+      var a1 = (seg + 1) / segs * Math.PI * 2 - Math.PI / 2;
+      var mid = (a0 + a1) / 2, half = (a1 - a0) / 2 * 0.92;
+      var n = 14;
+      for (var band = -1; band <= 1; band++) {
+        var rb = r + band * LOW_SCALE * 1.5;
+        for (var i = 0; i <= n; i++) {
+          var u = i / n * 2 - 1;                       // -1..1 across the segment
+          var t = mid + u * half;
+          var lit = Math.abs(u) <= frac;
+          g.fillStyle = hit ? '#ffffff' : (lit ? (band === 0 ? COND_COL : COND_DARK) : '#2a2140');
+          g.fillRect(snap(CX + Math.cos(t) * rb) - LOW_SCALE, snap(CY + Math.sin(t) * rb) - LOW_SCALE,
+                     LOW_SCALE * 2, LOW_SCALE * 2);
+        }
+      }
+      // a baton: a spoke up from the band toward the rim, so which way it
+      // faces — at you — is never in doubt
+      radial(seg, depth + 0.03, depth + 0.1, LOW_SCALE / 2, frac > 0.3 ? COND_COL : COND_HURT);
+      pos(seg, depth, P);
+      condX = P[0]; condY = P[1];
+    }
+
+    // Chimes: a mint diamond climbing its segment a quarter-tube a step. In
+    // the last quarter it is lit, because that is when it lands — on the next
+    // beat — and where you need to be.
+    function drawChimes() {
+      for (var i = 0; i < MAX_CHIMES; i++) {
+        var a = (CHIMES_OFF + i * CHIME_STRIDE) >> 2;
+        var C = FIELD.chime;
+        if (f32[a + C.active] <= 0) continue;
+        var seg = f32[a + C.seg] | 0;
+        // eased between steps with the step phase, so it glides rather than
+        // teleports — the engine moves it on the step, the picture follows
+        var d = Math.min(1, f32[a + C.depth] + wasm.exports.get_step_phase() * 0.25);
+        pos(seg, d, P);
+        var landing = f32[a + C.depth] >= 0.7;
+        var sz = (1 + d * 1.4) * LOW_SCALE;
+        g.fillStyle = landing ? '#ffffff' : LEAD_COL;
+        g.fillRect(snap(P[0]) - sz, snap(P[1]) - LOW_SCALE, sz * 2, LOW_SCALE * 2);
+        g.fillRect(snap(P[0]) - LOW_SCALE, snap(P[1]) - sz, LOW_SCALE * 2, sz * 2);
+        if (landing) {
+          // mark the rim where it will land
+          pos(seg, 1, P2);
+          dot(P2[0], P2[1], 1.2, LEAD_DARK);
         }
       }
     }
@@ -647,6 +767,15 @@
       if (st > prevSteps) {
         var n = Math.min(4, st - prevSteps);
         for (var i = 0; i < n; i++) sound.step(e.get_step_idx());
+        if (e.get_step_idx() >= 0) {
+          var lcell = BAR_OFF + e.get_step_idx() * BAR_STRIDE;
+          var lseg = u8[lcell + FIELD.bar.lead];
+          if (lseg !== 0) sound.lead(lseg - 1);
+        }
+        if (e.get_drop_state() === 1) {
+          sound.riser(e.get_step_idx());
+          if (e.get_step_idx() % 4 === 0) { noteText = 'DROP IN ' + (4 - e.get_step_idx() / 4); noteT = 0.5; }
+        }
         beatFlash = (e.get_step_idx() % 4 === 0) ? 0.34 : 0.16;
         prevSteps = st;
       }
@@ -692,6 +821,47 @@
         prevPerfects = pf;
       }
 
+      // ---- the drop ----
+      // After the perfect-bar check on purpose: the build-up is usually a
+      // clean bar, so both land on the same barline, and the drop is the news.
+      var dr = e.get_drops();
+      if (dr > prevDrops) {
+        sound.drop();
+        shake = Math.max(shake, 0.6);
+        beatFlash = 0.6;
+        noteText = 'THE DROP';
+        noteT = 1.2;
+        prevDrops = dr;
+      }
+      var cm = e.get_chimes();
+      if (cm > prevChimes) {
+        sound.chime(e.get_seg());
+        pos(e.get_seg(), 1, P);
+        burst(P[0], P[1], 8, LEAD_COL, 120);
+        prevChimes = cm;
+      }
+
+      var ch = e.get_cond_hits();
+      if (ch > prevCondHits) { sound.condHit(); prevCondHits = ch; }
+      var ck = e.get_cond_kills();
+      if (ck > prevCondKills) {
+        sound.condDown();
+        shake = Math.max(shake, 0.7);
+        burst(condX, condY, 26, COND_COL, 220);
+        noteText = 'CONDUCTOR DOWN';
+        noteT = 1.4;
+        prevCondKills = ck;
+      }
+      var sl = e.get_slams();
+      if (sl > prevSlams) {
+        sound.slam();
+        shake = Math.max(shake, 0.9);
+        flash = 0.7;
+        noteText = 'THE DROP ENDS';
+        noteT = 1.2;
+        prevSlams = sl;
+      }
+
       var over = e.is_game_over();
       if (over && !prevOver) { sound.over(); msgEl.style.display = 'block'; }
       prevOver = over;
@@ -733,6 +903,7 @@
       drawBarRing();
       drawBolts();
       drawEnemies();
+      drawChimes();
       drawPlayer();
       stepParticles(dt);
 
@@ -790,6 +961,11 @@
       prevKills = wasm.exports.get_kills();
       prevLeaks = wasm.exports.get_leaks();
       prevPerfects = wasm.exports.get_perfects();
+      prevDrops = wasm.exports.get_drops();
+      prevCondHits = wasm.exports.get_cond_hits();
+      prevCondKills = wasm.exports.get_cond_kills();
+      prevSlams = wasm.exports.get_slams();
+      prevChimes = wasm.exports.get_chimes();
       prevOver = 0;
       msgEl.style.display = 'none';
       setPaused(false);

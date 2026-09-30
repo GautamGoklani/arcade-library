@@ -14,14 +14,14 @@ arcade-library/
 ├── index.html          ← landing page; open it, or npm run serve
 ├── games/
 │   ├── pixel-wave/     ← retro wave shooter, 7.6 KB engine, keyboard + touch
-│   ├── grid-breaker/   ← brick breaker, 5.2 KB engine, keyboard + pointer + touch
-│   ├── worm-chase/     ← grid territory capture, 4.1 KB engine, no imports
-│   ├── asteroid-miner/ ← mining run, 4.4 KB engine, fuel and cargo, 320x240
-│   ├── sector-defense/ ← wave defence, 4.0 KB engine, shield + combo, 320x240
-│   ├── circuit-runner/ ← endless lane runner, 3.1 KB engine, generated board
-│   ├── starfield-runner/ ← graze scoring, 3.3 KB engine, no imports, 320x240
-│   ├── tower-defense/  ← place, don't steer; 5.2 KB engine, generated route
-│   └── pulse/          ← rhythm tube shooter, 3.5 KB engine, the engine is the sequencer
+│   ├── grid-breaker/   ← brick breaker, 6.2 KB engine, keyboard + pointer + touch
+│   ├── worm-chase/     ← grid territory capture, 5.5 KB engine, no imports
+│   ├── asteroid-miner/ ← mining run, 7.5 KB engine, fuel and cargo, 320x240
+│   ├── sector-defense/ ← wave defence, 6.2 KB engine, shield + combo, 320x240
+│   ├── circuit-runner/ ← endless lane runner, 3.9 KB engine, generated board
+│   ├── starfield-runner/ ← graze scoring, 4.5 KB engine, no imports, 320x240
+│   ├── tower-defense/  ← place, don't steer; 6.5 KB engine, generated route
+│   └── pulse/          ← rhythm tube shooter, 4.9 KB engine, the engine is the sequencer
 ├── docs/               ← the course: 22 chapters, glossary, cheatsheet
 └── scripts/            ← build.mjs (wat → wasm) and serve.mjs
 ```
