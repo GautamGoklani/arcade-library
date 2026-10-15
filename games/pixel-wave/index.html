@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>PIXEL WAVE</title>
+<link rel="icon" href="logo.svg">
+<link rel="stylesheet" href="pixel-wave.css">
+<style>
+/* -----------------------------------------------------------------------
+   Standalone page shell.
+
+   This page used to inline its own copy of pixel-wave.css and pixel-wave.js
+   rather than linking them, which made it a build artefact that nothing rebuilt.
+   The joystick pass landed in the widget and this page kept the old on-screen
+   buttons, because the copy here was a snapshot taken by hand. It now links the
+   two files next to it, the way games/grid-breaker/index.html does, so there is
+   one source of truth per asset. The engine is still base64 inside
+   pixel-wave.js, so this makes no network request at runtime and `file://`
+   still works.
+
+   The widget itself is width-driven — it fills its container, which is correct
+   when it is embedded in someone else's layout. This page is nothing but the
+   game, so here the binding constraint is the window's *height*: at the
+   widget's full 1240px the 1200x750 canvas needs about 775px, and on a laptop
+   window the bottom of the arena falls below the fold with no scrollbar
+   offering to reveal it.
+
+   `--pw-max-width` (see pixel-wave.css) is the widget's hook for exactly this.
+   Cap it by the height still available after the HUD and help line, converted
+   through the 8:5 aspect ratio.
+   --------------------------------------------------------------------- */
+html, body { margin: 0; background: #000; min-height: 100%; }
+
+body {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100dvh;
+  padding: clamp(0.5rem, 2vw, 1.25rem);
+  box-sizing: border-box;
+}
+
+.ss-root {
+  --chrome: 7.5rem;                                        /* HUD + help + padding */
+  --pw-max-width: min(1240px, calc((100dvh - var(--chrome)) * 1.6));
+}
+
+@media (max-height: 34rem) {
+  .ss-root { --chrome: 4.5rem; }
+  .ss-help { display: none; }
+}
+</style>
+</head>
+<body>
+
+<div id="game"></div>
+
+<script src="pixel-wave.js"></script>
+<!-- Best scores for the hub. Hosting, not game: the widget does not know this
+     exists, and if the file is missing — a game folder copied out on its own —
+     the game runs exactly as before. See ../../hiscores.js. -->
+<script src="../../hiscores.js"></script>
+<script>
+  var game = PixelWave.mount('#game');
+  // One best per difficulty. Normal keeps the plain slug, so a best set before
+  // difficulty existed is still Normal's, and the hub card goes on showing it.
+  if (window.ArcadeScores) ArcadeScores.watch(function (st) {
+    return st.difficulty && st.difficulty !== 'normal' ? 'pixel-wave:' + st.difficulty : 'pixel-wave';
+  }, game);
+</script>
+
+</body>
+</html>

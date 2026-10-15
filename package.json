@@ -1,0 +1,28 @@
+{
+  "name": "arcade-library",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Browser arcade games whose engines are hand-written WebAssembly Text, plus a WebAssembly course built around them.",
+  "type": "module",
+  "scripts": {
+    "build": "npm run build:engines && npm run build:docs",
+    "build:engines": "node scripts/build.mjs",
+    "build:docs": "node scripts/build-docs.mjs",
+    "build:pixel-wave": "node scripts/build.mjs pixel-wave",
+    "build:grid-breaker": "node scripts/build.mjs grid-breaker",
+    "build:worm-chase": "node scripts/build.mjs worm-chase",
+    "build:asteroid-miner": "node scripts/build.mjs asteroid-miner",
+    "build:sector-defense": "node scripts/build.mjs sector-defense",
+    "build:circuit-runner": "node scripts/build.mjs circuit-runner",
+    "build:starfield-runner": "node scripts/build.mjs starfield-runner",
+    "build:tower-defense": "node scripts/build.mjs tower-defense",
+    "build:pulse": "node scripts/build.mjs pulse",
+    "check": "node scripts/build.mjs --check && node scripts/build-docs.mjs --check && node scripts/check-layout.mjs",
+    "serve": "node scripts/serve.mjs"
+  },
+  "devDependencies": {
+    "marked": "18.0.11",
+    "wabt": "1.0.39"
+  },
+  "license": "MIT"
+}

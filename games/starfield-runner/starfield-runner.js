@@ -1,0 +1,1001 @@
+/* ============================================================
+ * STARFIELD RUNNER — embeddable arcade widget
+ * Engine: hand-written WebAssembly (see game.wat)
+ * Renderer/Input/Sound: this file (canvas 2D, keyboard + touch)
+ *
+ * Usage:
+ *   <link rel="stylesheet" href="starfield-runner.css">
+ *   <div id="game"></div>
+ *   <script src="starfield-runner.js"><\/script>
+ *   <script>
+ *     var game = StarfieldRunner.mount(document.getElementById('game'));
+ *     // game.restart(); game.destroy(); game.getState();
+ *   <\/script>
+ *
+ * Host page should include (for mobile):
+ *   <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+ *
+ * Self-contained by design: no imports, no shared modules with any other game
+ * in this repo, no network requests at runtime. The engine is embedded below
+ * as base64 and everything it needs — sprites, sound, DOM — is in this file.
+ * ============================================================ */
+(function (global) {
+  'use strict';
+
+  // ---- constants: MUST match the memory layout in game.wat ----
+  var WORLD_W = 960, WORLD_H = 720;
+  var SHIP_OFF = 0;
+  var ROCKS_OFF = 16, ROCK_STRIDE = 40, MAX_ROCKS = 48;
+  // Field positions inside each record, in f32 slots — the `@fields` lines in
+  // game.wat, copied. Every read goes through this table rather than a bare
+  // `f32[a + 4]`, so scripts/check-layout.mjs can see a field that moved.
+  var FIELD = {
+    ship: { x: 0, vx: 1, alive: 2, invuln: 3 },
+    rock: { x: 0, y: 1, vx: 2, r: 3, active: 4, near: 5, spin: 6, kind: 7, resolved: 8, path: 9 },
+  };
+  var PXS = 3;         // chunky pixel scale for the ASCII sprites
+  var LOW_SCALE = 3;   // 320x240 buffer, blown up — see asteroid-miner.js
+
+  var WASM_B64 = "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";
+
+  // ============================================================
+  // PIXEL SPRITES (ASCII grids -> offscreen canvases)
+  // Each character is one pixel; '.' is transparent. Every row of a sprite
+  // must be the same length.
+  //
+  // The debris is *not* sprites. A rock is a radius the engine chose from a
+  // range, and an ASCII grid has one size — three hand-drawn boulders would be
+  // three things to keep looking alike, and would all be the wrong radius for
+  // the collision the player is being scored on. They are drawn as pixel discs
+  // instead, on the same low-res grid, so it is the same picture either way.
+  // Circuit Runner reached the same conclusion about its components.
+  // ============================================================
+  function makeSprite(rows, palette, px) {
+    var w = rows[0].length, h = rows.length;
+    var cv = document.createElement('canvas');
+    cv.width = w * px; cv.height = h * px;
+    var c = cv.getContext('2d');
+    for (var y = 0; y < h; y++) {
+      for (var x = 0; x < w; x++) {
+        var ch = rows[y][x];
+        if (ch === '.') continue;
+        c.fillStyle = palette[ch];
+        c.fillRect(x * px, y * px, px, px);
+      }
+    }
+    return cv;
+  }
+
+  // The ship, in three banks. A dart, because the only question the sprite has
+  // to answer is which way it is being pushed — and the bank answers it half a
+  // second before the position does, which is the half second the player needs.
+  var SHIP_PAL = { W: '#eaf6ff', C: '#66e2ff', B: '#2f7fb8', D: '#123a55', Y: '#ffd166' };
+  var shipLevel = [
+    '......WW......',
+    '.....WCCW.....',
+    '.....WCCW.....',
+    '....WCCCCW....',
+    '....CCCCCC....',
+    '...CCCWWCCC...',
+    '..CCCCWWCCCC..',
+    '.CCBBCWWCBBCC.',
+    'CCBBBCWWCBBBCC',
+    'CBBDDBCCBDDBBC',
+    'CBD...CC...DBC',
+    '.B....CC....B.',
+    '......YY......',
+  ];
+  var shipLeft = [
+    '.....WW.......',
+    '....WCCW......',
+    '....WCCW......',
+    '...WCCCCW.....',
+    '..CCCCCC......',
+    '.CCCWWCCC.....',
+    'CCCCWWCCCC....',
+    'CCBBCWWCBBC...',
+    'CBBBCWWCBBBC..',
+    'BBDDBCCBDDBBC.',
+    'BD...CC...DBCC',
+    '.....CC....BBC',
+    '.....YY.......',
+  ];
+  var shipRight = [
+    '.......WW.....',
+    '......WCCW....',
+    '......WCCW....',
+    '.....WCCCCW...',
+    '......CCCCCC..',
+    '.....CCCWWCCC.',
+    '....CCCCWWCCCC',
+    '...CBBCWWCBBCC',
+    '..CBBBCWWCBBBC',
+    '.CBBDDBCCBDDBB',
+    'CCBD...CC...DB',
+    'CBB....CC.....',
+    '.......YY.....',
+  ];
+
+  var FLAME_PAL = { Y: '#ffd166', O: '#ff8a3c', W: '#fff6dc', R: '#e8283c' };
+  var flameA = [
+    '.YY.',
+    'YWWY',
+    'YOOY',
+    '.OO.',
+    '.R..',
+  ];
+  var flameB = [
+    '.YY.',
+    'YWWY',
+    '.OO.',
+    '.O..',
+    '....',
+  ];
+
+  // Board palette. No glow anywhere — brightness is a brighter colour, which
+  // is the only way a picture reads as a machine of the period rather than a
+  // modern one with pixel sprites in it.
+  var SPACE = '#050916';
+  // shard, boulder, slab, then the leviathan's body and head: a deep
+  // violet-teal no rock uses, so a wall of it reads as one creature at once.
+  // Indexed by kind. 5, the gate post, is the one warm colour on the board:
+  // the only rock the game *wants* you near should not look like the rest.
+  var ROCK_FACE = ['#6b6f7e', '#7d6a58', '#5e6f78', '#3f5f73', '#3f5f73', '#8a6d1f'];
+  var ROCK_LIT  = ['#9aa0b2', '#a8917a', '#87a0ad', '#7fc4c9', '#7fc4c9', '#ffd166'];
+  var ROCK_DARK = ['#33363f', '#3d3128', '#2c383f', '#1f2a44', '#1f2a44', '#4a3a10'];
+  var GRAZE_COL = '#ffd166';
+  var LANE_COL = 'rgba(102,180,255,0.16)';
+  var LANE_EDGE = 'rgba(102,180,255,0.30)';
+
+  function base64ToBytes(b64) {
+    var bin = atob(b64);
+    var bytes = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes;
+  }
+
+  // ============================================================
+  // SOUND — synthesised, no audio files and nothing to license.
+  // The AudioContext is created on the first real input, because browsers
+  // refuse to start audio outside a user gesture.
+  // ============================================================
+  function createSound() {
+    var ctx = null, muted = false;
+
+    function ensure() {
+      if (ctx) return ctx;
+      var AC = global.AudioContext || global.webkitAudioContext;
+      if (!AC) return null;
+      ctx = new AC();
+      return ctx;
+    }
+
+    function tone(freq, freq2, dur, type, gain, delay) {
+      if (muted) return;
+      var c = ensure();
+      if (!c) return;
+      if (c.state === 'suspended') c.resume();
+      var t0 = c.currentTime + (delay || 0);
+      var o = c.createOscillator(), g = c.createGain();
+      o.type = type || 'square';
+      o.frequency.setValueAtTime(freq, t0);
+      o.frequency.exponentialRampToValueAtTime(Math.max(1, freq2), t0 + dur);
+      g.gain.setValueAtTime(gain == null ? 0.05 : gain, t0);
+      g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+      o.connect(g); g.connect(c.destination);
+      o.start(t0); o.stop(t0 + dur);
+    }
+
+    function noise(dur, gain) {
+      if (muted) return;
+      var c = ensure();
+      if (!c) return;
+      if (c.state === 'suspended') c.resume();
+      var n = Math.floor(c.sampleRate * dur);
+      var buf = c.createBuffer(1, n, c.sampleRate);
+      var d = buf.getChannelData(0);
+      for (var i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
+      var src = c.createBufferSource(), g = c.createGain();
+      src.buffer = buf;
+      g.gain.setValueAtTime(gain == null ? 0.08 : gain, c.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + dur);
+      src.connect(g); g.connect(c.destination);
+      src.start();
+    }
+
+    return {
+      // Grazes step up in eights, so a run of them reads as a run and not as
+      // the same blip five times.
+      graze: function (n) {
+        tone(700 + (n % 8) * 45, 1000 + (n % 8) * 45, 0.045, 'square', 0.024);
+      },
+      // A squeeze is two notes because it is two edges. The interval widens
+      // with the multiplier, so the sound says how well it is going without
+      // anyone having to look at the HUD.
+      squeeze: function (mult) {
+        tone(620, 780, 0.06, 'triangle', 0.05);
+        tone(880 + mult * 55, 1180 + mult * 55, 0.11, 'triangle', 0.055, 0.055);
+      },
+      // the leviathan's arrival: two long low notes, a fifth apart
+      leviathan: function () { tone(73, 70, 1.1, 'sawtooth', 0.07); tone(110, 104, 1.1, 'triangle', 0.05, 0.15); },
+      gate: function () { tone(988, 1318, 0.09, 'square', 0.04); tone(1318, 1760, 0.16, 'square', 0.035, 0.08); },
+      thread: function () { tone(440, 880, 0.25, 'triangle', 0.06); tone(660, 1320, 0.3, 'triangle', 0.05, 0.1); },
+      patch: function () { tone(340, 900, 0.30, 'triangle', 0.06); },
+      hit: function () { noise(0.32, 0.11); tone(190, 48, 0.34, 'sawtooth', 0.075); },
+      over: function () { tone(230, 42, 1.0, 'sawtooth', 0.085); },
+      setMuted: function (m) { muted = m; },
+      close: function () { if (ctx && ctx.close) { try { ctx.close(); } catch (e) {} } ctx = null; },
+    };
+  }
+
+  // ============================================================
+  // MOUNT
+  // ============================================================
+  function mount(container, opts) {
+    opts = opts || {};
+    if (typeof container === 'string') container = document.querySelector(container);
+    if (!container) throw new Error('StarfieldRunner.mount: container not found');
+
+    // ---------- build DOM ----------
+    var root = document.createElement('div');
+    root.className = 'sr-root';
+    root.innerHTML =
+      '<div class="sr-hud">' +
+        '<span>SCORE <b class="sr-a" data-sr="score">0</b></span>' +
+        '<span>DIST <b data-sr="dist">0m</b></span>' +
+        '<span class="sr-hull">HULL <span class="sr-plates" data-sr="plates"></span></span>' +
+        '<span class="sr-gauge">CHARGE <span class="sr-bar"><i data-sr="charge"></i></span></span>' +
+        '<span class="sr-mult sr-one" data-sr="mult">x1<u data-sr="multbar"></u></span>' +
+        '<button type="button" class="sr-mute" data-sr="mute">SOUND ON</button>' +
+        '<button type="button" class="sr-mute sr-pause" data-sr="pause">PAUSE</button>' +
+        '<button type="button" class="sr-mute sr-diff" data-sr="diff">NORMAL</button>' +
+      '</div>' +
+      '<div class="sr-stage">' +
+        '<canvas class="sr-canvas" width="' + WORLD_W + '" height="' + WORLD_H + '"></canvas>' +
+        '<div class="sr-touch" aria-hidden="true">' +
+          '<div class="sr-stickzone" data-sr="stickzone">' +
+            '<div class="sr-stick" data-sr="stick"><div class="sr-stick-knob" data-sr="knob"></div></div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="sr-scan" aria-hidden="true"></div>' +
+        '<div class="sr-overlay sr-note" data-sr="note">SQUEEZE</div>' +
+        '<div class="sr-overlay sr-msg" data-sr="msg">HULL BREACH<small data-sr="msgsmall">PRESS R TO RESTART</small></div>' +
+        '<div class="sr-overlay sr-msg sr-paused" data-sr="paused">PAUSED<small data-sr="pausedsmall">PRESS P TO RESUME</small></div>' +
+      '</div>' +
+      '<div class="sr-help" data-sr="help">' +
+        '[&larr;][&rarr;] FLY &nbsp; SHAVE THE ROCKS — CLOSE PASSES ARE THE ONLY SCORE ' +
+        'AND THE ONLY REPAIR &nbsp; GOLD GATES PAY DOUBLE &nbsp; [P] PAUSE &nbsp; [R] RESTART &nbsp; [M] MUTE</div>';
+    container.appendChild(root);
+
+    var q = function (name) { return root.querySelector('[data-sr="' + name + '"]'); };
+    var canvas = root.querySelector('canvas');
+    var screen = canvas.getContext('2d');
+    screen.imageSmoothingEnabled = false;
+
+    var low = document.createElement('canvas');
+    low.width = WORLD_W / LOW_SCALE;
+    low.height = WORLD_H / LOW_SCALE;
+    var g = low.getContext('2d');
+    g.imageSmoothingEnabled = false;
+
+    var stage = root.querySelector('.sr-stage');
+    var hudScore = q('score'), hudDist = q('dist');
+    var platesEl = q('plates'), chargeEl = q('charge');
+    var multEl = q('mult'), multBar = q('multbar');
+    var msgEl = q('msg'), noteEl = q('note'), helpEl = q('help');
+    var muteBtn = q('mute');
+    var stickZone = q('stickzone'), stickEl = q('stick'), knobEl = q('knob');
+
+    // Hull plates are toggled rather than rebuilt, so a repair and a breach are
+    // the same DOM operation in reverse. How *many* there are is the engine's
+    // answer, though: get_hull_max() is 4 on Easy and 2 on Hard, so the row is
+    // rebuilt whenever that count changes and otherwise left alone. Three are
+    // laid out at mount so the HUD is not empty for the frame before the engine
+    // has loaded and restart() can ask it.
+    var plateEls = [];
+    function buildPlates(count) {
+      if (plateEls.length === count) return;
+      while (platesEl.firstChild) platesEl.removeChild(platesEl.firstChild);
+      plateEls.length = 0;
+      for (var i = 0; i < count; i++) {
+        var el = document.createElement('span');
+        el.className = 'sr-plate';
+        platesEl.appendChild(el);
+        plateEls.push(el);
+      }
+    }
+    buildPlates(3);
+
+    function enableTouchUI() {
+      if (root.classList.contains('sr-is-touch')) return;
+      root.classList.add('sr-is-touch');
+      helpEl.textContent =
+        'SLIDE TO FLY • SHAVE THE ROCKS — CLOSE PASSES ARE THE ONLY SCORE AND THE ONLY REPAIR • GOLD GATES PAY DOUBLE • TAP TO RESTART';
+      q('msgsmall').textContent = 'TAP TO RESTART';
+      q('pausedsmall').textContent = 'TAP TO RESUME';
+    }
+    if (global.matchMedia && global.matchMedia('(pointer: coarse)').matches) enableTouchUI();
+
+    // ---------- per-instance state ----------
+    var wasm = null, f32 = null;
+    var destroyed = false, paused = false;
+    var rafId = 0, lastT = 0, tGlobal = 0;
+    // Which setting the next run asks for. Only the choice lives here; what a
+    // setting does is the table at the top of game.wat.
+    var DIFFICULTIES = ['easy', 'normal', 'hard'];
+    var difficulty = DIFFICULTIES.indexOf(opts.difficulty);
+    if (difficulty < 0) difficulty = 1;
+    var keys = { left: false, right: false };
+    // Gamepad, read once a frame rather than listened for: the Gamepad API only
+    // refreshes its snapshots when getGamepads() is called, so a listener would
+    // report whatever frame it happened to fire on. Rebuilt every poll, so
+    // nothing latches the way a missed keyup can.
+    var PAD_DEADZONE = 0.28;   // a resting stick reads up to about 0.15 on a worn pad
+    var pad = { move: 0 };
+    var padPrev = { pause: false, restart: false, mute: false };
+    var stick = { active: false, ox: 0, dir: 0 };
+    var sound = createSound();
+    var muted = false;
+    var particles = [];
+    var shake = 0, flash = 0, pulse = 0;
+    var prevGrazes = 0, prevSqueezes = 0, prevHits = 0, prevPatches = 0, prevOver = 0;
+    var prevLevs = 0, prevThreads = 0, prevGates = 0;
+    var prevHull = 3;
+    var noteT = 0, noteText = '';
+    // Parallax stars. Pure decoration, owned here rather than in the engine
+    // for exactly that reason — nothing collides with a star, nothing scores
+    // one, and the engine has no opinion about how deep the sky is.
+    var STAR_LAYERS = [
+      { n: 46, f: 0.22, c: '#2b3a5c' },
+      { n: 30, f: 0.50, c: '#4f6a99' },
+      { n: 18, f: 0.92, c: '#a8c4e8' },
+    ];
+    var stars = [];
+
+    // ---------- sprites ----------
+    var sprShip = [
+      makeSprite(shipLeft, SHIP_PAL, PXS),
+      makeSprite(shipLevel, SHIP_PAL, PXS),
+      makeSprite(shipRight, SHIP_PAL, PXS),
+    ];
+    var sprFlame = [makeSprite(flameA, FLAME_PAL, PXS), makeSprite(flameB, FLAME_PAL, PXS)];
+
+    // ---------- input ----------
+    var KEY_MAP = {
+      ArrowLeft: 'left', a: 'left', A: 'left',
+      ArrowRight: 'right', d: 'right', D: 'right',
+    };
+
+    function onKeyDown(e) {
+      var k = KEY_MAP[e.key];
+      if (k) { keys[k] = true; stick.dir = 0; e.preventDefault(); return; }
+      if (e.key === 'r' || e.key === 'R') restart();
+      if (e.key === 'm' || e.key === 'M') toggleMute();
+      // A held key auto-repeats, and a toggle on every repeat would flicker.
+      if ((e.key === 'p' || e.key === 'P' || e.key === 'Escape') && !e.repeat) {
+        setPaused(!paused);
+        e.preventDefault();
+      }
+    }
+    function onKeyUp(e) {
+      var k = KEY_MAP[e.key];
+      if (k) { keys[k] = false; e.preventDefault(); }
+    }
+
+    function releaseAll() {
+      keys.left = keys.right = false;
+      releaseStick();
+    }
+
+    function releaseStick() {
+      stick.active = false;
+      stick.dir = 0;
+      stickEl.classList.remove('sr-active');
+      stickEl.style.left = ''; stickEl.style.top = '';
+      knobEl.style.transform = 'translate(-50%, -50%)';
+    }
+
+    function stagePoint(e) {
+      var r = stage.getBoundingClientRect();
+      return { x: e.clientX - r.left, y: e.clientY - r.top, w: r.width, h: r.height };
+    }
+
+    function onStickDown(e) {
+      if (e.pointerType === 'mouse') return;   // a mouse plays with the keyboard
+      enableTouchUI();
+      var p = stagePoint(e);
+      stick.active = true;
+      stick.ox = p.x;
+      stickEl.style.left = (p.x / p.w * 100) + '%';
+      stickEl.style.top = (p.y / p.h * 100) + '%';
+      stickEl.classList.add('sr-active');
+      knobEl.style.transform = 'translate(-50%, -50%)';
+      if (stickZone.setPointerCapture) {
+        try { stickZone.setPointerCapture(e.pointerId); } catch (err) {}
+      }
+      e.preventDefault();
+    }
+
+    function onStickMove(e) {
+      if (!stick.active || e.pointerType === 'mouse') return;
+      var p = stagePoint(e);
+      var dx = p.x - stick.ox;
+      var reach = stickEl.getBoundingClientRect().width / 2 || 40;
+      var k = Math.max(-1, Math.min(1, dx / reach));
+      knobEl.style.transform = 'translate(calc(-50% + ' + (k * reach) + 'px), -50%)';
+      // Analogue, and horizontal only. set_input takes an f32 and scales the
+      // thrust by it, so a nudge drifts and a full push commits — which is the
+      // distinction the whole scoring rule rests on, and the reason this title
+      // gets a rail rather than Circuit Runner's two tap halves.
+      stick.dir = Math.abs(k) < 0.10 ? 0 : k;
+      e.preventDefault();
+    }
+
+    function toggleMute() {
+      muted = !muted;
+      sound.setMuted(muted);
+      muteBtn.textContent = muted ? 'SOUND OFF' : 'SOUND ON';
+    }
+
+    stickZone.addEventListener('pointerdown', onStickDown);
+    stickZone.addEventListener('pointermove', onStickMove);
+    // Named, not inline, so destroy() can take them off again.
+    function onWindowPointerUp() { if (stick.active) releaseStick(); }
+    function onWindowPointerCancel() { releaseStick(); }
+    global.addEventListener('pointerup', onWindowPointerUp);
+    global.addEventListener('pointercancel', onWindowPointerCancel);
+    global.addEventListener('keydown', onKeyDown);
+    global.addEventListener('keyup', onKeyUp);
+    // Losing focus also pauses: whoever alt-tabbed away was not planning to come
+    // back to a ship still flying into the field.
+    function onBlur() { releaseAll(); setPaused(true); }
+    global.addEventListener('blur', onBlur);
+
+    // ---------- pause ----------
+    // Pause lives here and not in the engine, because it is a decision about the
+    // clock rather than about the game: the engine advances by whatever dt it is
+    // handed, so pausing is the loop no longer calling step(). The loop keeps
+    // drawing, so the frozen field stays on screen. Chapter 15 makes the case.
+    var pausedEl = q('paused'), pauseBtn = q('pause');
+    function setPaused(on) {
+      if (!wasm) return;
+      if (on && wasm.exports.is_game_over()) return;   // nothing to pause once the hull is gone
+      paused = on;
+      pausedEl.style.display = on ? 'block' : 'none';
+      pauseBtn.textContent = on ? 'RESUME' : 'PAUSE';
+      // Anything held when play stopped must not still be held when it resumes:
+      // the same latch releaseAll() exists to prevent on blur.
+      if (on) releaseAll();
+    }
+    pauseBtn.addEventListener('click', function () { setPaused(!paused); pauseBtn.blur(); });
+
+    // ---------- difficulty ----------
+    // The button cycles EASY -> NORMAL -> HARD and starts a fresh run at once,
+    // because a score that was half Easy and half Hard is a number no
+    // best-score list could file. It matters more here than elsewhere: the
+    // graze band is both the scoring rule and the setting, so the same flying
+    // is worth different amounts on each.
+    var diffBtn = q('diff');
+    diffBtn.textContent = DIFFICULTIES[difficulty].toUpperCase();
+    diffBtn.addEventListener('click', function () {
+      difficulty = (difficulty + 1) % DIFFICULTIES.length;
+      diffBtn.textContent = DIFFICULTIES[difficulty].toUpperCase();
+      restart();
+      diffBtn.blur();
+    });
+    // Paused, a press anywhere on the field resumes and does nothing else: a
+    // thumb landing to unpause should not also start flying.
+    stage.addEventListener('pointerdown', function (e) {
+      if (!paused) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setPaused(false);
+    }, true);
+
+    // ---------- gamepad ----------
+    // Standard mapping: left stick or d-pad flies, Start pauses, Back or Y
+    // restarts, a shoulder button mutes. There is nothing to shoot here — close
+    // passes are the whole game — so the face buttons do nothing else.
+    function pollGamepad() {
+      pad.move = 0;
+      var nav = global.navigator;
+      var pads = nav && nav.getGamepads ? nav.getGamepads() : null;
+      if (!pads) return;
+      var p = null, i;
+      for (i = 0; i < pads.length; i++) if (pads[i] && pads[i].connected) { p = pads[i]; break; }
+      if (!p) return;
+
+      var buttons = p.buttons || [], axes = p.axes || [];
+      var btn = function (n) { var b = buttons[n]; return !!(b && (b.pressed || b.value > 0.5)); };
+      var ax = axes[0] || 0;
+      if (Math.abs(ax) > PAD_DEADZONE) {
+        // Rescale past the deadzone. Grazing is measured in pixels of
+        // clearance, so the fine end of the stick is the end that matters.
+        pad.move = (ax > 0 ? 1 : -1) * Math.min(1, (Math.abs(ax) - PAD_DEADZONE) / (1 - PAD_DEADZONE));
+      } else if (btn(14) || btn(15)) {
+        pad.move = btn(15) ? 1 : -1;
+      }
+
+      var pausePress = btn(9), restartPress = btn(8) || btn(3), mutePress = btn(4) || btn(5);
+      if (pausePress && !padPrev.pause) setPaused(!paused);
+      if (restartPress && !padPrev.restart) restart();
+      if (mutePress && !padPrev.mute) toggleMute();
+      padPrev.pause = pausePress; padPrev.restart = restartPress; padPrev.mute = mutePress;
+    }
+    muteBtn.addEventListener('click', function () { toggleMute(); muteBtn.blur(); });
+    msgEl.addEventListener('click', function () { restart(); });
+
+    // ---------- particles ----------
+    function burst(x, y, n, color, speed) {
+      for (var i = 0; i < n; i++) {
+        var a = Math.random() * Math.PI * 2;
+        var v = speed * (0.3 + Math.random() * 0.9);
+        particles.push({
+          x: x, y: y, vx: Math.cos(a) * v, vy: Math.sin(a) * v,
+          life: 0.25 + Math.random() * 0.4, age: 0, color: color,
+        });
+      }
+      if (particles.length > 340) particles.splice(0, particles.length - 340);
+    }
+
+    function stepParticles(dt) {
+      for (var i = particles.length - 1; i >= 0; i--) {
+        var p = particles[i];
+        p.age += dt;
+        if (p.age >= p.life) { particles.splice(i, 1); continue; }
+        p.x += p.vx * dt; p.y += p.vy * dt;
+        p.vx *= 0.95; p.vy *= 0.95;
+        g.globalAlpha = 1 - p.age / p.life;
+        g.fillStyle = p.color;
+        g.fillRect(snap(p.x) - LOW_SCALE, snap(p.y) - LOW_SCALE, LOW_SCALE * 2, LOW_SCALE * 2);
+      }
+      g.globalAlpha = 1;
+    }
+
+    // ---------- drawing ----------
+    function snap(v) { return Math.round(v / LOW_SCALE) * LOW_SCALE; }
+
+    function drawSpriteAt(spr, x, y) {
+      g.drawImage(spr, snap(x - spr.width / 2), snap(y - spr.height / 2));
+    }
+
+    function seedStars() {
+      stars.length = 0;
+      for (var l = 0; l < STAR_LAYERS.length; l++) {
+        for (var i = 0; i < STAR_LAYERS[l].n; i++) {
+          stars.push({
+            x: Math.random() * WORLD_W,
+            y: Math.random() * WORLD_H,
+            l: l,
+            size: l === 2 ? LOW_SCALE * 2 : LOW_SCALE,
+          });
+        }
+      }
+    }
+
+    function drawStars(dt, speed) {
+      g.fillStyle = SPACE;
+      g.fillRect(0, 0, WORLD_W, WORLD_H);
+      for (var i = 0; i < stars.length; i++) {
+        var s = stars[i];
+        s.y += speed * STAR_LAYERS[s.l].f * dt;
+        if (s.y > WORLD_H) { s.y -= WORLD_H + 8; s.x = Math.random() * WORLD_W; }
+        g.fillStyle = STAR_LAYERS[s.l].c;
+        g.fillRect(snap(s.x), snap(s.y), s.size, s.size);
+      }
+    }
+
+    /**
+     * The guaranteed corridor of whichever field is arriving next, read off
+     * that field's rocks (every rock carries its field's `path`).
+     *
+     * Drawing it is a design decision, not a debug view. The engine builds a
+     * line no rock may ever cross; hiding it would make the game a memory test
+     * about where that line probably is. Showing it turns every field into the
+     * question the title is actually about — *the safe line is right there,
+     * and it is worth nothing* — and makes leaving it a choice rather than an
+     * accident.
+     */
+    function drawCorridor() {
+      var shipY = wasm.exports.get_ship_y();
+      var topY = null, path = 0;
+      for (var i = 0; i < MAX_ROCKS; i++) {
+        var a = (ROCKS_OFF + i * ROCK_STRIDE) >> 2;
+        if (f32[a + FIELD.rock.active] <= 0) continue;
+        var y = f32[a + FIELD.rock.y];
+        if (y > shipY - 20) continue;
+        if (topY === null || y > topY) { topY = y; path = f32[a + FIELD.rock.path]; }
+      }
+      if (topY === null) return;
+
+      var half = wasm.exports.get_corridor() / 2;
+      var l = snap(path - half), r = snap(path + half);
+      g.fillStyle = LANE_COL;
+      g.fillRect(l, 0, r - l, snap(shipY));
+      g.fillStyle = LANE_EDGE;
+      // dashed edges, so the channel reads as a marked route rather than a wall
+      for (var yy = (Math.round(tGlobal * 90) % 36) - 36; yy < shipY; yy += 36) {
+        g.fillRect(l, snap(yy), LOW_SCALE, LOW_SCALE * 6);
+        g.fillRect(r - LOW_SCALE, snap(yy), LOW_SCALE, LOW_SCALE * 6);
+      }
+    }
+
+    /**
+     * A rock, as a pixel disc: rows of fillRect on the low-res grid, so it is
+     * the same kind of shape as everything else on screen and it is exactly
+     * the radius the engine is scoring against.
+     */
+    function pixelDisc(cx, cy, r, face, lit, dark) {
+      var s = LOW_SCALE;
+      var top = snap(cy - r), bot = snap(cy + r);
+      for (var y = top; y <= bot; y += s) {
+        var dy = y + s / 2 - cy;
+        var half = Math.sqrt(Math.max(0, r * r - dy * dy));
+        if (half < s / 2) continue;
+        var l = snap(cx - half), w = snap(cx + half) - l;
+        if (w <= 0) continue;
+        g.fillStyle = face;
+        g.fillRect(l, y, w, s);
+        // one lit pixel run along the upper-left, one dark along the lower
+        if (dy < -r * 0.25) { g.fillStyle = lit; g.fillRect(l, y, Math.min(w, s * 3), s); }
+        if (dy > r * 0.35) { g.fillStyle = dark; g.fillRect(l, y, w, s); }
+      }
+    }
+
+    function drawRocks() {
+      var band = wasm.exports.get_graze_band();
+      for (var i = 0; i < MAX_ROCKS; i++) {
+        var a = (ROCKS_OFF + i * ROCK_STRIDE) >> 2;
+        var R = FIELD.rock;
+        if (f32[a + R.active] <= 0) continue;
+        var x = f32[a + R.x], y = f32[a + R.y], r = f32[a + R.r];
+        if (y < -r - 10 || y > WORLD_H + r + 10) continue;
+        var kind = f32[a + R.kind] | 0;
+        pixelDisc(x, y, r, ROCK_FACE[kind], ROCK_LIT[kind], ROCK_DARK[kind]);
+
+        // The leviathan has scales, not craters: a ridge of lit plates across
+        // each segment, and on the head two eyes looking down the board.
+        if (kind === 5) {
+          drawPost(i, x, y, r);
+        } else if (kind >= 3) {
+          g.fillStyle = ROCK_LIT[kind];
+          for (var sc = -2; sc <= 2; sc++) {
+            g.fillRect(snap(x + sc * r * 0.32) - LOW_SCALE, snap(y - r * 0.35), LOW_SCALE * 2, LOW_SCALE);
+          }
+          if (kind === 4) {
+            g.fillStyle = '#ffd166';
+            g.fillRect(snap(x - r * 0.4) - LOW_SCALE, snap(y + r * 0.2), LOW_SCALE * 3, LOW_SCALE * 2);
+            g.fillRect(snap(x + r * 0.4) - LOW_SCALE, snap(y + r * 0.2), LOW_SCALE * 3, LOW_SCALE * 2);
+          }
+        } else {
+        // Craters, rotating with the rock's own spin. Their angles come from
+        // the pool index, so a given rock keeps its own face for its whole
+        // pass instead of boiling.
+        var spin = f32[a + R.spin] * tGlobal;
+        for (var k = 0; k < 3; k++) {
+          var ang = spin + i * 1.7 + k * 2.1;
+          var rad = r * (0.25 + ((i + k) % 3) * 0.2);
+          g.fillStyle = ROCK_DARK[kind];
+          g.fillRect(snap(x + Math.cos(ang) * rad), snap(y + Math.sin(ang) * rad),
+                     LOW_SCALE * 2, LOW_SCALE * 2);
+        }
+        }
+
+        // The graze ring. `near` is the tightest clearance this rock has ever
+        // had, so the ring lights as the ship closes and *stays* lit once the
+        // pass is banked — the player sees which rocks paid before the score
+        // catches up.
+        var near = f32[a + R.near];
+        if (near > 0 && near < band) {
+          var t = 1 - near / band;
+          g.globalAlpha = 0.25 + t * 0.6;
+          g.fillStyle = GRAZE_COL;
+          ringAt(x, y, r + band * 0.6);
+          g.globalAlpha = 1;
+        }
+      }
+    }
+
+    /**
+     * A gate post: a beacon rather than a rock — a lit cap that blinks, and,
+     * from the left post of a pair, a dashed bar across the gap to its partner
+     * so the pair reads as one opening. The partner is found, not stored: the
+     * engine lays both posts at the same y, and the nearest post to the right
+     * on that row is the other half.
+     */
+    function drawPost(i, x, y, r) {
+      var on = Math.sin(tGlobal * 9 + x * 0.05) > -0.2;
+      g.fillStyle = on ? '#fff3c4' : ROCK_LIT[5];
+      g.fillRect(snap(x) - LOW_SCALE, snap(y - r * 0.5), LOW_SCALE * 2, LOW_SCALE * 2);
+      var best = null;
+      for (var j = 0; j < MAX_ROCKS; j++) {
+        if (j === i) continue;
+        var b = (ROCKS_OFF + j * ROCK_STRIDE) >> 2;
+        if (f32[b + FIELD.rock.active] <= 0 || (f32[b + FIELD.rock.kind] | 0) !== 5) continue;
+        var bx = f32[b + FIELD.rock.x];
+        if (Math.abs(f32[b + FIELD.rock.y] - y) > 1 || bx <= x) continue;
+        if (best === null || bx < best) best = bx;
+      }
+      if (best === null || best - x > 160) return;
+      g.fillStyle = ROCK_LIT[5];
+      var l = snap(x + r + LOW_SCALE * 2), rr = snap(best - r - LOW_SCALE * 2);
+      for (var dx = l; dx < rr; dx += LOW_SCALE * 3) g.fillRect(dx, snap(y), LOW_SCALE * 2, LOW_SCALE);
+    }
+
+    function ringAt(cx, cy, r) {
+      var steps = 14;
+      for (var i = 0; i < steps; i++) {
+        var a = (i / steps) * Math.PI * 2;
+        g.fillRect(snap(cx + Math.cos(a) * r), snap(cy + Math.sin(a) * r), LOW_SCALE, LOW_SCALE);
+      }
+    }
+
+    function drawShip() {
+      var e = wasm.exports;
+      var x = e.get_ship_x(), y = e.get_ship_y(), vx = e.get_ship_vx();
+      var invuln = e.get_invuln();
+      // Blinking after a hit: the engine makes the ship immune for exactly
+      // this window, so the blink is honest about state rather than decorative.
+      if (invuln > 0 && Math.sin(invuln * 42) < -0.1) return;
+      var bank = vx < -90 ? 0 : (vx > 90 ? 2 : 1);
+      drawSpriteAt(sprFlame[(tGlobal * 22 | 0) & 1], x, y + 26);
+      drawSpriteAt(sprShip[bank], x, y);
+    }
+
+    // ---------- engine events ----------
+    function pollEvents() {
+      var e = wasm.exports;
+      var sx = e.get_ship_x(), sy = e.get_ship_y();
+
+      var gz = e.get_grazes();
+      if (gz > prevGrazes) {
+        sound.graze(gz);
+        burst(sx, sy - 6, 4, GRAZE_COL, 110);
+        prevGrazes = gz;
+      }
+
+      var sq = e.get_squeezes();
+      if (sq > prevSqueezes) {
+        sound.squeeze(e.get_mult());
+        burst(sx, sy, 14, '#ffffff', 190);
+        pulse = 0.3;
+        noteText = 'SQUEEZE x' + Math.round(e.get_mult());
+        noteT = 0.55;
+        prevSqueezes = sq;
+      }
+
+      // The same frame as the squeeze it doubles, so it overwrites that note:
+      // the gate is the news.
+      var gt = e.get_gates();
+      if (gt > prevGates) {
+        sound.gate();
+        burst(sx, sy, 18, ROCK_LIT[5], 210);
+        noteText = 'GATE \u00d72';
+        noteT = 0.9;
+        prevGates = gt;
+      }
+
+      var pa = e.get_patches();
+      if (pa > prevPatches) {
+        sound.patch();
+        burst(sx, sy, 20, '#6ee7a8', 170);
+        noteText = 'PLATE RESTORED';
+        noteT = 0.8;
+        prevPatches = pa;
+      }
+
+      var lv = e.get_leviathans();
+      if (lv > prevLevs) {
+        sound.leviathan();
+        shake = Math.max(shake, 0.35);
+        noteText = 'LEVIATHAN';
+        noteT = 1.4;
+        prevLevs = lv;
+      }
+      var th = e.get_threads();
+      if (th > prevThreads) {
+        sound.thread();
+        burst(sx, sy, 22, ROCK_LIT[3], 200);
+        noteText = 'THREADED';
+        noteT = 1.1;
+        prevThreads = th;
+      }
+
+      var hi = e.get_hits();
+      if (hi > prevHits) {
+        sound.hit();
+        shake = Math.max(shake, 0.5);
+        flash = 0.5;
+        burst(sx, sy, 26, '#ff5470', 240);
+        prevHits = hi;
+      }
+
+      var over = e.is_game_over();
+      if (over && !prevOver) { sound.over(); msgEl.style.display = 'block'; }
+      prevOver = over;
+    }
+
+    // ---------- HUD ----------
+    function drawHud() {
+      var e = wasm.exports;
+      var hull = Math.round(e.get_hull());
+      hudScore.textContent = Math.round(e.get_score());
+      hudDist.textContent = Math.round(e.get_dist() / 10) + 'm';
+      for (var i = 0; i < plateEls.length; i++) {
+        var on = i < hull;
+        plateEls[i].classList.toggle('sr-off', !on);
+        if (!on && i < prevHull) {
+          // retrigger the flash by taking the class off and putting it back
+          plateEls[i].classList.remove('sr-lost');
+          void plateEls[i].offsetWidth;
+          plateEls[i].classList.add('sr-lost');
+        }
+      }
+      prevHull = hull;
+      chargeEl.style.width = (e.get_charge() / e.get_charge_max() * 100) + '%';
+      var m = Math.round(e.get_mult());
+      multEl.firstChild.nodeValue = 'x' + m;
+      multEl.classList.toggle('sr-one', m <= 1);
+      multBar.style.transform = 'scaleX(' + (m <= 1 ? 1 : e.get_mult_frac()) + ')';
+    }
+
+    // ---------- loop ----------
+    function loop(now) {
+      if (destroyed) return;
+      // Before the pause gate: Start has to be able to unpause, and Back to
+      // restart from the game-over screen.
+      pollGamepad();
+      // Clamped at both ends. The ceiling is the usual one — a tab that was
+      // backgrounded for ten seconds must not advance the board ten seconds
+      // in one step. The floor is not decoration: a timestamp that goes
+      // backwards (a restored tab, a clock adjustment) drives tGlobal
+      // negative, and everything downstream that indexes an array by a frame
+      // counter then reads off the front of it.
+      var dt = Math.max(0, Math.min((now - lastT) / 1000, 0.05));
+      lastT = now;
+      // Paused stops the animation clock too, so the starfield, the particles
+      // and the shake hold still instead of streaming past a frozen ship. lastT
+      // still advances, so the first frame back is one frame long.
+      if (paused) dt = 0;
+      tGlobal += dt;
+
+      // Keyboard is two states, the stick and the pad are analogue, and the
+      // engine takes an f32 either way. Held left and right cancel rather than
+      // fighting.
+      var move = stick.dir;
+      if (pad.move) move = pad.move;
+      if (keys.left || keys.right) {
+        move = (keys.right ? 1 : 0) - (keys.left ? 1 : 0);
+      }
+      if (!paused) {
+        wasm.exports.set_input(move);
+        wasm.exports.step(dt);
+        pollEvents();
+      }
+
+      var speed = wasm.exports.get_speed();
+      var Z = 1 / LOW_SCALE;
+      g.setTransform(Z, 0, 0, Z, 0, 0);
+      if (shake > 0) {
+        var s = shake * 4;
+        g.setTransform(Z, 0, 0, Z,
+          Math.round((Math.random() * 2 - 1) * s),
+          Math.round((Math.random() * 2 - 1) * s));
+        shake = Math.max(0, shake - dt * 1.9);
+      }
+
+      drawStars(wasm.exports.is_game_over() ? 0 : dt, speed);
+      drawCorridor();
+      drawRocks();
+      drawShip();
+      stepParticles(dt);
+
+      g.setTransform(Z, 0, 0, Z, 0, 0);
+      if (pulse > 0) {
+        g.fillStyle = 'rgba(255,246,220,' + (pulse * 0.30).toFixed(3) + ')';
+        g.fillRect(0, 0, WORLD_W, WORLD_H);
+        pulse = Math.max(0, pulse - dt * 2.4);
+      }
+      if (flash > 0) {
+        g.fillStyle = 'rgba(255,60,90,' + (flash * 0.65).toFixed(3) + ')';
+        g.fillRect(0, 0, WORLD_W, WORLD_H);
+        flash = Math.max(0, flash - dt * 1.9);
+      }
+
+      screen.setTransform(1, 0, 0, 1, 0, 0);
+      screen.imageSmoothingEnabled = false;
+      screen.drawImage(low, 0, 0, WORLD_W, WORLD_H);
+
+      drawHud();
+      noteT -= dt;
+      if (noteT > 0) { noteEl.textContent = noteText; noteEl.style.opacity = '1'; }
+      else noteEl.style.opacity = '0';
+
+      rafId = requestAnimationFrame(loop);
+    }
+
+    function restart() {
+      if (!wasm) return;
+      // set_difficulty only records the choice; init() is what applies it
+      wasm.exports.set_difficulty(difficulty);
+      wasm.exports.init();
+      f32 = new Float32Array(wasm.exports.memory.buffer);
+      particles.length = 0;
+      seedStars();
+      shake = 0; flash = 0; pulse = 0; noteT = 0;
+      releaseAll();
+      prevGrazes = wasm.exports.get_grazes();
+      prevSqueezes = wasm.exports.get_squeezes();
+      prevHits = wasm.exports.get_hits();
+      prevPatches = wasm.exports.get_patches();
+      prevLevs = wasm.exports.get_leviathans();
+      prevThreads = wasm.exports.get_threads();
+      prevGates = wasm.exports.get_gates();
+      prevHull = Math.round(wasm.exports.get_hull());
+      prevOver = 0;
+      msgEl.style.display = 'none';
+      setPaused(false);
+      // after set_difficulty + init, so this is the new setting's plate count
+      buildPlates(Math.round(wasm.exports.get_hull_max()));
+      for (var i = 0; i < plateEls.length; i++) {
+        plateEls[i].classList.remove('sr-off', 'sr-lost');
+      }
+    }
+
+    // ---------- boot ----------
+    var wasmSource = opts.wasmBase64 || WASM_B64;
+    var instantiate;
+    if (opts.wasmUrl) {
+      instantiate = fetch(opts.wasmUrl)
+        .then(function (r) { return r.arrayBuffer(); })
+        .then(function (buf) { return WebAssembly.instantiate(buf, {}); });
+    } else {
+      // No imports: clearance is a distance, and f32.sqrt is an instruction.
+      instantiate = WebAssembly.instantiate(base64ToBytes(wasmSource), {});
+    }
+    instantiate.then(function (result) {
+      if (destroyed) return;
+      wasm = result.instance;
+      restart();
+      lastT = performance.now();
+      rafId = requestAnimationFrame(loop);
+    }).catch(function (err) {
+      root.innerHTML = '<div class="sr-fail">Failed to load game engine: ' + err + '</div>';
+    });
+
+    // ---------- public API ----------
+    return {
+      restart: restart,
+      destroy: function () {
+        destroyed = true;
+        cancelAnimationFrame(rafId);
+        global.removeEventListener('keydown', onKeyDown);
+        global.removeEventListener('keyup', onKeyUp);
+        global.removeEventListener('blur', onBlur);
+        global.removeEventListener('pointerup', onWindowPointerUp);
+        global.removeEventListener('pointercancel', onWindowPointerCancel);
+        sound.close();
+        root.remove();
+      },
+      getState: function () {
+        if (!wasm) return null;
+        return {
+          score: wasm.exports.get_score(),
+          distance: wasm.exports.get_dist(),
+          speed: wasm.exports.get_speed(),
+          hull: wasm.exports.get_hull(),
+          charge: wasm.exports.get_charge(),
+          multiplier: wasm.exports.get_mult(),
+          grazes: wasm.exports.get_grazes(),
+          squeezes: wasm.exports.get_squeezes(),
+          gameOver: !!wasm.exports.is_game_over(),
+          paused: paused,
+          difficulty: DIFFICULTIES[wasm.exports.get_difficulty()],
+        };
+      },
+    };
+  }
+
+  global.StarfieldRunner = { mount: mount };
+
+})(window);

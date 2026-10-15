@@ -1,0 +1,989 @@
+(module
+  ;; ============================================================
+  ;; CIRCUIT RUNNER — hand-written WebAssembly Text engine
+  ;;
+  ;; Self-contained: this engine shares no code with any other title in
+  ;; games/. It follows the same *conventions* as the other five (globals block
+  ;; at the top, entity pools at fixed offsets in linear memory, xorshift RNG,
+  ;; an init/set_input/step/get_* export surface) and nothing else. Every
+  ;; constant and every routine below is its own.
+  ;;
+  ;; What is new here, and what the rest of the library did not need:
+  ;;
+  ;;   • Nothing to shoot. Every other title here answers a threat by removing
+  ;;     it. This one has no weapon at all: the only verb is which trace you
+  ;;     are standing on, and the only answers are dodge, time it, or take it.
+  ;;   • One meter, and it only goes down. Current drains continuously, drains
+  ;;     faster the quicker you are going, and is refilled solely by what you
+  ;;     collect. There is no regeneration and there are no lives — running out
+  ;;     is the single failure state, so every hit is a withdrawal rather than
+  ;;     a strike against you.
+  ;;   • A hazard that is only dangerous half the time. Capacitors charge and
+  ;;     discharge on their own clock, which turns a lane into a gate you read
+  ;;     rather than a wall you avoid.
+  ;;
+  ;; There are **no imports**, as in worm-chase and sector-defense: the board
+  ;; scrolls on one axis, the runner slides along another, and every collision
+  ;; is an axis-aligned box test. No angle, no sqrt, nothing to ask JS for.
+  ;;
+  ;; JavaScript owns no game state. It forwards input, calls step(dt), and
+  ;; reads entity records straight out of the memory below to draw them.
+  ;; ============================================================
+
+  (memory (export "memory") 1)
+
+  ;; ================= MEMORY LAYOUT =================
+  ;; runner   @0    : x, lane, targetLane, stun, alive     (5 f32, padded to 24)
+  ;; parts    @24   : stride 32, MAX_PARTS = 24
+  ;;                  x, y, lane, kind, active, span, timer, charged
+  ;;                  ends at 24 + 24*32 = 792
+  ;; pickups  @792  : stride 24, MAX_PICKUPS = 20
+  ;;                  x, y, lane, kind, active, phase
+  ;;                  ends at 792 + 20*24 = 1272
+  ;;
+  ;; part kinds:   0 = resistor (one lane), 1 = capacitor (one lane, gated),
+  ;;               2 = chip (two lanes), 3 = solder bridge (two lanes)
+  ;; pickup kinds: 0 = charge, 1 = overclock
+  ;;
+  ;; `charged` is a capacitor's live state, 1 while it will kill you and 0
+  ;; while it is discharged; `timer` counts down to the next flip. Both are
+  ;; meaningless for the other kinds. `span` is how many lanes the part covers,
+  ;; starting at `lane`.
+  ;;
+  ;; Scalars — score, current, speed, distance — live in globals rather than
+  ;; memory, as in the other recent titles: the get_* readers are the only
+  ;; consumer, and a global is one instruction to read.
+  ;;
+  ;; The field lists above, once more, in the form scripts/check-layout.mjs
+  ;; reads. It fails if any line here disagrees with the prose, overflows
+  ;; its stride, or disagrees with the FIELD table at the top of the widget
+  ;; — so a field that moves has to move in all three places at once.
+  ;; @fields runner f32 -: x lane targetLane stun alive
+  ;; @fields part   f32 PART_STRIDE: x y lane kind active span timer charged
+  ;; @fields pickup f32 PICKUP_STRIDE: x y lane kind active phase
+  ;; ===================================================
+
+  (global $RUNNER_OFF i32 (i32.const 0))
+  (global $PARTS_OFF i32 (i32.const 24))
+  (global $PART_STRIDE i32 (i32.const 32))
+  (global $MAX_PARTS i32 (i32.const 24))
+  (global $PICKUPS_OFF i32 (i32.const 792))
+  (global $PICKUP_STRIDE i32 (i32.const 24))
+  (global $MAX_PICKUPS i32 (i32.const 20))
+
+  (global $WORLD_W f32 (f32.const 960.0))
+  (global $WORLD_H f32 (f32.const 720.0))
+
+  ;; ---- the board ----
+  ;; Six traces across 960 gives a 160px lane: wide enough that a part reads as
+  ;; sitting *on* a trace rather than between two, and few enough that the
+  ;; whole board can be taken in without scanning.
+  (global $LANES i32 (i32.const 6))
+  (global $LANE_W f32 (f32.const 160.0))
+
+  ;; ---- the runner ----
+  (global $RUNNER_Y f32 (f32.const 588.0))
+  (global $RUNNER_HALF_W f32 (f32.const 22.0))
+  (global $RUNNER_HALF_H f32 (f32.const 26.0))
+  ;; The slide between lanes is deliberately not instant. Collision tests the
+  ;; runner's actual x, so a switch begun too late clips the part you were
+  ;; trying to avoid — which is what makes committing to a lane a decision
+  ;; rather than a reflex you can always take back.
+  (global $SLIDE_SPEED f32 (f32.const 900.0))
+  ;; A hit sparks the runner: it cannot steer for this long, and cannot be hit
+  ;; again either. The immunity is the important half — without it a wide row
+  ;; lands a second hit on a runner it has just frozen, and two hits is most of
+  ;; the meter, which reads as the game cheating rather than as one mistake.
+  (global $STUN_TIME f32 (f32.const 0.45))
+
+  ;; ---- scrolling ----
+  ;; Speed is a function of distance, not of a level counter: the board simply
+  ;; gets faster the further you get. 250 is a walk; 640 is as fast as the lane
+  ;; slide can still answer.
+  ;;
+  ;; This comment used to call speed "the only difficulty curve an endless
+  ;; runner needs", and the backlog took it at its word. The difficulty bench
+  ;; says it is not this one's: runs ended at 18-20km whatever the speed ramp
+  ;; was, because the row spacing ($ROW_GAP_STEP, below) tightens on its own
+  ;; distance clock and it is spacing over speed — the time per row — that a
+  ;; player runs out of. See the difficulty table.
+  (global $SPEED_BASE f32 (f32.const 250.0))
+  ;; 42 reached the cap in about twenty-five seconds, which is not a ramp, it
+  ;; is a countdown to top speed. 18 puts the cap a little over a minute in, so
+  ;; the opening is walkable and the board tightens under you rather than at you.
+  ;; Mutable, like the rest of the numbers the difficulty table writes — see
+  ;; $apply_difficulty. The initialisers are Normal's values, which is what
+  ;; makes a Normal run identical to the engine that had no settings at all.
+  (global $SPEED_PER_KM (mut f32) (f32.const 18.0))   ;; added per 1000px travelled
+  (global $SPEED_CAP (mut f32) (f32.const 640.0))
+
+  ;; ---- current ----
+  (global $CURRENT_MAX f32 (f32.const 100.0))
+  (global $CURRENT_START f32 (f32.const 85.0))
+  ;; Drain is per second at SPEED_BASE and scales with how fast you are going,
+  ;; so going faster costs more than it earns unless you are picking things up.
+  ;;
+  ;; It opened at 5.2, which made a run a countdown rather than an economy: the
+  ;; bench could not survive fourteen rows whatever it did, because the meter
+  ;; ran out before the board had asked it a hard question. At 3.4 a clean line
+  ;; through the charges gains slowly and a sloppy one loses slowly, which is
+  ;; the balance an endless runner wants.
+  (global $DRAIN_BASE (mut f32) (f32.const 3.4))
+  (global $HIT_COST (mut f32) (f32.const 20.0))
+  (global $CHARGE_GAIN f32 (f32.const 17.0))
+  (global $OVERCLOCK_TIME f32 (f32.const 6.0))
+
+  ;; ---- spawning ----
+  ;; Rows arrive on a distance clock rather than a wall clock. At a fixed time
+  ;; interval a faster board would space parts further apart, which is exactly
+  ;; backwards — the board would get *easier* as it sped up.
+  (global $ROW_GAP f32 (f32.const 300.0))
+  (global $ROW_GAP_MIN (mut f32) (f32.const 172.0))
+  (global $ROW_GAP_STEP (mut f32) (f32.const 8.0))    ;; closer per 1000px
+  (global $PART_HALF_H f32 (f32.const 30.0))
+  (global $PICKUP_HALF f32 (f32.const 18.0))
+  (global $CAP_PERIOD f32 (f32.const 1.35))     ;; seconds per capacitor flip
+
+  ;; ---- gauntlets ----
+  ;; This title has no boss, because it has nothing to shoot; the backlog gave it
+  ;; a named stretch of board instead. Every $G_EVERY_KM, from $G_FIRST_KM,
+  ;; the random rows stop and a **gauntlet** runs: a hand-shaped sequence with
+  ;; a name the HUD announces, so it is a place in the run you recognise the
+  ;; second time rather than a density you notice.
+  ;;
+  ;;   1  THE SERPENTINE     one open lane, sweeping side to side a lane a row
+  ;;   2  THE BUS            a straight lane between two walls of chips, with
+  ;;                         charge along it — the breather
+  ;;   3  THE CAPACITOR BANK capacitors either side of a wandering path, and
+  ;;                         the charges sit *in* their lanes
+  ;;
+  ;; All three keep the one rule the board is built on: the open path moves by
+  ;; at most one lane a row. So a gauntlet is a shape, not a wall; the
+  ;; serpentine is the hardest thing the path rule allows, and it is still
+  ;; passable by construction. Clearing one without a hit pays $G_REFILL
+  ;; current back — the meter is this game's life, so that is the reward.
+  (global $G_FIRST_KM f32 (f32.const 4.0))
+  (global $G_EVERY_KM f32 (f32.const 8.0))
+  (global $G_REFILL f32 (f32.const 25.0))
+  (global $SCORE_GAUNTLET f32 (f32.const 300.0))
+  ;; How much clear time a gauntlet row leaves around a lane change, past the
+  ;; slide itself. See $gauntlet_gap.
+  (global $G_SLACK f32 (f32.const 0.28))
+
+  ;; ---- scoring ----
+  (global $SCORE_PER_PX f32 (f32.const 0.05))
+  (global $SCORE_CHARGE f32 (f32.const 40.0))
+
+  ;; ---- difficulty ---------------------------------------------------------
+  ;; Easy / Normal / Hard. The widget calls set_difficulty(d) and then init();
+  ;; init() copies one column of this table into the globals below, and the rest
+  ;; of the engine reads only those.
+  ;;
+  ;;                              easy       normal      hard
+  ;;   rows closer per km          5px        8px        11px
+  ;;   ... floor                  195px      172px       150px
+  ;;   speed added per km           14         18          22
+  ;;   ... capped at              640px/s    640px/s     640px/s
+  ;;   drain at base speed        2.8/s      3.4/s       3.9/s
+  ;;   a hit costs                  16         20          24
+  ;;
+  ;; **This title was not supposed to get a table.** The backlog said speed is
+  ;; its only curve, so "easier" would mean starting slower and ramping later.
+  ;; The bench said otherwise, on both counts. The opening was already gentle —
+  ;; a pilot with a quarter-second reaction reached thirty seconds with the
+  ;; meter at 96-100 — so starting slower would only have added dead time. And
+  ;; speed was not what ended runs: runs ended at 18-20km *whatever the speed
+  ;; ramp was*, and nearly halving it bought twelve seconds. The curve that
+  ;; governs is the time between rows, which is row spacing over speed, and
+  ;; the spacing tapers on its own distance clock to a floor at 16km. That is a
+  ;; second curve, so there is a table after all, and it moves that one.
+  ;;
+  ;; The drain is in it because it did most of the killing: over the bench, the
+  ;; meter's own drain accounted for about 63% of everything a run lost, hits
+  ;; for the rest. The hit cost is this game's lives, and every other title's
+  ;; table moves that number.
+  ;;
+  ;; **Every column keeps Normal's speed cap**, for a reason at each end. At
+  ;; Hard's end: the note on $SPEED_CAP is that 640 is as fast as the lane slide
+  ;; can still answer, and the reserved path is only a guarantee while one lane
+  ;; can be crossed between two rows. At Hard's floor of 150px a row arrives
+  ;; every 0.23s against a 0.18s slide, which keeps it; a higher cap on top of
+  ;; the tighter spacing would not. At Easy's end: the first draft capped Easy
+  ;; at 560 with a 210px floor, and a pilot with a 150ms reaction ran a median
+  ;; of 504 seconds, some runs hitting the bench's ten-minute limit — a row every
+  ;; 0.38s at the top of the curve is a steady state a quick player never
+  ;; leaves, and an endless-runner setting that never ends has no curve left in
+  ;; it. At 640 and 195px the same pilot's median is 105s and every run ends,
+  ;; while the slow pilot Easy exists for keeps its extra twenty seconds.
+  ;;
+  ;; Three things are deliberately *not* in the table. $SPEED_BASE is where the
+  ;; board starts and also the reference the drain is scaled against, so moving
+  ;; it would silently move the drain on every column. $SLIDE_SPEED and
+  ;; $STUN_TIME are the feel of the runner, and the path guarantee is built on
+  ;; the slide. $max_blocked and the component kinds stay put because both are
+  ;; at their final values by 2.2km — no run is decided that early.
+  ;;
+  ;; $difficulty is not reset by init: it is a choice about the next run, so a
+  ;; restart has to carry it rather than wipe it — chapter 8's argument for $rng.
+  (global $difficulty (mut i32) (i32.const 1))   ;; 0 easy, 1 normal, 2 hard
+
+  (global $rng (mut i32) (i32.const 1597334677))
+  (global $gameOver (mut i32) (i32.const 0))
+  (global $score (mut f32) (f32.const 0.0))
+  (global $current (mut f32) (f32.const 85.0))
+  (global $dist (mut f32) (f32.const 0.0))
+  (global $nextRow (mut f32) (f32.const 240.0))  ;; distance at which the next row spawns
+  (global $overclock (mut f32) (f32.const 0.0))
+  (global $stun (mut f32) (f32.const 0.0))
+  ;; Which lanes the row currently being built has already blocked, one bit
+  ;; per lane. Lives across the calls $spawn_row makes rather than being
+  ;; threaded through them, and is cleared when the row is finished.
+  (global $rowMask (mut i32) (i32.const 0))
+  ;; The lane the guaranteed path runs through. It wanders by at most one lane
+  ;; per row and no part may ever cover it — see $spawn_row.
+  (global $pathLane (mut i32) (i32.const 2))
+  ;; The gauntlet in progress (0 = none, 1-3 as above), how many of its rows
+  ;; have been laid, which way the serpentine is sweeping, and the distance at
+  ;; which its last row will have passed the runner.
+  (global $gauntlet (mut i32) (i32.const 0))
+  (global $gRow (mut i32) (i32.const 0))
+  (global $gDir (mut i32) (i32.const 1))
+  (global $gEnd (mut f32) (f32.const 0.0))
+  (global $gHit (mut i32) (i32.const 0))
+  (global $gCount (mut i32) (i32.const 0))
+  (global $nextGauntlet (mut f32) (f32.const 4000.0))
+
+  ;; input, as reported by set_input each frame
+  (global $moveIn (mut i32) (i32.const 0))       ;; -1, 0 or 1, edge-triggered
+
+  ;; Event counters. JavaScript diffs these between frames to decide what to
+  ;; play and what to shake — the engine never calls out, so a counter is the
+  ;; whole notification channel. They only ever increase.
+  (global $switches (mut i32) (i32.const 0))
+  (global $hits (mut i32) (i32.const 0))
+  (global $charges (mut i32) (i32.const 0))
+  (global $boosts (mut i32) (i32.const 0))
+  (global $rows (mut i32) (i32.const 0))
+  (global $gauntlets (mut i32) (i32.const 0))     ;; one began
+  (global $gauntletClears (mut i32) (i32.const 0)) ;; one ended without a hit
+
+  ;; ---------------- helpers ----------------
+
+  (func $part_addr (param $i i32) (result i32)
+    (i32.add (global.get $PARTS_OFF) (i32.mul (local.get $i) (global.get $PART_STRIDE))))
+  (func $pickup_addr (param $i i32) (result i32)
+    (i32.add (global.get $PICKUPS_OFF) (i32.mul (local.get $i) (global.get $PICKUP_STRIDE))))
+
+  (func $rand_f32 (result f32)
+    (local $x i32)
+    (local.set $x (global.get $rng))
+    (local.set $x (i32.xor (local.get $x) (i32.shl (local.get $x) (i32.const 13))))
+    (local.set $x (i32.xor (local.get $x) (i32.shr_u (local.get $x) (i32.const 17))))
+    (local.set $x (i32.xor (local.get $x) (i32.shl (local.get $x) (i32.const 5))))
+    (global.set $rng (local.get $x))
+    (f32.div (f32.convert_i32_u (local.get $x)) (f32.const 4294967296.0)))
+
+  (func $frand (param $lo f32) (param $hi f32) (result f32)
+    (f32.add (local.get $lo) (f32.mul (call $rand_f32) (f32.sub (local.get $hi) (local.get $lo)))))
+
+  ;; The clamp is not belt and braces. $rand_f32 divides a u32 by 2^32 in f32,
+  ;; and f32 has 24 bits of mantissa: the top 128 states round *up* to exactly
+  ;; 1.0, so one call in ~33 million returns n instead of n-1. Everything that
+  ;; number reaches here is an index — a lane, a kind — and one of them is the
+  ;; guarantee this whole engine is built on: $spawn_row walks $pathLane by
+  ;; `rand_below(3) - 1`, and a 2 there moves the path two lanes in one row,
+  ;; which is the sequence the board is specifically constructed never to
+  ;; produce. Clamping here rather than in $rand_f32 leaves the RNG stream
+  ;; untouched, so every tuning number measured against it still holds.
+  (func $rand_below (param $n i32) (result i32)
+    (call $clampi
+      (i32.trunc_f32_s (call $frand (f32.const 0.0) (f32.convert_i32_s (local.get $n))))
+      (i32.const 0) (i32.sub (local.get $n) (i32.const 1))))
+
+  (func $clampf (param $v f32) (param $lo f32) (param $hi f32) (result f32)
+    (local $r f32)
+    (local.set $r (local.get $v))
+    (if (f32.lt (local.get $r) (local.get $lo)) (then (local.set $r (local.get $lo))))
+    (if (f32.gt (local.get $r) (local.get $hi)) (then (local.set $r (local.get $hi))))
+    (local.get $r))
+
+  (func $clampi (param $v i32) (param $lo i32) (param $hi i32) (result i32)
+    (local $r i32)
+    (local.set $r (local.get $v))
+    (if (i32.lt_s (local.get $r) (local.get $lo)) (then (local.set $r (local.get $lo))))
+    (if (i32.gt_s (local.get $r) (local.get $hi)) (then (local.set $r (local.get $hi))))
+    (local.get $r))
+
+  ;; Centre of a lane. Lane 0 is the leftmost trace.
+  (func $lane_x (param $lane i32) (result f32)
+    (f32.mul (f32.add (f32.convert_i32_s (local.get $lane)) (f32.const 0.5))
+             (global.get $LANE_W)))
+
+  (func $overlap (param $ax f32) (param $ay f32) (param $ahw f32) (param $ahh f32)
+                 (param $bx f32) (param $by f32) (param $bhw f32) (param $bhh f32) (result i32)
+    (i32.and
+      (f32.lt (f32.abs (f32.sub (local.get $ax) (local.get $bx)))
+              (f32.add (local.get $ahw) (local.get $bhw)))
+      (f32.lt (f32.abs (f32.sub (local.get $ay) (local.get $by)))
+              (f32.add (local.get $ahh) (local.get $bhh)))))
+
+  (func $runner_x (result f32) (f32.load (global.get $RUNNER_OFF)))
+
+  ;; How many 1000px units have been travelled, as a float.
+  (func $km (result f32)
+    (f32.div (global.get $dist) (f32.const 1000.0)))
+
+  (func $speed (result f32)
+    (call $clampf
+      (f32.add (global.get $SPEED_BASE) (f32.mul (call $km) (global.get $SPEED_PER_KM)))
+      (global.get $SPEED_BASE) (global.get $SPEED_CAP)))
+
+  (func $row_gap (result f32)
+    (call $clampf
+      (f32.sub (global.get $ROW_GAP) (f32.mul (call $km) (global.get $ROW_GAP_STEP)))
+      (global.get $ROW_GAP_MIN) (global.get $ROW_GAP)))
+
+  ;; Half-width of a part covering `span` lanes.
+  ;;
+  ;; The 26px inset is a geometry constraint, not a style choice. A runner
+  ;; sliding between two lanes passes through the boundary, 80px from the
+  ;; blocked lane's centre; for that crossing not to clip, the part's half-width
+  ;; plus the runner's 22 must stay under 80. At the first build's 16px inset it
+  ;; was 64 + 22 = 86, so *passing* a blocked lane hit it — which meant a free
+  ;; lane two across with a blocked lane between was unreachable, and the bench
+  ;; took a hit every two seconds while playing correctly. 26 gives 54 + 22 = 76
+  ;; and four pixels of margin.
+  (func $part_half_w (param $span i32) (result f32)
+    (f32.sub (f32.mul (f32.convert_i32_s (local.get $span)) (f32.mul (global.get $LANE_W) (f32.const 0.5)))
+             (f32.const 26.0)))
+
+  (func $part_cx (param $lane i32) (param $span i32) (result f32)
+    (f32.mul (f32.add (f32.convert_i32_s (local.get $lane))
+                      (f32.mul (f32.convert_i32_s (local.get $span)) (f32.const 0.5)))
+             (global.get $LANE_W)))
+
+  (func $add_score (param $n f32)
+    (global.set $score (f32.add (global.get $score) (local.get $n))))
+
+  ;; Is this part lethal right now? Only a capacitor is ever anything but yes.
+  (func $part_live (param $a i32) (result i32)
+    (if (result i32) (f32.eq (f32.load offset=12 (local.get $a)) (f32.const 1.0))
+      (then (f32.ne (f32.load offset=28 (local.get $a)) (f32.const 0.0)))
+      (else (i32.const 1))))
+
+  ;; ---------------- spawning ----------------
+
+  (func $spawn_part (param $lane i32) (param $kind i32) (param $span i32)
+    (local $i i32) (local $a i32)
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $lp
+        (br_if $done (i32.ge_s (local.get $i) (global.get $MAX_PARTS)))
+        (local.set $a (call $part_addr (local.get $i)))
+        (if (f32.eq (f32.load offset=16 (local.get $a)) (f32.const 0.0))
+          (then
+            (f32.store offset=0 (local.get $a) (call $part_cx (local.get $lane) (local.get $span)))
+            (f32.store offset=4 (local.get $a) (f32.const -60.0))
+            (f32.store offset=8 (local.get $a) (f32.convert_i32_s (local.get $lane)))
+            (f32.store offset=12 (local.get $a) (f32.convert_i32_s (local.get $kind)))
+            (f32.store offset=16 (local.get $a) (f32.const 1.0))
+            (f32.store offset=20 (local.get $a) (f32.convert_i32_s (local.get $span)))
+            ;; A capacitor arrives with a random phase so a row of them is a
+            ;; pattern to read rather than a single wall blinking in unison.
+            (f32.store offset=24 (local.get $a)
+              (call $frand (f32.const 0.1) (global.get $CAP_PERIOD)))
+            (f32.store offset=28 (local.get $a)
+              (if (result f32) (i32.lt_s (call $rand_below (i32.const 2)) (i32.const 1))
+                (then (f32.const 0.0)) (else (f32.const 1.0))))
+            (return)))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $lp))))
+
+  (func $spawn_pickup (param $lane i32) (param $kind i32)
+    (local $i i32) (local $a i32)
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $lp
+        (br_if $done (i32.ge_s (local.get $i) (global.get $MAX_PICKUPS)))
+        (local.set $a (call $pickup_addr (local.get $i)))
+        (if (f32.eq (f32.load offset=16 (local.get $a)) (f32.const 0.0))
+          (then
+            (f32.store offset=0 (local.get $a) (call $lane_x (local.get $lane)))
+            (f32.store offset=4 (local.get $a) (f32.const -40.0))
+            (f32.store offset=8 (local.get $a) (f32.convert_i32_s (local.get $lane)))
+            (f32.store offset=12 (local.get $a) (f32.convert_i32_s (local.get $kind)))
+            (f32.store offset=16 (local.get $a) (f32.const 1.0))
+            (f32.store offset=20 (local.get $a) (call $frand (f32.const 0.0) (f32.const 6.0)))
+            (return)))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $lp))))
+
+  ;; How many lanes a row is allowed to block. Two of six at the start, rising
+  ;; to three — never four, because at 2200px of ramp per step a fourth blocked
+  ;; lane arrives at a board speed where the two open lanes left are further
+  ;; apart than the slide can cross between rows, and a gap that cannot be
+  ;; reached is not a gap.
+  (func $max_blocked (result i32)
+    (call $clampi
+      (i32.add (i32.const 2) (i32.trunc_f32_s (f32.div (call $km) (f32.const 2.2))))
+      (i32.const 2) (i32.const 3)))
+
+  ;; Which kinds are in play. Resistors from the start; capacitors once the
+  ;; player has had a stretch to learn the lane slide; the two-lane parts after
+  ;; that, because they are the ones that force a decision early.
+  (func $kinds_in_play (result i32)
+    (if (result i32) (f32.lt (call $km) (f32.const 0.9))
+      (then (i32.const 1))
+      (else (if (result i32) (f32.lt (call $km) (f32.const 2.0))
+        (then (i32.const 2))
+        (else (i32.const 4))))))
+
+  ;; One row of board: some lanes blocked, and usually something to collect in
+  ;; a lane that is not.
+  ;;
+  ;; **Every row leaves a path, and the path moves by at most one lane.** Rows
+  ;; generated independently can be individually fair and collectively
+  ;; impossible: at the speed cap there is time to cross about one and a half
+  ;; lanes between rows, so two consecutive rows whose gaps are three lanes
+  ;; apart cannot be threaded by anything. The first build did exactly that and
+  ;; the bench took a hit every two seconds — not because any row was unfair,
+  ;; but because the *sequence* was. Reserving a wandering lane that no part may
+  ;; cover makes the board passable by construction, and leaves the difficulty
+  ;; where it belongs: in reading which lane that is, and in what it costs to
+  ;; leave it for a charge.
+  (func $spawn_row
+    (local $blocked i32) (local $n i32) (local $tries i32)
+    (local $lane i32) (local $kind i32) (local $span i32) (local $free i32)
+    (global.set $pathLane
+      (call $clampi
+        (i32.add (global.get $pathLane) (i32.sub (call $rand_below (i32.const 3)) (i32.const 1)))
+        (i32.const 0) (i32.sub (global.get $LANES) (i32.const 1))))
+    (local.set $n (i32.add (i32.const 1) (call $rand_below (call $max_blocked))))
+    (local.set $blocked (i32.const 0))
+    (local.set $tries (i32.const 0))
+
+    (block $done
+      (loop $lp
+        (br_if $done (i32.ge_s (local.get $blocked) (local.get $n)))
+        (br_if $done (i32.gt_s (local.get $tries) (i32.const 24)))
+        (local.set $tries (i32.add (local.get $tries) (i32.const 1)))
+
+        (local.set $kind (call $rand_below (call $kinds_in_play)))
+        (local.set $span
+          (if (result i32) (i32.ge_s (local.get $kind) (i32.const 2))
+            (then (i32.const 2)) (else (i32.const 1))))
+        (local.set $lane (call $rand_below (i32.sub (global.get $LANES) (i32.sub (local.get $span) (i32.const 1)))))
+
+        ;; Would this take the row past its budget? Skip it rather than
+        ;; shrinking it — a two-lane part that became one-lane would make the
+        ;; kinds unreadable.
+        (br_if $lp (i32.gt_s (i32.add (local.get $blocked) (local.get $span)) (local.get $n)))
+        ;; Never cover the path lane, and never overlap a lane this row has
+        ;; already taken — the second would spend the budget twice.
+        (br_if $lp (i32.ne (i32.and (call $span_mask (local.get $lane) (local.get $span))
+                                    (i32.shl (i32.const 1) (global.get $pathLane)))
+                           (i32.const 0)))
+        (br_if $lp (i32.ne (i32.and (global.get $rowMask)
+                                    (call $span_mask (local.get $lane) (local.get $span)))
+                           (i32.const 0)))
+
+        (global.set $rowMask
+          (i32.or (global.get $rowMask) (call $span_mask (local.get $lane) (local.get $span))))
+        (call $spawn_part (local.get $lane) (local.get $kind) (local.get $span))
+        (local.set $blocked (i32.add (local.get $blocked) (local.get $span)))
+        (br $lp)))
+
+    ;; Something to collect, in a lane this row left open.
+    (local.set $free (call $free_lane_near_runner))
+    (if (i32.ge_s (local.get $free) (i32.const 0))
+      (then
+        (if (f32.lt (call $rand_f32) (f32.const 0.85))
+          (then
+            (call $spawn_pickup (local.get $free)
+              (if (result i32) (f32.lt (call $rand_f32) (f32.const 0.12))
+                (then (i32.const 1)) (else (i32.const 0))))))))
+
+    (global.set $rowMask (i32.const 0))
+    (global.set $rows (i32.add (global.get $rows) (i32.const 1))))
+
+  ;; Bit per lane, `span` lanes wide starting at `lane`.
+  (func $span_mask (param $lane i32) (param $span i32) (result i32)
+    (i32.shl (i32.sub (i32.shl (i32.const 1) (local.get $span)) (i32.const 1)) (local.get $lane)))
+
+  ;; An open lane for this row's pickup, searched outward from wherever the
+  ;; runner is standing.
+  ;;
+  ;; Choosing uniformly at random — the first build — put most charges in lanes
+  ;; the runner could not reach in time, and the bench collected two out of ten.
+  ;; That is not a difficult economy, it is a lottery. Searching outward means
+  ;; the charge is almost always one or two lanes away, so it *competes* with
+  ;; the safe lane instead of being a gift: the interesting rows are the ones
+  ;; where the charge is on the far side of a part.
+  (func $free_lane_near_runner (result i32)
+    (local $d i32) (local $home i32) (local $l i32)
+    (local.set $home (i32.trunc_f32_s (f32.load offset=4 (global.get $RUNNER_OFF))))
+    (local.set $d (i32.const 0))
+    (block $done
+      (loop $lp
+        (br_if $done (i32.gt_s (local.get $d) (global.get $LANES)))
+        ;; left then right at each distance, so ties do not always resolve the
+        ;; same way and a wall of rows does not drag the runner to one edge
+        (local.set $l (i32.sub (local.get $home) (local.get $d)))
+        (if (i32.and (i32.ge_s (local.get $l) (i32.const 0))
+                     (i32.eqz (i32.and (global.get $rowMask)
+                                       (i32.shl (i32.const 1) (local.get $l)))))
+          (then (return (local.get $l))))
+        (local.set $l (i32.add (local.get $home) (local.get $d)))
+        (if (i32.and (i32.lt_s (local.get $l) (global.get $LANES))
+                     (i32.eqz (i32.and (global.get $rowMask)
+                                       (i32.shl (i32.const 1) (local.get $l)))))
+          (then (return (local.get $l))))
+        (local.set $d (i32.add (local.get $d) (i32.const 1)))
+        (br $lp)))
+    (i32.const -1))
+
+  ;; ---------------- gauntlets ----------------
+
+  ;; The spacing between gauntlet rows. **Not the board's own**, and that is
+  ;; the finding that shaped this feature. A gauntlet leaves one lane open,
+  ;; so every move of the path is forced, and a move is only safe if the
+  ;; runner crosses the lane boundary while neither row overlaps it: that
+  ;; clear stretch is the row gap less 112px (a part's 60 plus the runner's
+  ;; 52), and the slide takes 0.18s. At 14km the board's own gap left 76px of
+  ;; it at 502px/s — 0.15s, less than the slide — and the capacitor bank, the
+  ;; gauntlet that lands there, was cleared once in nineteen tries while the
+  ;; serpentine at 4km was cleared 23 in 25. Same shape rules, different
+  ;; board speed. So a gauntlet row is spaced for 112px plus the distance
+  ;; the board covers in $G_SLACK seconds, or the board's gap if that is wider.
+  (func $gauntlet_gap (result f32)
+    (f32.max (call $row_gap)
+             (f32.add (f32.const 112.0) (f32.mul (call $speed) (global.get $G_SLACK)))))
+
+  (func $g_length (param $g i32) (result i32)
+    (if (result i32) (i32.eq (local.get $g) (i32.const 1)) (then (i32.const 8)) (else (i32.const 6))))
+
+  ;; Block every lane from `from` to `to` inclusive with the fewest parts:
+  ;; chips (two lanes) where two fit, a resistor where one is left over. Few
+  ;; parts matters — a row of five single parts, five rows deep, would fill
+  ;; the 24-part pool, and a full pool silently drops parts, which here would
+  ;; open a lane the shape did not mean to.
+  (func $g_fill (param $from i32) (param $to i32) (param $one i32)
+    (local $l i32)
+    (local.set $l (local.get $from))
+    (block $done
+      (loop $lp
+        (br_if $done (i32.gt_s (local.get $l) (local.get $to)))
+        (if (i32.le_s (i32.add (local.get $l) (i32.const 1)) (local.get $to))
+          (then
+            (call $spawn_part (local.get $l) (i32.const 2) (i32.const 2))
+            (local.set $l (i32.add (local.get $l) (i32.const 2))))
+          (else
+            (call $spawn_part (local.get $l) (local.get $one) (i32.const 1))
+            (local.set $l (i32.add (local.get $l) (i32.const 1)))))
+        (br $lp))))
+
+  ;; One row of the running gauntlet. The path is moved first, by the
+  ;; gauntlet's own rule, never more than one lane.
+  (func $gauntlet_row
+    (local $p i32) (local $side i32)
+    (if (i32.eq (global.get $gauntlet) (i32.const 1))
+      (then
+        ;; the serpentine: sweep, and turn at the edges
+        (if (i32.or (i32.lt_s (i32.add (global.get $pathLane) (global.get $gDir)) (i32.const 0))
+                    (i32.ge_s (i32.add (global.get $pathLane) (global.get $gDir)) (global.get $LANES)))
+          (then (global.set $gDir (i32.sub (i32.const 0) (global.get $gDir)))))
+        (global.set $pathLane (i32.add (global.get $pathLane) (global.get $gDir)))))
+    (if (i32.eq (global.get $gauntlet) (i32.const 3))
+      (then
+        ;; the bank wanders like an ordinary row
+        (global.set $pathLane
+          (call $clampi
+            (i32.add (global.get $pathLane) (i32.sub (call $rand_below (i32.const 3)) (i32.const 1)))
+            (i32.const 0) (i32.sub (global.get $LANES) (i32.const 1))))))
+    ;; the bus holds its lane
+    (local.set $p (global.get $pathLane))
+
+    (if (i32.eq (global.get $gauntlet) (i32.const 3))
+      (then
+        ;; capacitors either side of the path, chips beyond them
+        (if (i32.gt_s (local.get $p) (i32.const 0))
+          (then (call $spawn_part (i32.sub (local.get $p) (i32.const 1)) (i32.const 1) (i32.const 1))))
+        (if (i32.lt_s (local.get $p) (i32.sub (global.get $LANES) (i32.const 1)))
+          (then (call $spawn_part (i32.add (local.get $p) (i32.const 1)) (i32.const 1) (i32.const 1))))
+        (call $g_fill (i32.const 0) (i32.sub (local.get $p) (i32.const 2)) (i32.const 0))
+        (call $g_fill (i32.add (local.get $p) (i32.const 2)) (i32.sub (global.get $LANES) (i32.const 1)) (i32.const 0))
+        ;; a charge in a capacitor lane: take it when the gate is down
+        (if (i32.and (global.get $gRow) (i32.const 1))
+          (then
+            (local.set $side (if (result i32) (i32.gt_s (local.get $p) (i32.const 0))
+              (then (i32.sub (local.get $p) (i32.const 1))) (else (i32.add (local.get $p) (i32.const 1)))))
+            (call $spawn_pickup (local.get $side) (i32.const 0)))))
+      (else
+        ;; the serpentine and the bus: every lane but the path is closed
+        (call $g_fill (i32.const 0) (i32.sub (local.get $p) (i32.const 1)) (i32.const 0))
+        (call $g_fill (i32.add (local.get $p) (i32.const 1)) (i32.sub (global.get $LANES) (i32.const 1)) (i32.const 0))
+        ;; charge on the path: every other row in the serpentine, every
+        ;; third on the bus, which is long and straight and would otherwise
+        ;; refill the meter just for staying still
+        (if (i32.eqz (i32.rem_u (global.get $gRow)
+                                (if (result i32) (i32.eq (global.get $gauntlet) (i32.const 1))
+                                  (then (i32.const 2)) (else (i32.const 3)))))
+          (then (call $spawn_pickup (local.get $p) (i32.const 0))))))
+
+    (global.set $gRow (i32.add (global.get $gRow) (i32.const 1)))
+    (global.set $rows (i32.add (global.get $rows) (i32.const 1)))
+    (if (i32.ge_s (global.get $gRow) (call $g_length (global.get $gauntlet)))
+      (then
+        ;; the last row spawns at y -60 and must travel to the runner and past
+        (global.set $gEnd (f32.add (global.get $dist) (f32.const 700.0))))))
+
+  ;; ---------------- the runner ----------------
+
+  (func $set_input (export "set_input") (param $move i32)
+    (global.set $moveIn (call $clampi (local.get $move) (i32.const -1) (i32.const 1))))
+
+  (func $step_runner (param $dt f32)
+    (local $x f32) (local $target i32) (local $tx f32) (local $step f32)
+
+    (if (f32.gt (global.get $stun) (f32.const 0.0))
+      (then (global.set $stun (f32.sub (global.get $stun) (local.get $dt)))))
+
+    ;; A lane change is refused while stunned and while one is already in
+    ;; progress. Queueing them would let a player type ahead through a row they
+    ;; have not seen yet, which is the whole skill being tested.
+    (local.set $target (i32.trunc_f32_s (f32.load offset=8 (global.get $RUNNER_OFF))))
+    (if (i32.and
+          (i32.ne (global.get $moveIn) (i32.const 0))
+          (i32.and (f32.le (global.get $stun) (f32.const 0.0))
+                   (f32.lt (f32.abs (f32.sub (call $runner_x) (call $lane_x (local.get $target))))
+                           (f32.const 6.0))))
+      (then
+        (local.set $target
+          (call $clampi (i32.add (local.get $target) (global.get $moveIn))
+                        (i32.const 0) (i32.sub (global.get $LANES) (i32.const 1))))
+        (if (i32.ne (local.get $target)
+                    (i32.trunc_f32_s (f32.load offset=8 (global.get $RUNNER_OFF))))
+          (then
+            (f32.store offset=8 (global.get $RUNNER_OFF) (f32.convert_i32_s (local.get $target)))
+            (global.set $switches (i32.add (global.get $switches) (i32.const 1)))))))
+
+    ;; Slide toward the target lane at a fixed rate.
+    (local.set $x (call $runner_x))
+    (local.set $tx (call $lane_x (local.get $target)))
+    (local.set $step (f32.mul (global.get $SLIDE_SPEED) (local.get $dt)))
+    (if (f32.le (f32.abs (f32.sub (local.get $tx) (local.get $x))) (local.get $step))
+      (then (local.set $x (local.get $tx)))
+      (else
+        (if (f32.gt (local.get $tx) (local.get $x))
+          (then (local.set $x (f32.add (local.get $x) (local.get $step))))
+          (else (local.set $x (f32.sub (local.get $x) (local.get $step)))))))
+    (f32.store offset=0 (global.get $RUNNER_OFF) (local.get $x))
+    (f32.store offset=4 (global.get $RUNNER_OFF) (f32.convert_i32_s (local.get $target))))
+
+  (func $take_hit (param $a i32)
+    (global.set $hits (i32.add (global.get $hits) (i32.const 1)))
+    (if (global.get $gauntlet) (then (global.set $gHit (i32.const 1))))
+    (global.set $stun (global.get $STUN_TIME))
+    (global.set $overclock (f32.const 0.0))
+    ;; The part is consumed. Leaving it live would re-trigger every frame the
+    ;; runner overlapped it, which at 26 current a hit is the whole meter in
+    ;; under a second and reads as a bug rather than a mistake.
+    (f32.store offset=16 (local.get $a) (f32.const 0.0))
+    (global.set $current
+      (call $clampf (f32.sub (global.get $current) (global.get $HIT_COST))
+                    (f32.const 0.0) (global.get $CURRENT_MAX)))
+    (if (f32.le (global.get $current) (f32.const 0.0))
+      (then (global.set $gameOver (i32.const 1)))))
+
+  ;; ---------------- the board ----------------
+
+  (func $step_parts (param $dt f32)
+    (local $i i32) (local $a i32) (local $y f32) (local $sp f32) (local $hw f32)
+    (local.set $sp (call $speed))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $lp
+        (br_if $done (i32.ge_s (local.get $i) (global.get $MAX_PARTS)))
+        (local.set $a (call $part_addr (local.get $i)))
+        (if (f32.gt (f32.load offset=16 (local.get $a)) (f32.const 0.0))
+          (then
+            (local.set $y (f32.add (f32.load offset=4 (local.get $a))
+                                   (f32.mul (local.get $sp) (local.get $dt))))
+            (f32.store offset=4 (local.get $a) (local.get $y))
+
+            ;; A capacitor flips between charged and discharged on its own
+            ;; clock, independent of the board speed — so a faster board gives
+            ;; you fewer flips to read, not slower ones.
+            (if (f32.eq (f32.load offset=12 (local.get $a)) (f32.const 1.0))
+              (then
+                (f32.store offset=24 (local.get $a)
+                  (f32.sub (f32.load offset=24 (local.get $a)) (local.get $dt)))
+                (if (f32.le (f32.load offset=24 (local.get $a)) (f32.const 0.0))
+                  (then
+                    (f32.store offset=24 (local.get $a) (global.get $CAP_PERIOD))
+                    (f32.store offset=28 (local.get $a)
+                      (f32.sub (f32.const 1.0) (f32.load offset=28 (local.get $a))))))))
+
+            (if (f32.gt (local.get $y) (f32.add (global.get $WORLD_H) (f32.const 60.0)))
+              (then (f32.store offset=16 (local.get $a) (f32.const 0.0)))
+              (else
+                (if (i32.and (call $part_live (local.get $a))
+                             (f32.le (global.get $stun) (f32.const 0.0)))
+                  (then
+                    (local.set $hw (call $part_half_w
+                      (i32.trunc_f32_s (f32.load offset=20 (local.get $a)))))
+                    (if (call $overlap
+                          (call $runner_x) (global.get $RUNNER_Y)
+                          (global.get $RUNNER_HALF_W) (global.get $RUNNER_HALF_H)
+                          (f32.load offset=0 (local.get $a)) (local.get $y)
+                          (local.get $hw) (global.get $PART_HALF_H))
+                      (then (call $take_hit (local.get $a))))))))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $lp))))
+
+  (func $step_pickups (param $dt f32)
+    (local $i i32) (local $a i32) (local $y f32) (local $sp f32) (local $kind i32)
+    (local.set $sp (call $speed))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $lp
+        (br_if $done (i32.ge_s (local.get $i) (global.get $MAX_PICKUPS)))
+        (local.set $a (call $pickup_addr (local.get $i)))
+        (if (f32.gt (f32.load offset=16 (local.get $a)) (f32.const 0.0))
+          (then
+            (local.set $y (f32.add (f32.load offset=4 (local.get $a))
+                                   (f32.mul (local.get $sp) (local.get $dt))))
+            (f32.store offset=4 (local.get $a) (local.get $y))
+            (if (f32.gt (local.get $y) (f32.add (global.get $WORLD_H) (f32.const 40.0)))
+              (then (f32.store offset=16 (local.get $a) (f32.const 0.0)))
+              (else
+                (if (call $overlap
+                      (call $runner_x) (global.get $RUNNER_Y)
+                      (global.get $RUNNER_HALF_W) (global.get $RUNNER_HALF_H)
+                      (f32.load offset=0 (local.get $a)) (local.get $y)
+                      (global.get $PICKUP_HALF) (global.get $PICKUP_HALF))
+                  (then
+                    (local.set $kind (i32.trunc_f32_s (f32.load offset=12 (local.get $a))))
+                    (f32.store offset=16 (local.get $a) (f32.const 0.0))
+                    (if (i32.eq (local.get $kind) (i32.const 1))
+                      (then
+                        (global.set $overclock (global.get $OVERCLOCK_TIME))
+                        (global.set $boosts (i32.add (global.get $boosts) (i32.const 1))))
+                      (else
+                        (global.set $current (call $clampf
+                          (f32.add (global.get $current) (global.get $CHARGE_GAIN))
+                          (f32.const 0.0) (global.get $CURRENT_MAX)))
+                        (call $add_score (global.get $SCORE_CHARGE))
+                        (global.set $charges
+                          (i32.add (global.get $charges) (i32.const 1)))))))))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $lp))))
+
+  ;; ---------------- state machine ----------------
+
+  (func $clear_pool (param $off i32) (param $stride i32) (param $count i32) (param $activeOff i32)
+    (local $i i32)
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $lp
+        (br_if $done (i32.ge_s (local.get $i) (local.get $count)))
+        (f32.store
+          (i32.add (i32.add (local.get $off) (i32.mul (local.get $i) (local.get $stride)))
+                   (local.get $activeOff))
+          (f32.const 0.0))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $lp))))
+
+  ;; Copy one column of the difficulty table into the globals the rest of the
+  ;; engine reads. Called only from init, so a run never changes balance halfway
+  ;; through. Normal restates the initialisers, because a restart after an Easy
+  ;; or Hard run has to put them back.
+  (func $apply_difficulty
+    (if (i32.eqz (global.get $difficulty))
+      (then   ;; easy
+        (global.set $ROW_GAP_STEP (f32.const 5.0))
+        (global.set $ROW_GAP_MIN (f32.const 195.0))
+        (global.set $SPEED_PER_KM (f32.const 14.0))
+        (global.set $SPEED_CAP (f32.const 640.0))
+        (global.set $DRAIN_BASE (f32.const 2.8))
+        (global.set $HIT_COST (f32.const 16.0)))
+      (else
+        (if (i32.eq (global.get $difficulty) (i32.const 2))
+          (then   ;; hard
+            (global.set $ROW_GAP_STEP (f32.const 11.0))
+            (global.set $ROW_GAP_MIN (f32.const 150.0))
+            (global.set $SPEED_PER_KM (f32.const 22.0))
+            (global.set $SPEED_CAP (f32.const 640.0))
+            (global.set $DRAIN_BASE (f32.const 3.9))
+            (global.set $HIT_COST (f32.const 24.0)))
+          (else   ;; normal
+            (global.set $ROW_GAP_STEP (f32.const 8.0))
+            (global.set $ROW_GAP_MIN (f32.const 172.0))
+            (global.set $SPEED_PER_KM (f32.const 18.0))
+            (global.set $SPEED_CAP (f32.const 640.0))
+            (global.set $DRAIN_BASE (f32.const 3.4))
+            (global.set $HIT_COST (f32.const 20.0)))))))
+
+  ;; 0 easy, 1 normal, 2 hard; anything else is clamped rather than trusted, and
+  ;; a JavaScript call with no argument arrives as 0. Takes effect at the next
+  ;; init().
+  (func $set_difficulty (export "set_difficulty") (param $d i32)
+    (if (i32.lt_s (local.get $d) (i32.const 0)) (then (local.set $d (i32.const 0))))
+    (if (i32.gt_s (local.get $d) (i32.const 2)) (then (local.set $d (i32.const 2))))
+    (global.set $difficulty (local.get $d)))
+  (func $get_difficulty (export "get_difficulty") (result i32) (global.get $difficulty))
+
+  (func $init (export "init")
+    ;; first, because the current set below and the first row both read it
+    (call $apply_difficulty)
+    (global.set $rng (i32.const 1597334677))
+    (global.set $gameOver (i32.const 0))
+    (global.set $score (f32.const 0.0))
+    (global.set $current (global.get $CURRENT_START))
+    (global.set $dist (f32.const 0.0))
+    (global.set $overclock (f32.const 0.0))
+    (global.set $stun (f32.const 0.0))
+    (global.set $moveIn (i32.const 0))
+    (global.set $rowMask (i32.const 0))
+    (global.set $pathLane (i32.const 2))
+    (global.set $switches (i32.const 0))
+    (global.set $hits (i32.const 0))
+    (global.set $charges (i32.const 0))
+    (global.set $boosts (i32.const 0))
+    (global.set $rows (i32.const 0))
+    (global.set $gauntlets (i32.const 0))
+    (global.set $gauntletClears (i32.const 0))
+    (global.set $gauntlet (i32.const 0))
+    (global.set $gCount (i32.const 0))
+    (global.set $nextGauntlet (f32.mul (global.get $G_FIRST_KM) (f32.const 1000.0)))
+    (call $clear_pool (global.get $PARTS_OFF) (global.get $PART_STRIDE)
+                      (global.get $MAX_PARTS) (i32.const 16))
+    (call $clear_pool (global.get $PICKUPS_OFF) (global.get $PICKUP_STRIDE)
+                      (global.get $MAX_PICKUPS) (i32.const 16))
+    ;; The first row is a long way off. An endless runner that starts with an
+    ;; obstacle on screen is asking for a reaction before the player has found
+    ;; the controls.
+    (global.set $nextRow (f32.const 420.0))
+    (f32.store offset=0 (global.get $RUNNER_OFF) (call $lane_x (i32.const 2)))
+    (f32.store offset=4 (global.get $RUNNER_OFF) (f32.const 2.0))
+    (f32.store offset=8 (global.get $RUNNER_OFF) (f32.const 2.0))
+    (f32.store offset=12 (global.get $RUNNER_OFF) (f32.const 0.0))
+    (f32.store offset=16 (global.get $RUNNER_OFF) (f32.const 1.0)))
+
+  (func $step (export "step") (param $dt f32)
+    (local $d f32) (local $sp f32) (local $mult f32)
+    (if (i32.ne (global.get $gameOver) (i32.const 0)) (then (return)))
+    (local.set $d (call $clampf (local.get $dt) (f32.const 0.0) (f32.const 0.05)))
+    (local.set $sp (call $speed))
+
+    (call $step_runner (local.get $d))
+
+    (global.set $dist (f32.add (global.get $dist) (f32.mul (local.get $sp) (local.get $d))))
+
+    ;; Distance is the score, doubled while overclocked.
+    (local.set $mult (if (result f32) (f32.gt (global.get $overclock) (f32.const 0.0))
+      (then (f32.const 2.0)) (else (f32.const 1.0))))
+    (call $add_score (f32.mul (f32.mul (f32.mul (local.get $sp) (local.get $d))
+                                       (global.get $SCORE_PER_PX))
+                              (local.get $mult)))
+    (if (f32.gt (global.get $overclock) (f32.const 0.0))
+      (then (global.set $overclock (f32.sub (global.get $overclock) (local.get $d)))))
+
+    ;; Current drains with speed. This is the whole economy: the board gets
+    ;; faster whether you like it or not, so the same route costs more the
+    ;; further you get and you have to keep collecting to stand still.
+    (global.set $current
+      (call $clampf
+        (f32.sub (global.get $current)
+          (f32.mul (f32.mul (global.get $DRAIN_BASE)
+                            (f32.div (local.get $sp) (global.get $SPEED_BASE)))
+                   (local.get $d)))
+        (f32.const 0.0) (global.get $CURRENT_MAX)))
+    (if (f32.le (global.get $current) (f32.const 0.0))
+      (then (global.set $gameOver (i32.const 1)) (return)))
+
+    ;; A gauntlet is due: the next rows are its shape, not the generator's.
+    (if (i32.and (f32.ge (global.get $dist) (global.get $nextGauntlet))
+                 (i32.eqz (global.get $gauntlet)))
+      (then
+        (global.set $nextGauntlet (f32.add (global.get $nextGauntlet)
+                                           (f32.mul (global.get $G_EVERY_KM) (f32.const 1000.0))))
+        (global.set $gauntlet (i32.add (i32.rem_u (global.get $gCount) (i32.const 3)) (i32.const 1)))
+        (global.set $gCount (i32.add (global.get $gCount) (i32.const 1)))
+        (global.set $gRow (i32.const 0))
+        (global.set $gHit (i32.const 0))
+        (global.set $gEnd (f32.const 1e30))
+        (global.set $gDir (if (result i32) (i32.lt_s (global.get $pathLane) (i32.const 3))
+                            (then (i32.const 1)) (else (i32.const -1))))
+        (global.set $gauntlets (i32.add (global.get $gauntlets) (i32.const 1)))
+        ;; A lead-in: one row's worth of empty board before the shape starts.
+        ;; A gauntlet opens only the path lane, and a runner standing in some
+        ;; other open lane of the last ordinary row can be several lanes from
+        ;; it — the slow pilot's hits in the bus, which never moves, were all
+        ;; on the way in. The name is on screen by now; this is the time to act
+        ;; on it.
+        (global.set $nextRow (f32.add (global.get $nextRow) (call $gauntlet_gap)))))
+
+    (if (f32.ge (global.get $dist) (global.get $nextRow))
+      (then
+        (global.set $nextRow (f32.add (global.get $nextRow)
+          (if (result f32) (i32.ne (global.get $gauntlet) (i32.const 0))
+            (then (call $gauntlet_gap)) (else (call $row_gap)))))
+        ;; (i32.ne ... 0), not the id itself: i32.and is bitwise, and the
+        ;; bus is gauntlet 2, so "2 and 1" is 0. The first draft wrote it that
+        ;; way and the bus never laid a row — and, below, never ended — which
+        ;; left the board empty from 9km on. The bench found it by a pilot
+        ;; that lived oddly long doing nothing.
+        (if (i32.and (i32.ne (global.get $gauntlet) (i32.const 0))
+                     (i32.lt_s (global.get $gRow) (call $g_length (global.get $gauntlet))))
+          (then (call $gauntlet_row))
+          (else
+            ;; between the gauntlet's last row and its end, the board stays
+            ;; clear, so the clean bonus is decided by the shape alone
+            (if (i32.eqz (global.get $gauntlet)) (then (call $spawn_row)))))))
+
+    ;; The gauntlet's last row is behind the runner: settle up.
+    (if (i32.and (i32.ne (global.get $gauntlet) (i32.const 0))
+                 (f32.ge (global.get $dist) (global.get $gEnd)))
+      (then
+        (if (i32.eqz (global.get $gHit))
+          (then
+            (global.set $gauntletClears (i32.add (global.get $gauntletClears) (i32.const 1)))
+            (call $add_score (global.get $SCORE_GAUNTLET))
+            (global.set $current (call $clampf
+              (f32.add (global.get $current) (global.get $G_REFILL))
+              (f32.const 0.0) (global.get $CURRENT_MAX)))))
+        (global.set $gauntlet (i32.const 0))))
+
+    (call $step_parts (local.get $d))
+    (if (i32.ne (global.get $gameOver) (i32.const 0)) (then (return)))
+    (call $step_pickups (local.get $d)))
+
+  ;; ---------------- readers ----------------
+
+  (func $get_score (export "get_score") (result f32) (global.get $score))
+  (func $get_current (export "get_current") (result f32) (global.get $current))
+  (func $get_current_max (export "get_current_max") (result f32) (global.get $CURRENT_MAX))
+  (func $get_dist (export "get_dist") (result f32) (global.get $dist))
+  (func $get_speed (export "get_speed") (result f32) (call $speed))
+  (func $get_speed_base (export "get_speed_base") (result f32) (global.get $SPEED_BASE))
+  (func $get_runner_x (export "get_runner_x") (result f32) (call $runner_x))
+  (func $get_runner_y (export "get_runner_y") (result f32) (global.get $RUNNER_Y))
+  (func $get_lane (export "get_lane") (result i32)
+    (i32.trunc_f32_s (f32.load offset=4 (global.get $RUNNER_OFF))))
+  (func $get_lanes (export "get_lanes") (result i32) (global.get $LANES))
+  (func $get_lane_w (export "get_lane_w") (result f32) (global.get $LANE_W))
+  (func $get_stun (export "get_stun") (result f32) (global.get $stun))
+  (func $get_overclock (export "get_overclock") (result f32) (global.get $overclock))
+  (func $is_game_over (export "is_game_over") (result i32) (global.get $gameOver))
+  (func $get_switches (export "get_switches") (result i32) (global.get $switches))
+  (func $get_hits (export "get_hits") (result i32) (global.get $hits))
+  (func $get_charges (export "get_charges") (result i32) (global.get $charges))
+  (func $get_boosts (export "get_boosts") (result i32) (global.get $boosts))
+  (func $get_rows (export "get_rows") (result i32) (global.get $rows))
+  (func $get_gauntlets (export "get_gauntlets") (result i32) (global.get $gauntlets))
+  (func $get_gauntlet_clears (export "get_gauntlet_clears") (result i32) (global.get $gauntletClears))
+  ;; Which gauntlet is running, 0-3; the widget owns the names, since a name
+  ;; is presentation, and keys them off this.
+  (func $get_gauntlet (export "get_gauntlet") (result i32) (global.get $gauntlet))
+)

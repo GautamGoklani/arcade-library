@@ -1,0 +1,340 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>11 · Beyond the browser</title>
+<meta name="description" content="11 · Beyond the browser — part of the WebAssembly course in the arcade-library repository.">
+<link rel="icon" href="../games/pixel-wave/logo.svg">
+<style>
+:root {
+  --bg: #fbfaf7; --panel: #ffffff; --sunk: #f2f0ea;
+  --fg: #14130f; --soft: #4a4842; --muted: #7a776e;
+  --line: rgba(20,19,15,.12); --accent: #b23a18; --accent-wash: rgba(178,58,24,.07);
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121110; --panel: #1a1917; --sunk: #232220;
+    --fg: #f4f2ed; --soft: #b5b1a8; --muted: #86827a;
+    --line: rgba(244,242,237,.14); --accent: #e0714b; --accent-wash: rgba(224,113,75,.12);
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 16px/1.7 var(--sans); -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 52rem; margin: 0 auto; padding: clamp(1.5rem,4vw,3rem) clamp(1.1rem,4vw,2rem) 5rem; }
+.wide { max-width: 64rem; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+h1 { font-size: clamp(1.8rem,4.5vw,2.6rem); line-height: 1.12; letter-spacing: -.025em; margin: 0 0 1.2rem; }
+h2 { font-size: clamp(1.3rem,3vw,1.6rem); letter-spacing: -.015em; margin: 3rem 0 1rem; padding-top: 1.4rem; border-top: 1px solid var(--line); }
+h3 { font-size: 1.12rem; margin: 2rem 0 .7rem; }
+h4 { font-size: 1rem; margin: 1.5rem 0 .5rem; }
+p, ul, ol { margin: 0 0 1.05rem; }
+ul, ol { padding-left: 1.4rem; }
+li { margin-bottom: .4rem; }
+li > ul, li > ol { margin-top: .4rem; }
+strong { font-weight: 650; }
+hr { border: 0; border-top: 1px solid var(--line); margin: 2.5rem 0; }
+blockquote {
+  margin: 0 0 1.05rem; padding: .1rem 0 .1rem 1.1rem;
+  border-left: 3px solid var(--accent); color: var(--soft);
+}
+code {
+  font: .87em/1.5 var(--mono);
+  background: var(--sunk); border: 1px solid var(--line); border-radius: 4px;
+  padding: .1em .35em; overflow-wrap: anywhere;
+}
+pre {
+  background: var(--sunk); border: 1px solid var(--line); border-radius: 10px;
+  padding: 1rem 1.15rem; overflow-x: auto; margin: 0 0 1.4rem;
+}
+pre code { background: none; border: 0; padding: 0; font-size: .84rem; line-height: 1.65; overflow-wrap: normal; }
+/* Wide content scrolls inside its own box; the page body never scrolls sideways. */
+.table-scroll { overflow-x: auto; margin: 0 0 1.4rem; border: 1px solid var(--line); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+th, td { text-align: left; padding: .6rem .85rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { background: var(--sunk); font-weight: 600; white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+img { max-width: 100%; height: auto; }
+
+/* ---- chrome ---- */
+.bar {
+  position: sticky; top: 0; z-index: 5;
+  display: flex; flex-wrap: wrap; align-items: center; gap: .4rem 1rem;
+  padding: .7rem clamp(1.1rem,4vw,2rem);
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(12px); border-bottom: 1px solid var(--line);
+  font-size: .82rem;
+}
+@supports not (background: color-mix(in srgb, red 50%, transparent)) { .bar { background: var(--bg); } }
+.bar a { color: var(--soft); }
+.bar .sep { color: var(--muted); }
+.bar .here { color: var(--fg); font-weight: 600; }
+.eyebrow {
+  font: 500 .7rem/1 var(--mono); letter-spacing: .16em; text-transform: uppercase;
+  color: var(--muted); margin: 0 0 .9rem;
+}
+.pager {
+  display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between;
+  margin-top: 3.5rem; padding-top: 1.5rem; border-top: 1px solid var(--line); font-size: .9rem;
+}
+.pager span { display: block; font: 500 .65rem/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-bottom: .2rem; }
+.pager .next { text-align: right; margin-left: auto; }
+
+/* ---- index ---- */
+.lede { font-size: 1.06rem; color: var(--soft); margin-bottom: 2rem; }
+.part { margin-top: 2.6rem; }
+.part h2 { margin-top: 0; border-top: 0; padding-top: 0; }
+.part > p { color: var(--muted); font-size: .92rem; margin-bottom: 1.1rem; }
+.toc { list-style: none; padding: 0; margin: 0; display: grid; gap: .5rem; }
+.toc a {
+  display: grid; grid-template-columns: 2.4rem 1fr; gap: .8rem; align-items: baseline;
+  padding: .8rem 1rem; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--panel); color: var(--fg);
+}
+.toc a:hover { border-color: var(--accent); text-decoration: none; background: var(--accent-wash); }
+.toc .n { font: 500 .78rem/1.4 var(--mono); color: var(--accent); }
+.toc .t { font-weight: 600; font-size: .97rem; }
+.toc .d { display: block; color: var(--muted); font-size: .85rem; font-weight: 400; margin-top: .15rem; }
+.routes { display: grid; gap: .5rem; grid-template-columns: repeat(auto-fit,minmax(15rem,1fr)); margin-bottom: 2.5rem; }
+.route { padding: .9rem 1rem; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.route strong { display: block; font-size: .93rem; margin-bottom: .2rem; }
+.route span { color: var(--muted); font-size: .85rem; }
+</style>
+</head>
+<body>
+<nav class="bar">
+  <a href="../index.html">Arcade Library</a>
+  <span class="sep">/</span>
+  <a href="index.html">WebAssembly course</a> <span class="sep">/</span> <span class="here">Beyond the browser</span>
+</nav>
+<main class="wrap ">
+<h1>11 · Beyond the browser</h1>
+<p>WebAssembly&#39;s name has become the least accurate thing about it. Nothing in the
+specification mentions the web, and the fastest-growing deployments are
+server-side.</p>
+<p>The reason is the property from <a href="01-what-is-webassembly.html">chapter 1</a>: a module
+has <strong>no ambient authority</strong>. It cannot open a file, make a connection, read a
+clock or spawn a thread unless something hands it a function that does. For a
+browser that is a security necessity. For a plugin host, an edge runtime or a
+multi-tenant platform it is exactly the isolation model you would have designed
+anyway — and it comes with microsecond startup instead of a container&#39;s
+hundreds of milliseconds.</p>
+<hr>
+<h2>WASI</h2>
+<p><strong>The WebAssembly System Interface</strong> is a standard set of imports for the things
+a program normally gets from an operating system: files, clocks, random numbers,
+environment variables, sockets.</p>
+<p>Crucially it is <strong>capability-based</strong>. There is no global filesystem. A module
+receives <em>pre-opened directory handles</em> from the runtime and can reach nothing
+outside them:</p>
+<pre><code class="language-bash">wasmtime run --dir=./data app.wasm      # ./data is the entire visible filesystem
+wasmtime run app.wasm                    # no filesystem at all
+</code></pre>
+<p>That single design decision is why WASI is interesting. A native binary given a
+path can read anything the user can; a WASI module given a path can read that
+path.</p>
+<p>Two versions are in play:</p>
+<p><strong>Preview 1</strong> (<code>wasi_snapshot_preview1</code>) — the widely-deployed one. A flat set
+of POSIX-ish function imports. Supported everywhere, stable, and what
+<code>GOOS=wasip1</code> and Rust&#39;s <code>wasm32-wasip1</code> target.</p>
+<p><strong>Preview 2 / WASI 0.2</strong> — rebuilt on the Component Model (below), with
+interfaces defined in WIT rather than as raw imports. Adds proper networking,
+HTTP, and composable interfaces. This is the direction, and adoption is
+underway.</p>
+<h3>Runtimes</h3>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Runtime</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Wasmtime</strong></td>
+<td>The Bytecode Alliance reference. Cranelift JIT, excellent WASI support, embeddable from Rust/C/Python/Go</td>
+</tr>
+<tr>
+<td><strong>Wasmer</strong></td>
+<td>Multiple compiler backends, a package registry, strong embedding story</td>
+</tr>
+<tr>
+<td><strong>WasmEdge</strong></td>
+<td>CNCF project; AI/ML extensions, tuned for edge and serverless</td>
+</tr>
+<tr>
+<td><strong>wazero</strong></td>
+<td>Pure Go, zero CGO. The obvious choice for embedding in a Go program</td>
+</tr>
+<tr>
+<td><strong>wasm3 / WAMR</strong></td>
+<td>Interpreters for microcontrollers. WAMR runs in tens of kilobytes</td>
+</tr>
+<tr>
+<td><strong>Node.js / Deno / Bun</strong></td>
+<td>All ship WASI support behind a flag or an import</td>
+</tr>
+</tbody></table>
+</div><pre><code class="language-bash">rustup target add wasm32-wasip1
+cargo build --target wasm32-wasip1 --release
+wasmtime target/wasm32-wasip1/release/app.wasm
+</code></pre>
+<p>That binary runs unmodified on Linux, macOS, Windows and ARM. &quot;Compile once,
+run anywhere&quot; is an old promise, but the artefact here is 200 KB rather than a
+JVM.</p>
+<hr>
+<h2>Edge and serverless</h2>
+<p>The economics are startup time. A V8 isolate boots in ~5 ms; a wasm instance in
+tens of <em>microseconds</em>; a container in hundreds of milliseconds. When you are
+billing per request and cold-starting constantly, that is the whole argument.</p>
+<ul>
+<li><strong>Fastly Compute</strong> — wasm-native, Lucet then Wasmtime. Sub-millisecond cold
+start, and the platform that made the case first.</li>
+<li><strong>Cloudflare Workers</strong> — primarily V8 isolates, with wasm supported inside a
+Worker. Handy for a CPU-heavy step in an otherwise JS handler.</li>
+<li><strong>Vercel, Deno Deploy, AWS Lambda (via a custom runtime), Azure</strong> — all have
+a wasm path.</li>
+<li><strong>Spin</strong> (Fermyon) — a framework for wasm microservices, WASI-native.</li>
+<li><strong>wasmCloud</strong> — a CNCF distributed application platform built on components.</li>
+</ul>
+<p>The recurring shape: your handler is a wasm module, the platform supplies HTTP
+in and out as imports, and there is no process, no container and no filesystem
+unless you asked.</p>
+<hr>
+<h2>Plugin systems</h2>
+<p>This is arguably wasm&#39;s best fit anywhere, and the list of adopters is long
+because the alternative — loading a native <code>.so</code> into your process — has no
+safe version.</p>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Product</th>
+<th>Uses wasm for</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Envoy / Istio</strong></td>
+<td>HTTP filters, written in any language, sandboxed from the proxy</td>
+</tr>
+<tr>
+<td><strong>Figma</strong></td>
+<td>Plugins, with a hard memory and CPU budget per plugin</td>
+</tr>
+<tr>
+<td><strong>Shopify Functions</strong></td>
+<td>Merchant-supplied logic in the checkout path</td>
+</tr>
+<tr>
+<td><strong>Zellij, Lapce, Zed</strong></td>
+<td>Editor and terminal extensions</td>
+</tr>
+<tr>
+<td><strong>Redpanda, TiDB, SingleStore</strong></td>
+<td>User-defined functions inside the database</td>
+</tr>
+<tr>
+<td><strong>Suborbital, Extism</strong></td>
+<td>Frameworks for making <em>your</em> app pluggable</td>
+</tr>
+</tbody></table>
+</div><p><strong>Extism</strong> is worth a specific mention: it is a plugin framework that gives you
+host SDKs for a dozen languages and plugin SDKs for a dozen more, so &quot;let users
+extend this&quot; becomes a dependency rather than a project.</p>
+<p>The properties that make it work: per-instance memory caps, deterministic
+execution, fuel metering (charge the guest per instruction and cut it off), and
+a capability list you control. None of those are available for a native plugin.</p>
+<hr>
+<h2>The Component Model</h2>
+<p>The MVP&#39;s interface vocabulary is four number types. Everything richer — a
+string, a record, a list, an optional — is a private convention between a module
+and its host, which is why <code>wasm-bindgen</code> glue only works with <code>wasm-bindgen</code>
+modules.</p>
+<p>The <strong>Component Model</strong> fixes this. Interfaces are described in <strong>WIT</strong>
+(WebAssembly Interface Types):</p>
+<pre><code class="language-wit">package arcade:engine@1.0.0;
+
+interface world {
+  record vec2 { x: f32, y: f32 }
+
+  record entity {
+    position: vec2,
+    velocity: vec2,
+    heading: f32,
+    alive: bool,
+  }
+
+  step: func(dt: f32);
+  entities: func() -&gt; list&lt;entity&gt;;
+  set-input: func(rotate: s32, thrust: bool, fire: bool);
+}
+
+world engine {
+  import host-math: interface { sin: func(x: f32) -&gt; f32 }
+  export world;
+}
+</code></pre>
+<p>From that one file, <code>wit-bindgen</code> generates bindings for Rust, C, Go,
+JavaScript, Python and more. A component written in Rust can be composed with a
+component written in Go, with the types checked at composition time, and neither
+knows the other&#39;s language.</p>
+<p>What it gives you:</p>
+<ul>
+<li><strong>Language-agnostic interfaces</strong> — real strings, records, lists, variants,
+results</li>
+<li><strong>Composition</strong> — components link to each other, not just to a host</li>
+<li><strong>Virtualisation</strong> — a component that imports <code>wasi:filesystem</code> can be handed a
+<em>different component</em> implementing it, with no code change. That is a
+remarkably clean way to sandbox or mock</li>
+<li><strong>Versioned, semver-aware interfaces</strong></li>
+</ul>
+<p>Status: stabilised for WASI 0.2, tooling maturing fast (<code>wasm-tools</code>,
+<code>jco</code> for JavaScript, <code>cargo-component</code>). Browser support for components is not
+there yet — <code>jco transpile</code> produces a JS shim in the meantime.</p>
+<p>If you are betting on where wasm goes next, this is the thing to read about.</p>
+<hr>
+<h2>Embedded and IoT</h2>
+<p><strong>WAMR</strong> (WebAssembly Micro Runtime) runs on microcontrollers in tens of
+kilobytes of RAM, with an interpreter, an AOT compiler and an XIP mode for
+running from flash. <strong>wasm3</strong> is a fast pure interpreter in similar territory.</p>
+<p>The pitch is over-the-air updates for heterogeneous fleets: ship one wasm
+module to devices with three different CPU architectures, sandboxed from the
+firmware, with a memory budget you set. Compared to shipping native code to a
+field device, the safety argument is strong.</p>
+<hr>
+<h2>Blockchain</h2>
+<p>Several chains use wasm as their smart-contract VM — NEAR, Polkadot
+(via <code>pallet-contracts</code>), CosmWasm, Internet Computer. The attraction is
+determinism and metering: wasm&#39;s float semantics are bit-exact
+(<a href="03-numbers-and-operations.html">chapter 3</a>), and a runtime can charge per
+instruction precisely.</p>
+<p>Included for completeness. It is a real deployment surface, but the constraints
+there (gas metering, no floats in some chains, chain-specific host functions)
+generalise poorly to everything else in this chapter.</p>
+<hr>
+<h2>What this means for a browser developer</h2>
+<p>Two things worth taking away even if you never leave the browser.</p>
+<p><strong>Your wasm module is more portable than you think.</strong> A module that imports only
+what it truly needs will run under Wasmtime, on Fastly, inside Envoy and on a
+microcontroller. The engines in this repository import <code>sinf</code> and <code>cosf</code> — supply
+those from any host and they run there. That is not an accident of these
+engines; it is what a narrow import surface buys.</p>
+<p><strong>Design the import surface as a capability list.</strong> Ask what the module would be
+able to do if it were hostile, and the answer is &quot;exactly what you imported&quot;.
+That framing improves browser code too — it is the same discipline that keeps
+the boundary narrow for performance reasons in
+<a href="07-javascript-interop.html">chapter 7</a>.</p>
+
+<nav class="pager">
+  <a href="10-source-languages.html"><span>Previous</span>Source languages</a>
+  <a href="index.html">Contents</a>
+  <a class="next" href="12-security-model.html"><span>Next</span>The security model</a>
+</nav>
+</main>
+</body>
+</html>

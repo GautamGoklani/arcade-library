@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>PULSE</title>
+<link rel="icon" href="logo.svg">
+<link rel="stylesheet" href="pulse.css">
+<style>
+/* -----------------------------------------------------------------------
+   Standalone page shell.
+
+   Same shape as the other titles' index.html, and for the same reason: the
+   widget fills its container, which is what an embedder wants, and this page
+   is nothing but the game, so the binding constraint is the window's *height*.
+
+   `--pl-max-width` is the widget's hook for exactly this. Cap it by the height
+   left over after the HUD and the help line, converted through the 4:3 aspect
+   ratio.
+   --------------------------------------------------------------------- */
+html, body { margin: 0; background: #08060f; min-height: 100%; }
+
+body {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100dvh;
+  padding: clamp(0.5rem, 2vw, 1.25rem);
+  box-sizing: border-box;
+}
+
+.pl-root {
+  --chrome: 9rem;                              /* HUD + widget help + padding */
+  --pl-max-width: min(1000px, calc((100dvh - var(--chrome)) * 1.3333));
+}
+
+@media (max-height: 32rem) {
+  .pl-root { --chrome: 6rem; }
+}
+</style>
+</head>
+<body>
+
+<div id="game"></div>
+
+<script src="pulse.js"></script>
+<!-- Best scores for the hub. Hosting, not game: the widget does not know this
+     exists, and if the file is missing — a game folder copied out on its own —
+     the game runs exactly as before. See ../../hiscores.js. -->
+<script src="../../hiscores.js"></script>
+<script>
+  var game = Pulse.mount('#game');
+  // One best per difficulty. Normal keeps the plain slug, so a best set before
+  // difficulty existed is still Normal's, and the hub card goes on showing it.
+  if (window.ArcadeScores) ArcadeScores.watch(function (st) {
+    return st.difficulty && st.difficulty !== 'normal' ? 'pulse:' + st.difficulty : 'pulse';
+  }, game);
+</script>
+
+</body>
+</html>

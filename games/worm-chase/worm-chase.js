@@ -1,0 +1,1033 @@
+/* ============================================================
+ * WORM CHASE — embeddable arcade widget
+ * Engine: hand-written WebAssembly (see game.wat)
+ * Renderer/Input/Sound: this file (canvas 2D, keyboard + touch)
+ *
+ * Usage:
+ *   <link rel="stylesheet" href="worm-chase.css">
+ *   <div id="game"></div>
+ *   <script src="worm-chase.js"><\/script>
+ *   <script>
+ *     var game = WormChase.mount(document.getElementById('game'));
+ *     // game.restart(); game.destroy(); game.getState();
+ *   <\/script>
+ *
+ * Host page should include (for mobile):
+ *   <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+ *
+ * Self-contained by design: no imports, no shared modules with any other game
+ * in this repo, no network requests at runtime. The engine is embedded below
+ * as base64 and everything it needs — sprites, sound, DOM — is in this file.
+ * ============================================================ */
+(function (global) {
+  'use strict';
+
+  // ---- constants: MUST match the memory layout in game.wat ----
+  var COLS = 32, ROWS = 24, CELL = 30;
+  var WORLD_W = COLS * CELL, WORLD_H = ROWS * CELL;   // 960 x 720
+  var CELLS = COLS * ROWS;
+  var GRID_OFF = 0, CELL_STRIDE = 4;
+  var CHASER_OFF = 6144, CHASER_STRIDE = 32, MAX_CHASERS = 8;
+  var CAPSULE_OFF = 6400, CAPSULE_STRIDE = 24, MAX_CAPSULES = 2;
+  // Field positions inside each record — bytes for a cell, i32 slots for a
+  // chaser — the `@fields` lines in game.wat, copied. Every read goes through
+  // this table rather than a bare `u8[a + 3]`, so scripts/check-layout.mjs can
+  // see a field that moved.
+  var FIELD = {
+    cell: { state: 0, hazard: 1, mark: 2, epoch: 3 },
+    chaser: { cx: 0, cy: 1, pcx: 2, pcy: 3, dx: 4, dy: 5, active: 6, kind: 7 },
+    capsule: { col: 0, row: 1, kind: 2, life: 3, active: 4, pad: 5 },
+  };
+  var PXS = 3;  // chunky pixel scale for the ASCII sprites: 8 glyphs -> 24px
+  var LOW_SCALE = 3;  // 1/3-size buffer, blown up — see the retro adapter in mount()
+
+  var WASM_B64 = "AGFzbQEAAAABMgpgAn9/AX9gAX8Bf2AAAX9gAAF9YAN9fX0BfWADf39/AX9gAX0AYAAAYAF/AGACf38AA09OAAEBAQAAAAACAQIDAwQFAwMCBgcHBwcHAQcABwgHBgcHCAIHCQgJCQcHBwcHBwcJAAcCBgMDAgICAgICAgICAgICAwMCAgICAgICAgMDBQMBAAEG6gNPfwBBIAt/AEEYC38AQYAGC38AQQALfwBBBAt/AEGAGAt/AEGAMAt/AEEgC38AQQgLfwBBgDILfwBBGAt/AEECC38AQQALfwBBAQt/AEECC30AQylcDz4LfQBDCtejOwt9AEO8dJM9C30BQ7gehT4LfQFDWDk0PAt9AUM9Ctc9C30BQwAAoEALfwFBAQt/AUEEC38BQQILfwFBBgt/AUEeC38BQQQLfwFByAALfwBBAgt9AEMAAIBAC30AQwAAoEELfQBDAAAWQwt/AEEEC30AQwAA+kMLfwFBAAt/AUEAC30AQwAAekMLfwFBopnalnkLfwFBAQt/AUEAC30BQwAAAAALfQFDAACgQAt/AUEAC38BQQALfwFBAQt/AUEAC38BQQALfwFBAAt/AUEAC38BQQALfwFBAAt/AUEAC38BQQALfwFBAAt9AUMAAAAAC30BQwAAAAALfwFBAAt/AUEAC38BQQALfwFBAAt/AUEAC38BQQALfwFBAAt/AUEAC38BQQALfwFBAAt9AEMAAMBAC30AQwAAEEELfQBDAABwQQt9AEMAAEBBC30AQ83MDD8LfQBDAACAQAt9AEMAAKBAC30AQ5qZGT8LfwFB04XYzAQLfQFDAADAQAt9AUMAAAAAC30BQwAAAAALB7IDIAZtZW1vcnkCAA5zZXRfZGlmZmljdWx0eQAhDmdldF9kaWZmaWN1bHR5ACIEaW5pdAAjCXNldF9pbnB1dAAkBHN0ZXAAMwlnZXRfc2NvcmUANAlnZXRfbGl2ZXMANQlnZXRfbGV2ZWwANglnZXRfb3duZWQANwpnZXRfdGFyZ2V0ADgJZ2V0X3RvdGFsADkNZ2V0X3RyYWlsX2xlbgA6DGlzX2dhbWVfb3ZlcgA7CmdldF9oZWFkX3gAPApnZXRfaGVhZF95AD0KZ2V0X3ByZXZfeAA+CmdldF9wcmV2X3kAPwlnZXRfZGlyX3gAQAlnZXRfZGlyX3kAQQ1nZXRfdGlja19mcmFjAEIOZ2V0X2NoYXNlX2ZyYWMAQxFnZXRfY2FwdHVyZV9jb3VudABEEWdldF9jYXB0dXJlX2NlbGxzAEUKZ2V0X2RlYXRocwBGCWdldF9raWxscwBHCWdldF9kcm9wcwBICWdldF9ncmFicwBJC2dldF9odW50ZXJzAEoQZ2V0X2h1bnRlcl9raWxscwBLDGdldF9mcmVlemVfdABMC2dldF9zdXJnZV90AE0K1SJOEAAjAyABIwBsIABqIwRsagsKACMDIAAjBGxqCwoAIwYgACMHbGoLEgAgAEEASAR/QQAgAGsFIAALCxkAIABBAE4gACMASHEgAUEATiABIwFIcXELCwAgACABEAAtAAALCwAgACABEAAtAAELFwAgACMAQQJtaxADIAEjAUECbWsQA2oLMwEBfyMmIQAgACAAQQ10cyEAIAAgAEERdnMhACAAIABBBXRzIQAgACQmIABB/////wdxCwcAEAggAHALMwEBfyNLIQAgACAAQQ10cyEAIAAgAEERdnMhACAAIABBBXRzIQAgACRLIABB/////wdxCwsAEAqzQwAAAE+VCw0AI0QQCyNFI0STlJILIgEBfSAAIQMgAyABXQRAIAEhAwsgAyACXgRAIAIhAwsgAwsiAQF/IAAhAyADIAFIBEAgASEDCyADIAJKBEAgAiEDCyADCywBAX0jDyMnQQFrsiMQlJMjESMPEA0hACNOQwAAAABeBEAgACNKlCEACyAACxQAIxIjJ0EBa7IjE5STIxQjEhANCx0BAX8jGiMnIxtsaiMaIxwQDiEAIwIgAGxB5ABtCwkAIykgAJIkKQsnAQF/QQAhAAJAA0AgACMCTg0BIAAQAUEANgIAIABBAWohAAwACwsLbwEFfyMAQQJtIQIjAUECbSEDIAMjHWshAQJAA0AgASADIx1qSg0BIAIjHWshAAJAA0AgACACIx1qSg0BIAAgARAAIQQgBCMNOgAAIARBAToAAyMrQQFqJCsgAEEBaiEADAALCyABQQFqIQEMAAsLC3gBBX8jGCMnQQFrIxlsaiMYQeAAEA4hAEEAIQECQANAIABBAEwNASABQaAfSg0BIAFBAWohASMAEAkhAiMBEAkhAyACIAMQACEEIAQtAAAjDEYgBC0AAUUgAiADEAdBBUpxcQRAIARBAToAASAAQQFrIQALDAALCwvxAQEHf0EBIydBAWtBAmwjF21qQQEjCBAOIQEjJyMhb0UhBiAGBEAgAUEBakEBIwgQDiEBI0FBAWokQQtBACEAAkADQCAAIwhODQEgABACIQIgAkEANgIYIAIgBiAAIAFBAWtGcTYCHCAAIAFIBEBBACEFAkADQCAFQfQDSg0BIAVBAWohBSMAEAkhAyMBEAkhBCADIAQQBSMMRw0AIAMgBBAGQQBHDQAgAyAEEAdBCUgNACACIAM2AgAgAiAENgIEIAIgAzYCCCACIAQ2AgwgAkEANgIQIAJBADYCFCACQQE2AhgLCwsgAEEBaiEADAALCwtxAQJ/IwIQCSEAQQAhAQJAA0AgASMCTg0BIAAQAS0AACMNRgRAIAAjAHAkLiAAIwBuJC8MAgsgAEEBaiMCcCEAIAFBAWohAQwACwsjLiQwIy8kMUEAJDJBACQzQQAkNEEAJDVDAAAAACQ3QwAAAAAkOAsKACMJIAAjCmxqCyoBAX9BACEAAkADQCAAIwtODQEgABAYQwAAAAA4AhAgAEEBaiEADAALCwtLAQJ/QQAhAgJAA0AgAiMLTg0BIAIQGCEDIAMqAhBDAAAAAF4gAyoCAKggAEYgAyoCBKggAUZxcQRAIAIPCyACQQFqIQIMAAsLQX8LoQIBCH9BACEAAkADQCAAIwtODQEgABAYKgIQQwAAAABbDQEgAEEBaiEADAALCyAAIwtOBEAPC0EAIQQCQANAIARBPEoNASAEQQFqIQQQCiMAcCECEAojAXAhAyACIAMQBSMMRw0AIAIgAxAGQQBHDQAgAiADEBpBAE4NACACIy5rEAMgAyMvaxADakEESA0AQQEhB0EAIQUCQANAIAUjCE4NASAFEAIhBiAGKAIYQQBHIAYoAgAgAkYgBigCBCADRnFxBEBBACEHCyAFQQFqIQUMAAsLIAdFDQAgABAYIQEgASACsjgCACABIAOyOAIEIAEQCyNHXQR9QwAAAAAFQwAAgD8LOAIIIAEjRjgCDCABQwAAgD84AhAjP0EBaiQ/CwsLMgEBfyAAEBghASABKgIIQwAAAABbBEAjSCRNBSNJJE4LIAFDAAAAADgCECNAQQFqJEALSAECf0EAIQACQANAIAAjC04NASAAEBghASABKgIQQwAAAABeIAEqAgCoIAEqAgSoEAUjDUZxBEAgABAcCyAAQQFqIQAMAAsLC4kBAQJ/I00gAJNDAAAAAJckTSNOIACTQwAAAACXJE5BACEBAkADQCABIwtODQEgARAYIQIgAioCEEMAAAAAXgRAIAIgAioCDCAAkzgCDCACKgIMQwAAAABfBEAgAkMAAAAAOAIQCwsgAUEBaiEBDAALCyNMIACTJEwjTEMAAAAAXwRAEBsQDCRMCwswAEEAJCtBACQ2QQEkLRATEBQQFRAWEBEkLBAZQwAAAAAkTUMAAAAAJE4jQyRMEBcLsAEAIxZFBEBDAADgQCQVQ3sUrj4kEkO8dBM8JBNDKVwPPiQUQQYkF0ECJBhBBCQZQRokGkEDJBtBPCQcBSMWQQJGBEBDAABAQCQVQ83MTD4kEkNCYGU8JBNDexSuPSQUQQMkF0EEJBhBCCQZQSIkGkEFJBtB0AAkHAVDAACgQCQVQ7gehT4kEkNYOTQ8JBNDPQrXPSQUQQQkF0ECJBhBBiQZQR4kGkEEJBtByAAkHAsLCx4AIABBAEgEQEEAIQALIABBAkoEQEECIQALIAAkFgsEACMWC0EAECBBopnalnkkJkEBJCdBACQoQwAAAAAkKSMVJCpBACQ7QQAkPEEAJD1BACQ+QQAkP0EAJEBBACRBQQAkQhAfC2IAIABFIAFFcQRAQQAkMkEAJDNBACQ0QQAkNQ8LIABBf0EBEA4kNCABQX9BARAOJDUjNEEARyM1QQBHcQRAIzJBAEcEQEEAJDQFQQAkNQsLIzJFIzNFcQRAIzQkMiM1JDMLCxYAIwUjOkEEbGogADYCACM6QQFqJDoLLwEBfyAAIAEQACECIAItAAAjDUcgAi0AAkVxBEAgAkEBOgACIAEjAGwgAGoQJQsLEQAgACABEAQEQCAAIAEQJgsL1gEBBH9BACEAAkADQCAAIwJODQEgABABQQA6AAIgAEEBaiEADAALC0EAJDlBACQ6QQAhAgJAA0AgAiMATg0BIAJBABAmIAIjAUEBaxAmIAJBAWohAgwACwtBACEDAkADQCADIwFODQFBACADECYjAEEBayADECYgA0EBaiEDDAALCwJAA0AjOSM6Tg0BIwUjOUEEbGooAgAhASM5QQFqJDkgASMAcCECIAEjAG4hAyACQQFrIAMQJyACQQFqIAMQJyACIANBAWsQJyACIANBAWoQJwwACwsLtwIBBX9BACEAAkADQCAAIwJODQEgABABIQEgAS0AACMORgRAIAEjDToAAAsgAEEBaiEADAALCxAoIy1BBnBBAWokLUEAIQJBACEAAkADQCAAIwJODQEgABABIQEgAS0AACMNRyABLQACRXEEQCABIw06AAAgAS0AAQRAIAFBADoAASMfEBILCyABLQAAIw1GIAEtAANFcQRAIAEjLToAAyACQQFqIQILIABBAWohAAwACwsjKyACaiQrEB0gAiQ8IztBAWokO0EAJDYgArIjHpQQEkEAIQMCQANAIAMjCE4NASADEAIhBCAEKAIYQQBHBEAgBCgCACAEKAIEEAUjDUYEQCAEQQA2AhgjPkEBaiQ+IyAQEiAEKAIcBEAjQkEBaiRCIyIjIJMQEgsLCyADQQFqIQMMAAsLCzoBAn9BACEAAkADQCAAIwJODQEgABABIQEgAS0AACMORgRAIAEjDDoAAAsgAEEBaiEADAALC0EAJDYLnQEBBX9BACEAAkADQCAAIwhODQEgABACIQEgASgCGEEARwRAQQAhBAJAA0AgBEH0A0oNASAEQQFqIQQjABAJIQIjARAJIQMgAiADEAUjDUYNACACIy5rEAMgAyMvaxADakELSA0AIAEgAjYCACABIAM2AgQgASACNgIIIAEgAzYCDCABQQA2AhAgAUEANgIUCwsLIABBAWohAAwACwsLPgAjPUEBaiQ9QwAAAAAkTUMAAAAAJE4QKiMqQwAAgD+TJCojKkMAAAAAXwRAQwAAAAAkKkEBJCgFEBcQKwsLDwAjJ0EBaiQnIyUQEhAfC74BAQR/IzRBAEcjNUEAR3IEQCM0QQAjMmtGIzVBACMza0ZxRQRAIzQkMiM1JDMLCyMyRSMzRXEEQA8LIy4kMCMvJDEjLiMyaiEAIy8jM2ohASAAIAEQBEUEQBAsDwsgACABEAAhAiACLQAAIw5GBEAQLA8LIAItAAEEQBAsDwsgACQuIAEkLyAAIAEQGiEDIANBAE4EQCADEBwLIAItAAAjDUYEQCM2QQBKBEAQKQsFIAIjDjoAACM2QQFqJDYLC2wBBX8jLiQjIy8kJEGgjQYhA0EAIQICQANAIAIjAk4NASACEAEtAAAjDkYEQCACIwBwIQUgAiMAbiEGIAUgAGsQAyAGIAFrEANqIQQgBCADSARAIAQhAyAFJCMgBiQkCwsgAkEBaiECDAALCwsYACAAIAEQBEUEQEEADwsgACABEAUjDUcLjQQBCX9BACEAAkADQCAAIwhODQEgABACIQEgASgCGEEARwRAIAEoAgAhAiABKAIEIQMgASACNgIIIAEgAzYCDCM2RQRAIAEoAhAhBiABKAIUIQcgBkUgB0VxQQgQCUVyBEBBAxAJQQFrIQYgBkEARwR/QQAFQQIQCUECbEEBawshBwtBACEIAkADQCACIAZqIAMgB2oQMA0BIAhBCEoNASAIQQFqIQhBAxAJQQFrIQYgBkEARwR/QQAFQQIQCUECbEEBawshBwwACwsFIy4gAmshBCMvIANrIQUgASgCHARAIAIgAxAvIyMgAmshBCMkIANrIQULQQAhBkEAIQcgBBADIAUQA0oEQCAEQQBKBH9BAQVBfwshBgUgBUEARwRAIAVBAEoEf0EBBUF/CyEHBSAEQQBHBEAgBEEASgR/QQEFQX8LIQYLCwsgAiAGaiADIAdqEDBFBEAgBkEARwRAQQAhBiAFQQBOBH9BAQVBfwshBwVBACEHIARBAE4Ef0EBBUF/CyEGC0EAIQgCQANAIAIgBmogAyAHahAwDQEgCEEISg0BIAhBAWohCEEDEAlBAWshBiAGQQBHBH9BAAVBAhAJQQJsQQFrCyEHDAALCwsLIAIgBmogAyAHahAwBEAgASACIAZqNgIAIAEgAyAHajYCBCABIAY2AhAgASAHNgIUCwsgAEEBaiEADAALCwtcAQR/QQAhAAJAA0AgACMITg0BIAAQAiEBIAEoAhhBAEcEQCABKAIAIQIgASgCBCEDIAIjLkYgAyMvRnEgAiADEAUjDkZyBEAQLEEBDwsLIABBAWohAAwACwtBAAvhAQIBfQF/IyhBAEcEQA8LIABDAAAAAEPNzMw9EA0hASMyQQBHIzNBAEdyBEAjNyABkiQ3QQAhAgJAA0AjNxAPXQ0BIAJBBEoNASACQQFqIQIjNxAPkyQ3EC4jKEEARw0BEDINAQwACwsFIzcgAZJDAAAAABAPEA0kNwsjKEEARwRADwsjTUMAAAAAXwRAIzggAZIkOAtBACECAkADQCM4EBBdDQEgAkEESg0BIAJBAWohAiM4EBCTJDgQMSMoQQBHDQEQMg0BDAALCyMoQQBHBEAPCyABEB4jKyMsTgRAEC0LCwQAIykLBAAjKgsEACMnCwQAIysLBAAjLAsEACMCCwQAIzYLBAAjKAsEACMuCwQAIy8LBAAjMAsEACMxCwQAIzILBAAjMwsTACM3EA+VQwAAAABDAACAPxANCxMAIzgQEJVDAAAAAEMAAIA/EA0LBAAjOwsEACM8CwQAIz0LBAAjPgsEACM/CwQAI0ALBAAjQQsEACNCCwQAI00LBAAjTgs=";
+
+  // ============================================================
+  // PIXEL SPRITES (ASCII grids -> offscreen canvases)
+  // Each character is one pixel; '.' is transparent. Every row of a sprite
+  // must be the same length.
+  // ============================================================
+  function makeSprite(rows, palette, px) {
+    var w = rows[0].length, h = rows.length;
+    var cv = document.createElement('canvas');
+    cv.width = w * px; cv.height = h * px;
+    var c = cv.getContext('2d');
+    for (var y = 0; y < h; y++) {
+      for (var x = 0; x < w; x++) {
+        var ch = rows[y][x];
+        if (ch === '.') continue;
+        c.fillStyle = palette[ch];
+        c.fillRect(x * px, y * px, px, px);
+      }
+    }
+    return cv;
+  }
+
+  /**
+   * Rotate an ASCII grid a quarter turn clockwise. The head is drawn once,
+   * facing up, and the other three headings are this function applied 1, 2 and
+   * 3 times — which keeps the eyes on the leading edge without four hand-drawn
+   * sprites that would inevitably drift apart from each other.
+   */
+  function rotateRows(rows) {
+    var h = rows.length, w = rows[0].length, out = [];
+    for (var x = 0; x < w; x++) {
+      var line = '';
+      for (var y = h - 1; y >= 0; y--) line += rows[y][x];
+      out.push(line);
+    }
+    return out;
+  }
+
+  var HEAD_PAL = { L: '#9dffc0', G: '#38d97a', K: '#04140c' };
+  var headUp = [
+    '..LLLL..',
+    '.LGGGGL.',
+    'LGKGGKGL',
+    'LGKGGKGL',
+    'LGGGGGGL',
+    'LGGGGGGL',
+    '.LGGGGL.',
+    '..LLLL..',
+  ];
+
+  var CHASER_PAL = { R: '#ff4d6d', D: '#7a0f24', K: '#2b0410' };
+  var chaserRows = [
+    '..RRRR..',
+    '.RRRRRR.',
+    'RRKRRKRR',
+    'RRKRRKRR',
+    'RRRRRRRR',
+    'RDRRRRDR',
+    '.R.RR.R.',
+    'D..RR..D',
+  ];
+
+  // The hunter: a chaser with horns and a split jaw, in violet, so it reads as
+  // a different animal by shape and not only by colour. It goes for the
+  // trail rather than the head, and the player has to know which one is
+  // which at a glance.
+  var HUNTER_PAL = { R: '#d86bff', D: '#5a1a78', K: '#1e0630', W: '#ffffff' };
+  var hunterRows = [
+    'D......D',
+    'RD.RR.DR',
+    'RRRRRRRR',
+    'RKKRRKKR',
+    'RRRRRRRR',
+    'RWRWWRWR',
+    'R.R..R.R',
+    'D.D..D.D',
+  ];
+
+  var HAZARD_PAL = { H: '#ffb02e', D: '#6d3a05' };
+  var hazardRows = [
+    '...HH...',
+    '..HHHH..',
+    '.HHDDHH.',
+    'HHDDDDHH',
+    'HHDDDDHH',
+    '.HHDDHH.',
+    '..HHHH..',
+    '...HH...',
+  ];
+
+  // Capsules: one per kind, in the order of the engine's kind field (0 freeze,
+  // 1 surge). The frame is the kind's colour, and so are the HUD pips and the
+  // tint a frozen chaser takes, so a capsule and what it did read as one thing.
+  var CAPSULE_COLOURS = ['#7fd4ff', '#ffe14d'];
+  var capsuleRows = [
+    [ // freeze: a six-armed star
+      '.FFFFFF.', 'F..G...F', 'F.GGG..F', 'FGGGGG.F', 'F.GGG..F', 'F..G...F', 'F......F', '.FFFFFF.' ],
+    [ // surge: a bolt
+      '.FFFFFF.', 'F...GG.F', 'F..GG..F', 'F.GGGG.F', 'F..GG..F', 'F.GG...F', 'F......F', '.FFFFFF.' ],
+  ];
+  // A frozen chaser: the same silhouette in ice, so it still reads as a chaser.
+  var FROZEN_PAL = { R: '#bfe9ff', D: '#4a88b0', K: '#12324a' };
+
+  // Territory fill, indexed by the epoch byte the engine stamps on capture.
+  // Six shades cycling means the board records its own history: you can see
+  // which push took which ground without the engine storing a timestamp.
+  var EPOCH_FILL = ['#18382a', '#1b4032', '#1d4a3a', '#1a4744', '#204d33', '#25543d'];
+  var TERRITORY_EDGE = '#5ef08a';
+  var TRAIL_COLOR = '#7cf2ff';
+
+  function base64ToBytes(b64) {
+    var bin = atob(b64);
+    var bytes = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes;
+  }
+
+  // ============================================================
+  // SOUND — synthesised, no audio files and nothing to license.
+  // The AudioContext is created on the first real input, because browsers
+  // refuse to start audio outside a user gesture.
+  // ============================================================
+  function createSound() {
+    var ctx = null, muted = false;
+
+    function ensure() {
+      if (ctx) return ctx;
+      var AC = global.AudioContext || global.webkitAudioContext;
+      if (!AC) return null;
+      ctx = new AC();
+      return ctx;
+    }
+
+    function tone(freq, freq2, dur, type, gain) {
+      if (muted) return;
+      var c = ensure();
+      if (!c) return;
+      if (c.state === 'suspended') c.resume();
+      var o = c.createOscillator(), g = c.createGain();
+      o.type = type || 'square';
+      o.frequency.setValueAtTime(freq, c.currentTime);
+      o.frequency.exponentialRampToValueAtTime(Math.max(1, freq2), c.currentTime + dur);
+      g.gain.setValueAtTime(gain == null ? 0.05 : gain, c.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + dur);
+      o.connect(g); g.connect(c.destination);
+      o.start(); o.stop(c.currentTime + dur);
+    }
+
+    function noise(dur, gain) {
+      if (muted) return;
+      var c = ensure();
+      if (!c) return;
+      if (c.state === 'suspended') c.resume();
+      var n = Math.floor(c.sampleRate * dur);
+      var buf = c.createBuffer(1, n, c.sampleRate);
+      var d = buf.getChannelData(0);
+      for (var i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
+      var src = c.createBufferSource(), g = c.createGain();
+      src.buffer = buf;
+      g.gain.setValueAtTime(gain == null ? 0.08 : gain, c.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + dur);
+      src.connect(g); g.connect(c.destination);
+      src.start();
+    }
+
+    return {
+      turn:    function () { tone(360, 300, 0.03, 'square', 0.018); },
+      // Bigger captures sound bigger. The engine reports how many cells the
+      // last one took, and that is the only thing this needs to know.
+      capture: function (cells) {
+        var n = Math.max(1, Math.min(cells, 260));
+        tone(420 + n, 900 + n * 3, 0.14 + n / 2600, 'triangle', 0.06);
+        tone(210 + n / 2, 450 + n, 0.2, 'square', 0.03);
+      },
+      kill:    function () { tone(880, 180, 0.16, 'sawtooth', 0.06); noise(0.12, 0.06); },
+      die:     function () { tone(320, 60, 0.5, 'sawtooth', 0.07); noise(0.3, 0.09); },
+      level:   function () { tone(520, 1040, 0.3, 'triangle', 0.06); },
+      // A capsule appearing is a small, high blip: something to look for, not
+      // an alarm. Taking one is two rising notes, the way good news sounds
+      // everywhere else in the arcade.
+      // The hunter's arrival is low and rising, a warning; its fall is the
+      // biggest sound in the game, because it is the rarest good news.
+      hunter:     function () { tone(110, 220, 0.5, 'sawtooth', 0.05); },
+      hunterDown: function () { noise(0.5, 0.1); tone(880, 110, 0.6, 'square', 0.06); },
+      drop:    function () { tone(1300, 1500, 0.05, 'triangle', 0.025); },
+      grab:    function () { tone(660, 660, 0.07, 'square', 0.04); tone(990, 990, 0.12, 'square', 0.04); },
+      over:    function () { tone(240, 55, 0.9, 'sawtooth', 0.08); },
+      setMuted: function (m) { muted = m; },
+      close: function () { if (ctx && ctx.close) { try { ctx.close(); } catch (e) {} } ctx = null; },
+    };
+  }
+
+  // ============================================================
+  // MOUNT
+  // ============================================================
+  function mount(container, opts) {
+    opts = opts || {};
+    if (typeof container === 'string') container = document.querySelector(container);
+    if (!container) throw new Error('WormChase.mount: container not found');
+
+    // ---------- build DOM ----------
+    var root = document.createElement('div');
+    root.className = 'wc-root';
+    root.innerHTML =
+      '<div class="wc-hud">' +
+        '<span>SCORE <b class="wc-a" data-wc="score">0</b></span>' +
+        '<span>LIVES <b class="wc-r" data-wc="lives">5</b>' +
+        '<span class="wc-fx">' +
+          '<i class="wc-fx-f" data-wc="fxf" title="Freeze"></i>' +
+          '<i class="wc-fx-s" data-wc="fxs" title="Surge"></i>' +
+        '</span></span>' +
+        '<span>LEVEL <b class="wc-v" data-wc="level">1</b></span>' +
+        '<span>HELD <b data-wc="held">3%</b> / <span data-wc="target">34%</span></span>' +
+        '<button type="button" class="wc-mute" data-wc="mute">SOUND ON</button>' +
+        '<button type="button" class="wc-mute wc-pause" data-wc="pause">PAUSE</button>' +
+        '<button type="button" class="wc-mute wc-diff" data-wc="diff">NORMAL</button>' +
+      '</div>' +
+      '<div class="wc-stage">' +
+        '<canvas class="wc-canvas" width="' + WORLD_W + '" height="' + WORLD_H + '"></canvas>' +
+        '<div class="wc-scan" aria-hidden="true"></div>' +
+        '<div class="wc-touch" aria-hidden="true">' +
+          // The whole board is the steering zone. A worm turns on both axes, so
+          // there is no half of the screen that could be reserved for anything
+          // else, and the ring re-anchors under wherever the thumb lands rather
+          // than sitting somewhere the player has to look for.
+          '<div class="wc-stickzone" data-wc="stickzone">' +
+            '<div class="wc-stick" data-wc="stick">' +
+              '<div class="wc-stick-knob" data-wc="knob"></div>' +
+            '</div>' +
+          '</div>' +
+        '</div>' +
+        '<div class="wc-overlay wc-idle" data-wc="idle">HOLD A DIRECTION TO MOVE</div>' +
+        '<div class="wc-overlay wc-banner" data-wc="banner">LEVEL 1</div>' +
+        '<div class="wc-overlay wc-msg" data-wc="msg">GAME OVER<small data-wc="msgsmall">PRESS R TO RESTART</small></div>' +
+        '<div class="wc-overlay wc-msg wc-paused" data-wc="paused">PAUSED<small data-wc="pausedsmall">PRESS P TO RESUME</small></div>' +
+      '</div>' +
+      '<div class="wc-help" data-wc="help">' +
+        'HOLD [ARROWS]/[WASD] TO MOVE &nbsp; LEAVE YOUR LAND AND LOOP BACK TO CLAIM &nbsp; [P] PAUSE &nbsp; [R] RESTART &nbsp; [M] MUTE</div>';
+    container.appendChild(root);
+
+    var q = function (name) { return root.querySelector('[data-wc="' + name + '"]'); };
+    var canvas = root.querySelector('canvas');
+    // ---------- the retro render treatment ----------
+    // Everything below draws into `ctx`, which is no longer the canvas on the
+    // page: it is a buffer a third the size, blown up onto `screen` once per
+    // frame with smoothing off. This title predates that look and was
+    // retrofitted to match the rest of the library; see CONTRIBUTING.md, "The retro
+    // render treatment".
+    //
+    // The titles built for this resolution snap every coordinate at the call
+    // site. This one was drawn at full resolution, with bevels one and three
+    // pixels wide scattered over dozens of calls, so the snap lives in the
+    // adapter instead: fillRect and drawImage round their edges to whole
+    // low-res pixels, and a detail that would round away to nothing keeps one
+    // pixel rather than vanishing. That keeps the retrofit to this block and a
+    // handful of transform lines, and leaves the draw code as it was written.
+    var screen = canvas.getContext('2d');
+    screen.imageSmoothingEnabled = false;
+    var low = document.createElement('canvas');
+    low.width = WORLD_W / LOW_SCALE;
+    low.height = WORLD_H / LOW_SCALE;
+    var ctx = low.getContext('2d');
+    ctx.imageSmoothingEnabled = false;
+    var rawFillRect = ctx.fillRect.bind(ctx);
+    var rawDrawImage = ctx.drawImage.bind(ctx);
+    ctx.fillRect = function (x, y, w, h) {
+      var l = snap(x), t = snap(y), r = snap(x + w), b = snap(y + h);
+      if (r === l && w > 0) r = l + LOW_SCALE;
+      if (b === t && h > 0) b = t + LOW_SCALE;
+      rawFillRect(l, t, r - l, b - t);
+    };
+    ctx.drawImage = function (img, x, y) {
+      // Every call in this file uses the three-argument form.
+      if (arguments.length === 3) rawDrawImage(img, snap(x), snap(y));
+      else rawDrawImage.apply(null, arguments);
+    };
+    function snap(v) { return Math.round(v / LOW_SCALE) * LOW_SCALE; }
+    // One low-res pixel, in world units, for a transform: the base scale plus
+    // an offset that is always a whole low-res pixel, screen shake included.
+    var Z = 1 / LOW_SCALE;
+    var stage = root.querySelector('.wc-stage');
+    var hudScore = q('score'), hudLives = q('lives'), hudLevel = q('level');
+    var hudHeld = q('held'), hudTarget = q('target');
+    var msgEl = q('msg'), bannerEl = q('banner'), idleEl = q('idle'), helpEl = q('help');
+    var muteBtn = q('mute');
+    var stickZone = q('stickzone'), stickEl = q('stick'), knobEl = q('knob');
+
+    /**
+     * Which controls a visitor gets is decided per *event*, by `pointerType`,
+     * not by sniffing the device at mount — same reasoning as Grid Breaker's
+     * widget. `(pointer: coarse)` describes the *primary* pointer, so it is
+     * true on phones and false on a laptop with a touchscreen, which is the
+     * right initial guess; a first touch on any device corrects it.
+     */
+    function enableTouchUI() {
+      if (root.classList.contains('wc-is-touch')) return;
+      root.classList.add('wc-is-touch');
+      helpEl.textContent = 'HOLD AND DRAG ANYWHERE TO MOVE • LOOP BACK TO YOUR LAND TO CLAIM • TAP GAME OVER TO RESTART';
+      q('msgsmall').textContent = 'TAP TO RESTART';
+      q('pausedsmall').textContent = 'TAP TO RESUME';
+      idleEl.textContent = 'HOLD AND DRAG TO MOVE';
+    }
+    if (global.matchMedia && global.matchMedia('(pointer: coarse)').matches) enableTouchUI();
+
+    // ---------- per-instance state ----------
+    var wasm = null, u8 = null, i32 = null;
+    var destroyed = false, paused = false;
+    var rafId = 0, lastT = 0, tGlobal = 0;
+    // Which setting the next run asks for. Only the choice lives here; what a
+    // setting does is the table at the top of game.wat.
+    var DIFFICULTIES = ['easy', 'normal', 'hard'];
+    var difficulty = DIFFICULTIES.indexOf(opts.difficulty);
+    if (difficulty < 0) difficulty = 1;
+    // Gamepad, read once a frame rather than listened for: the Gamepad API only
+    // refreshes its snapshots when getGamepads() is called, so a listener would
+    // report whatever frame it happened to fire on.
+    var PAD_DEADZONE = 0.5;    // a worm turns on a grid: half-throw or it does not count
+    var padDir = { x: 0, y: 0 };
+    var padPrev = { pause: false, restart: false, mute: false };
+    var facing = { x: 0, y: -1 };          // last non-zero heading, for the sprite
+    var stick = { active: false, ox: 0, oy: 0, dx: 0, dy: 0 };
+    var sound = createSound();
+    var muted = false;
+    var particles = [];
+    var shake = 0, flash = 0;
+    // Per-cell capture glow. The engine has no idea a screen exists; this is
+    // filled by diffing the grid against the previous frame's states.
+    var cellFlash = new Float32Array(CELLS);
+    var prevState = new Uint8Array(CELLS);
+    var prevLevel = 1, prevCaps = 0, prevDeaths = 0, prevKills = 0, prevOver = 0;
+    var prevDrops = 0, prevGrabs = 0, prevHunters = 0, prevHunterKills = 0;
+    var fxF = q('fxf'), fxS = q('fxs');
+    var bannerT = 0, idleT = 0;
+
+    // ---------- sprites ----------
+    var sprHead = [];   // 0 = up, 1 = right, 2 = down, 3 = left
+    var rows = headUp;
+    for (var s = 0; s < 4; s++) {
+      sprHead.push(makeSprite(rows, HEAD_PAL, PXS));
+      rows = rotateRows(rows);
+    }
+    var sprChaser = makeSprite(chaserRows, CHASER_PAL, PXS);
+    var sprChaserFrozen = makeSprite(chaserRows, FROZEN_PAL, PXS);
+    var sprHunter = makeSprite(hunterRows, HUNTER_PAL, PXS);
+    var sprHunterFrozen = makeSprite(hunterRows, { R: FROZEN_PAL.R, D: FROZEN_PAL.D, K: FROZEN_PAL.K, W: '#ffffff' }, PXS);
+    var sprCapsule = capsuleRows.map(function (rows, k) {
+      return makeSprite(rows, { F: CAPSULE_COLOURS[k], G: '#ffffff' }, PXS);
+    });
+    var sprHazard = makeSprite(hazardRows, HAZARD_PAL, PXS);
+
+    // ---------- input ----------
+    // Compared against the engine's *current* heading, not the sprite's
+    // `facing`: after a death the engine parks the worm with no heading at all
+    // while `facing` still remembers the way it was pointing, and a player who
+    // presses that same key to set off again must not have it swallowed.
+    function steer(dx, dy) {
+      if (!wasm) return;
+      if (dx === wasm.exports.get_dir_x() && dy === wasm.exports.get_dir_y()) return;
+      wasm.exports.set_input(dx, dy);
+      if (dx || dy) sound.turn();     // letting go is silent
+    }
+
+    var KEYS = {
+      ArrowLeft: [-1, 0], a: [-1, 0], A: [-1, 0],
+      ArrowRight: [1, 0], d: [1, 0], D: [1, 0],
+      ArrowUp: [0, -1], w: [0, -1], W: [0, -1],
+      ArrowDown: [0, 1], s: [0, 1], S: [0, 1],
+    };
+
+    // Which direction keys are down, most recently pressed last. The worm moves
+    // while one is held and stops when the last one is released, so a keyup has
+    // to know whether any *other* direction is still down — hence a stack
+    // rather than a boolean per key. Releasing a key while another is held
+    // hands steering back to that one instead of stopping.
+    var held = [];
+
+    function pushHeld(name) {
+      var i = held.indexOf(name);
+      if (i >= 0) held.splice(i, 1);
+      held.push(name);
+    }
+
+    function applyHeld() {
+      if (!held.length) { steer(0, 0); return; }
+      var k = KEYS[held[held.length - 1]];
+      steer(k[0], k[1]);
+    }
+
+    function onKeyDown(e) {
+      var k = KEYS[e.key];
+      if (k) {
+        // Key auto-repeat fires keydown over and over while a key is held;
+        // pushHeld is idempotent and steer() ignores a heading already taken,
+        // so the repeats cost nothing.
+        pushHeld(e.key);
+        applyHeld();
+        e.preventDefault();
+        return;
+      }
+      if (e.key === 'r' || e.key === 'R') restart();
+      if (e.key === 'm' || e.key === 'M') toggleMute();
+      // A held key auto-repeats, and a toggle on every repeat would flicker.
+      if ((e.key === 'p' || e.key === 'P' || e.key === 'Escape') && !e.repeat) {
+        setPaused(!paused);
+        e.preventDefault();
+      }
+    }
+
+    function onKeyUp(e) {
+      if (!KEYS[e.key]) return;
+      var i = held.indexOf(e.key);
+      if (i >= 0) held.splice(i, 1);
+      applyHeld();
+      e.preventDefault();
+    }
+
+    // A key still down when the tab loses focus never sends its keyup, and the
+    // worm would drive on unattended.
+    function releaseKeys() {
+      held.length = 0;
+      steer(0, 0);
+    }
+
+    // A thumb still on the glass when the tab loses focus never sends its
+    // pointerup, and the knob would stay stuck out at the edge.
+    function releaseStick() {
+      stick.active = false;
+      stick.dx = 0; stick.dy = 0;
+      stickEl.classList.remove('wc-active');
+      stickEl.style.left = ''; stickEl.style.top = '';
+      knobEl.style.transform = 'translate(-50%, -50%)';
+      steer(0, 0);            // lifting the thumb stops the worm
+    }
+
+    function releaseAll() {
+      releaseKeys();
+      releaseStick();
+    }
+
+    function stagePoint(e) {
+      var r = stage.getBoundingClientRect();
+      return { x: e.clientX - r.left, y: e.clientY - r.top, w: r.width, h: r.height };
+    }
+
+    function onStickDown(e) {
+      if (e.pointerType === 'mouse') return;   // a mouse steers with the keyboard
+      enableTouchUI();
+      var p = stagePoint(e);
+      stick.active = true;
+      stick.ox = p.x; stick.oy = p.y;
+      stickEl.style.left = (p.x / p.w * 100) + '%';
+      stickEl.style.top = (p.y / p.h * 100) + '%';
+      stickEl.classList.add('wc-active');
+      knobEl.style.transform = 'translate(-50%, -50%)';
+      if (stickZone.setPointerCapture) {
+        try { stickZone.setPointerCapture(e.pointerId); } catch (err) {}
+      }
+      e.preventDefault();
+    }
+
+    function onStickMove(e) {
+      if (!stick.active || e.pointerType === 'mouse') return;
+      var p = stagePoint(e);
+      var dx = p.x - stick.ox, dy = p.y - stick.oy;
+      var reach = stickEl.getBoundingClientRect().width / 2 || 40;
+      var len = Math.sqrt(dx * dx + dy * dy);
+      var k = len > reach ? reach / len : 1;
+      knobEl.style.transform = 'translate(calc(-50% + ' + (dx * k) + 'px), calc(-50% + ' + (dy * k) + 'px))';
+      // Snap to the dominant axis past a dead zone. A worm has four headings,
+      // so an analog reading would only ever be rounded to one of them — doing
+      // it here rather than in the engine keeps set_input honest about what it
+      // accepts.
+      var dead = reach * 0.42;
+      if (len < dead) { steer(0, 0); return; }
+      if (Math.abs(dx) > Math.abs(dy)) steer(dx > 0 ? 1 : -1, 0);
+      else steer(0, dy > 0 ? 1 : -1);
+      e.preventDefault();
+    }
+
+    function onStickUp(e) {
+      if (e && e.pointerType === 'mouse') return;
+      releaseStick();
+    }
+
+    function toggleMute() {
+      muted = !muted;
+      sound.setMuted(muted);
+      muteBtn.textContent = muted ? 'SOUND OFF' : 'SOUND ON';
+    }
+
+    stickZone.addEventListener('pointerdown', onStickDown);
+    stickZone.addEventListener('pointermove', onStickMove);
+    global.addEventListener('pointerup', onStickUp);
+    global.addEventListener('pointercancel', onStickUp);
+    global.addEventListener('keydown', onKeyDown);
+    global.addEventListener('keyup', onKeyUp);
+    // Losing focus also pauses: whoever alt-tabbed away was not planning to come
+    // back to a worm still driving and chasers still chasing.
+    function onBlur() { releaseAll(); setPaused(true); }
+    global.addEventListener('blur', onBlur);
+    muteBtn.addEventListener('click', function () { toggleMute(); muteBtn.blur(); });
+    msgEl.addEventListener('click', function () { restart(); });
+
+    // ---------- pause ----------
+    // Pause lives here and not in the engine, because it is a decision about the
+    // clock rather than about the game: the engine advances by whatever dt it is
+    // handed, so pausing is the loop no longer calling step(). The loop keeps
+    // drawing, so the frozen board stays on screen. Chapter 15 makes the case.
+    var pausedEl = q('paused'), pauseBtn = q('pause');
+    function setPaused(on) {
+      if (!wasm) return;
+      if (on && wasm.exports.is_game_over()) return;   // nothing to pause on the game-over screen
+      paused = on;
+      pausedEl.style.display = on ? 'block' : 'none';
+      pauseBtn.textContent = on ? 'RESUME' : 'PAUSE';
+      // A direction held when play stopped must not still be held when it
+      // resumes — this game moves for as long as one is held.
+      if (on) releaseAll();
+    }
+    pauseBtn.addEventListener('click', function () { setPaused(!paused); pauseBtn.blur(); });
+
+    // ---------- difficulty ----------
+    // The button cycles EASY -> NORMAL -> HARD and starts a fresh run at once,
+    // because a score that was half Easy and half Hard is a number no
+    // best-score list could file.
+    var diffBtn = q('diff');
+    diffBtn.textContent = DIFFICULTIES[difficulty].toUpperCase();
+    diffBtn.addEventListener('click', function () {
+      difficulty = (difficulty + 1) % DIFFICULTIES.length;
+      diffBtn.textContent = DIFFICULTIES[difficulty].toUpperCase();
+      restart();
+      diffBtn.blur();
+    });
+    // Paused, a press anywhere on the board resumes and does nothing else: a
+    // thumb landing to unpause should not also set the worm off.
+    stage.addEventListener('pointerdown', function (e) {
+      if (!paused) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setPaused(false);
+    }, true);
+
+    // ---------- gamepad ----------
+    // Standard mapping: left stick or d-pad steers, Start pauses, Back or Y
+    // restarts, a shoulder button mutes. There is nothing to fire here, so the
+    // face buttons other than those do nothing.
+    function pollGamepad() {
+      var nav = global.navigator;
+      var pads = nav && nav.getGamepads ? nav.getGamepads() : null;
+      if (!pads) return;
+      var p = null, i;
+      for (i = 0; i < pads.length; i++) if (pads[i] && pads[i].connected) { p = pads[i]; break; }
+      if (!p) return;
+
+      var buttons = p.buttons || [], axes = p.axes || [];
+      var btn = function (n) { var b = buttons[n]; return !!(b && (b.pressed || b.value > 0.5)); };
+      var ax = axes[0] || 0, ay = axes[1] || 0;
+      var pdx = 0, pdy = 0;
+      // One axis at a time: the worm turns on a grid, and a diagonal push would
+      // otherwise flip between axes frame by frame on whichever was marginally
+      // larger.
+      if (Math.abs(ax) > PAD_DEADZONE || Math.abs(ay) > PAD_DEADZONE) {
+        if (Math.abs(ax) > Math.abs(ay)) pdx = ax > 0 ? 1 : -1;
+        else pdy = ay > 0 ? 1 : -1;
+      } else if (btn(14)) pdx = -1;
+      else if (btn(15)) pdx = 1;
+      else if (btn(12)) pdy = -1;
+      else if (btn(13)) pdy = 1;
+
+      // Keys and the touch stick outrank the pad, so a controller resting in a
+      // drawer cannot cancel a direction someone is holding.
+      if (held.length || stick.active) {
+        padDir.x = 0; padDir.y = 0;
+      } else if (pdx !== padDir.x || pdy !== padDir.y) {
+        padDir.x = pdx; padDir.y = pdy;
+        steer(pdx, pdy);
+      }
+
+      var pausePress = btn(9), restartPress = btn(8) || btn(3), mutePress = btn(4) || btn(5);
+      if (pausePress && !padPrev.pause) setPaused(!paused);
+      if (restartPress && !padPrev.restart) restart();
+      if (mutePress && !padPrev.mute) toggleMute();
+      padPrev.pause = pausePress; padPrev.restart = restartPress; padPrev.mute = mutePress;
+    }
+
+    // ---------- particles ----------
+    function burst(x, y, n, color, speed) {
+      for (var i = 0; i < n; i++) {
+        var a = Math.random() * Math.PI * 2;
+        var v = speed * (0.35 + Math.random() * 0.9);
+        particles.push({
+          x: x, y: y,
+          vx: Math.cos(a) * v, vy: Math.sin(a) * v,
+          life: 0.4 + Math.random() * 0.5, age: 0, color: color,
+        });
+      }
+      if (particles.length > 400) particles.splice(0, particles.length - 400);
+    }
+
+    function stepParticles(dt) {
+      for (var i = particles.length - 1; i >= 0; i--) {
+        var p = particles[i];
+        p.age += dt;
+        if (p.age >= p.life) { particles.splice(i, 1); continue; }
+        p.x += p.vx * dt; p.y += p.vy * dt;
+        p.vx *= 0.94; p.vy *= 0.94;
+        ctx.globalAlpha = 1 - p.age / p.life;
+        ctx.fillStyle = p.color;
+        ctx.fillRect(Math.round(p.x) - 2, Math.round(p.y) - 2, 4, 4);
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    // ---------- drawing ----------
+    function cellCenterX(c) { return c * CELL + CELL / 2; }
+    function cellCenterY(r) { return r * CELL + CELL / 2; }
+
+    function drawBoard(dt) {
+      var i, c, r, a, st, ep;
+
+      // Territory fills, and the capture glow that fades over them.
+      for (r = 0; r < ROWS; r++) {
+        for (c = 0; c < COLS; c++) {
+          i = r * COLS + c;
+          a = GRID_OFF + i * CELL_STRIDE;
+          st = u8[a + FIELD.cell.state];
+          if (st !== prevState[i]) {
+            if (st === 1) cellFlash[i] = 1;
+            prevState[i] = st;
+          }
+          if (st === 1) {
+            ep = u8[a + FIELD.cell.epoch];
+            ctx.fillStyle = EPOCH_FILL[(ep > 0 ? ep - 1 : 0) % EPOCH_FILL.length];
+            ctx.fillRect(c * CELL, r * CELL, CELL, CELL);
+          }
+          if (cellFlash[i] > 0) {
+            ctx.fillStyle = 'rgba(158,255,205,' + (cellFlash[i] * 0.55).toFixed(3) + ')';
+            ctx.fillRect(c * CELL, r * CELL, CELL, CELL);
+            cellFlash[i] = Math.max(0, cellFlash[i] - dt * 1.6);
+          }
+        }
+      }
+
+      // Grid lines, under everything else that matters.
+      // Solid one-pixel bars rather than stroked hairlines: a 1px stroke drawn
+      // into the one-third buffer is a third of a pixel wide, which comes out
+      // as an anti-aliased smear rather than a line.
+      ctx.fillStyle = 'rgba(126,220,180,0.05)';
+      for (c = 1; c < COLS; c++) ctx.fillRect(c * CELL, 0, LOW_SCALE, WORLD_H);
+      for (r = 1; r < ROWS; r++) ctx.fillRect(0, r * CELL, WORLD_W, LOW_SCALE);
+
+      // The border of owned territory: every edge where an owned cell meets
+      // something that is not one. Drawn as a single path so the whole outline
+      // is one stroke call however ragged it has become.
+      // Each edge is a one-pixel bar inside the owned cell rather than a 2px
+      // stroke centred on the boundary, for the same reason as the grid.
+      ctx.fillStyle = TERRITORY_EDGE;
+      for (r = 0; r < ROWS; r++) {
+        for (c = 0; c < COLS; c++) {
+          if (u8[GRID_OFF + (r * COLS + c) * CELL_STRIDE + FIELD.cell.state] !== 1) continue;
+          var x = c * CELL, y = r * CELL;
+          if (c === 0 || u8[GRID_OFF + (r * COLS + c - 1) * CELL_STRIDE + FIELD.cell.state] !== 1) {
+            ctx.fillRect(x, y, LOW_SCALE, CELL);
+          }
+          if (c === COLS - 1 || u8[GRID_OFF + (r * COLS + c + 1) * CELL_STRIDE + FIELD.cell.state] !== 1) {
+            ctx.fillRect(x + CELL - LOW_SCALE, y, LOW_SCALE, CELL);
+          }
+          if (r === 0 || u8[GRID_OFF + ((r - 1) * COLS + c) * CELL_STRIDE + FIELD.cell.state] !== 1) {
+            ctx.fillRect(x, y, CELL, LOW_SCALE);
+          }
+          if (r === ROWS - 1 || u8[GRID_OFF + ((r + 1) * COLS + c) * CELL_STRIDE + FIELD.cell.state] !== 1) {
+            ctx.fillRect(x, y + CELL - LOW_SCALE, CELL, LOW_SCALE);
+          }
+        }
+      }
+
+      // Trail and hazards.
+      // The trail: a node per cell plus a bar bridging each gap to the next
+      // one. Drawing only the nodes leaves a dotted line, and a dotted line
+      // does not look like something a chaser could cut — which is the one
+      // thing the player has to understand about it at a glance.
+      var pulse = 0.62 + 0.38 * Math.sin(tGlobal * 9);
+      var pad = 7, span = CELL - pad * 2;
+      // No glow: the trail used to carry a shadowBlur halo, which is the one
+      // effect that marks a picture as post-1995. It is bright enough on its
+      // own against the dark board, and brighter still at the top of its pulse.
+      ctx.fillStyle = 'rgba(124,242,255,' + pulse.toFixed(3) + ')';
+      for (r = 0; r < ROWS; r++) {
+        for (c = 0; c < COLS; c++) {
+          if (u8[GRID_OFF + (r * COLS + c) * CELL_STRIDE + FIELD.cell.state] !== 2) continue;
+          var tx = c * CELL, ty = r * CELL;
+          ctx.fillRect(tx + pad, ty + pad, span, span);
+          // Only right and down, so each join is drawn once.
+          if (c < COLS - 1 && u8[GRID_OFF + (r * COLS + c + 1) * CELL_STRIDE + FIELD.cell.state] === 2) {
+            ctx.fillRect(tx + CELL - pad, ty + pad, pad * 2, span);
+          }
+          if (r < ROWS - 1 && u8[GRID_OFF + ((r + 1) * COLS + c) * CELL_STRIDE + FIELD.cell.state] === 2) {
+            ctx.fillRect(tx + pad, ty + CELL - pad, span, pad * 2);
+          }
+        }
+      }
+
+      for (r = 0; r < ROWS; r++) {
+        for (c = 0; c < COLS; c++) {
+          if (!u8[GRID_OFF + (r * COLS + c) * CELL_STRIDE + FIELD.cell.hazard]) continue;
+          ctx.drawImage(sprHazard,
+            Math.round(cellCenterX(c) - sprHazard.width / 2),
+            Math.round(cellCenterY(r) - sprHazard.height / 2));
+        }
+      }
+    }
+
+    // Capsules blink over their last three seconds, so one fading is never a
+    // surprise; the engine says how long each has left.
+    function drawCapsules() {
+      var f32 = new Float32Array(wasm.exports.memory.buffer, CAPSULE_OFF, MAX_CAPSULES * CAPSULE_STRIDE / 4);
+      var K = FIELD.capsule;
+      for (var i = 0; i < MAX_CAPSULES; i++) {
+        var o = i * CAPSULE_STRIDE / 4;
+        if (f32[o + K.active] <= 0) continue;
+        if (f32[o + K.life] < 3 && Math.floor(tGlobal * 8) % 2) continue;
+        var spr = sprCapsule[f32[o + K.kind] | 0];
+        ctx.drawImage(spr,
+          Math.round(cellCenterX(f32[o + K.col]) - spr.width / 2),
+          Math.round(cellCenterY(f32[o + K.row]) - spr.height / 2));
+      }
+    }
+
+    // Shown for as long as the engine says an effect has left, blinking over
+    // its last second.
+    function setPip(el, t) {
+      el.style.display = t > 0 ? 'inline-block' : 'none';
+      el.style.visibility = (t > 0 && t < 1 && Math.floor(tGlobal * 8) % 2) ? 'hidden' : 'visible';
+    }
+
+    function drawChasers() {
+      var f = wasm.exports.get_chase_frac();
+      var frozen = wasm.exports.get_freeze_t() > 0;
+      // One view over the whole buffer, made once at boot. A fresh
+      // Int32Array per chaser per frame would be 480 throwaway objects a
+      // second for eight records that never move.
+      for (var i = 0; i < MAX_CHASERS; i++) {
+        var w = (CHASER_OFF + i * CHASER_STRIDE) >> 2;
+        var C = FIELD.chaser;
+        if (!i32[w + C.active]) continue;
+        var cx = i32[w + C.pcx] + (i32[w + C.cx] - i32[w + C.pcx]) * f;
+        var cy = i32[w + C.pcy] + (i32[w + C.cy] - i32[w + C.pcy]) * f;
+        var spr = i32[w + C.kind] ? (frozen ? sprHunterFrozen : sprHunter)
+                                  : (frozen ? sprChaserFrozen : sprChaser);
+        ctx.drawImage(spr,
+          Math.round(cx * CELL + CELL / 2 - spr.width / 2),
+          Math.round(cy * CELL + CELL / 2 - spr.height / 2));
+      }
+    }
+
+    function drawWorm() {
+      var e = wasm.exports;
+      var dx = e.get_dir_x(), dy = e.get_dir_y();
+      if (dx || dy) { facing.x = dx; facing.y = dy; }
+      // Standing still means the last tick completed, so the head belongs at
+      // its current cell — frac 1, not 0, which would draw it a cell behind.
+      var f = (dx || dy) ? e.get_tick_frac() : 1;
+      var wx = e.get_prev_x() + (e.get_head_x() - e.get_prev_x()) * f;
+      var wy = e.get_prev_y() + (e.get_head_y() - e.get_prev_y()) * f;
+
+      var idx = 0;
+      if (facing.x > 0) idx = 1;
+      else if (facing.y > 0) idx = 2;
+      else if (facing.x < 0) idx = 3;
+
+      var spr = sprHead[idx];
+      ctx.drawImage(spr,
+        Math.round(wx * CELL + CELL / 2 - spr.width / 2),
+        Math.round(wy * CELL + CELL / 2 - spr.height / 2));
+    }
+
+    // ---------- engine events ----------
+    // The engine never calls out. It counts, and this reads the counters —
+    // one place where "what just happened" is decided, so sound, particles and
+    // shake can never disagree about it.
+    function pollEvents() {
+      var e = wasm.exports;
+
+      var caps = e.get_capture_count();
+      if (caps > prevCaps) {
+        var cells = e.get_capture_cells();
+        sound.capture(cells);
+        burst(cellCenterX(e.get_head_x()), cellCenterY(e.get_head_y()),
+              Math.min(10 + Math.floor(cells / 4), 60), '#9effcd', 190);
+        prevCaps = caps;
+      }
+
+      var drops = e.get_drops();
+      if (drops > prevDrops) { sound.drop(); prevDrops = drops; }
+      var grabs = e.get_grabs();
+      if (grabs > prevGrabs) {
+        sound.grab();
+        burst(cellCenterX(e.get_head_x()), cellCenterY(e.get_head_y()), 16,
+              e.get_freeze_t() > 0 ? CAPSULE_COLOURS[0] : CAPSULE_COLOURS[1], 170);
+        prevGrabs = grabs;
+      }
+
+      var kills = e.get_kills();
+      if (kills > prevKills) { sound.kill(); shake = Math.max(shake, 0.18); prevKills = kills; }
+      // Fencing in the hunter is the boss going down, and gets its weight.
+      var hk = e.get_hunter_kills();
+      if (hk > prevHunterKills) {
+        sound.hunterDown();
+        shake = Math.max(shake, 0.4);
+        burst(cellCenterX(e.get_head_x()), cellCenterY(e.get_head_y()), 36, HUNTER_PAL.R, 230);
+        prevHunterKills = hk;
+      }
+
+      var deaths = e.get_deaths();
+      if (deaths > prevDeaths) {
+        sound.die();
+        shake = Math.max(shake, 0.45);
+        flash = 0.5;
+        burst(cellCenterX(e.get_head_x()), cellCenterY(e.get_head_y()), 40, '#ff4d6d', 260);
+        prevDeaths = deaths;
+      }
+
+      var level = e.get_level();
+      if (level !== prevLevel) {
+        sound.level();
+        // the hunter is placed as the level is built, so it is already there
+        bannerEl.textContent = 'LEVEL ' + level + (e.get_hunters() > prevHunters ? ' \u00b7 HUNTER' : '');
+        if (e.get_hunters() > prevHunters) { sound.hunter(); prevHunters = e.get_hunters(); }
+        bannerT = 1.3;
+        prevLevel = level;
+        cellFlash.fill(0);
+        prevState.fill(0);
+      }
+
+      var over = e.is_game_over();
+      if (over && !prevOver) { sound.over(); msgEl.style.display = 'block'; }
+      prevOver = over;
+    }
+
+    // ---------- loop ----------
+    function loop(now) {
+      if (destroyed) return;
+      // Before the pause gate: Start has to be able to unpause, and Back to
+      // restart from the game-over screen.
+      pollGamepad();
+      var dt = Math.min((now - lastT) / 1000, 0.1);
+      lastT = now;
+      // Paused stops the animation clock too, so the capture glow and the
+      // particles hold still with the board instead of playing on over it.
+      // lastT still advances, so the first frame back is one frame long.
+      if (paused) dt = 0;
+      tGlobal += dt;
+
+      if (!paused) {
+        wasm.exports.step(dt);
+        pollEvents();
+      }
+
+      ctx.setTransform(Z, 0, 0, Z, 0, 0);
+      ctx.fillStyle = '#060c0e';
+      ctx.fillRect(0, 0, WORLD_W, WORLD_H);
+
+      if (shake > 0) {
+        var m = shake * 14;
+        ctx.setTransform(Z, 0, 0, Z,
+          Math.round((Math.random() * 2 - 1) * m / LOW_SCALE),
+          Math.round((Math.random() * 2 - 1) * m / LOW_SCALE));
+        shake = Math.max(0, shake - dt * 1.6);
+      }
+
+      drawBoard(dt);
+      drawCapsules();
+      drawChasers();
+      drawWorm();
+      stepParticles(dt);
+
+      ctx.setTransform(Z, 0, 0, Z, 0, 0);
+      if (flash > 0) {
+        ctx.fillStyle = 'rgba(255,60,90,' + (flash * 0.8).toFixed(3) + ')';
+        ctx.fillRect(0, 0, WORLD_W, WORLD_H);
+        flash = Math.max(0, flash - dt * 1.8);
+      }
+
+      screen.setTransform(1, 0, 0, 1, 0, 0);
+      screen.imageSmoothingEnabled = false;
+      screen.drawImage(low, 0, 0, WORLD_W, WORLD_H);
+
+      // Overlays.
+      if (bannerT > 0) { bannerT -= dt; bannerEl.style.opacity = bannerT > 0 ? '1' : '0'; }
+      // Stopping is a move now, not a mistake, so the prompt waits out a real
+      // pause instead of flashing every time a key comes up.
+      var stopped = !wasm.exports.get_dir_x() && !wasm.exports.get_dir_y();
+      idleT = stopped ? idleT + dt : 0;
+      idleEl.style.opacity = (idleT > 1.2 && !wasm.exports.is_game_over()) ? '1' : '0';
+
+      // HUD.
+      var owned = wasm.exports.get_owned(), total = wasm.exports.get_total();
+      hudScore.textContent = Math.round(wasm.exports.get_score());
+      hudLives.textContent = Math.max(0, Math.round(wasm.exports.get_lives()));
+      hudLevel.textContent = wasm.exports.get_level();
+      hudHeld.textContent = Math.round(owned / total * 100) + '%';
+      hudTarget.textContent = Math.round(wasm.exports.get_target() / total * 100) + '%';
+      setPip(fxF, wasm.exports.get_freeze_t());
+      setPip(fxS, wasm.exports.get_surge_t());
+
+      rafId = requestAnimationFrame(loop);
+    }
+
+    function restart() {
+      if (!wasm) return;
+      // set_difficulty only records the choice; init() is what applies it
+      wasm.exports.set_difficulty(difficulty);
+      wasm.exports.init();
+      u8 = new Uint8Array(wasm.exports.memory.buffer);
+      i32 = new Int32Array(wasm.exports.memory.buffer);
+      particles.length = 0;
+      cellFlash.fill(0);
+      prevState.fill(0);
+      shake = 0; flash = 0; bannerT = 0; idleT = 0;
+      facing.x = 0; facing.y = -1;
+      prevLevel = wasm.exports.get_level();
+      prevCaps = wasm.exports.get_capture_count();
+      prevDeaths = wasm.exports.get_deaths();
+      prevKills = wasm.exports.get_kills();
+      prevHunters = wasm.exports.get_hunters();
+      prevHunterKills = wasm.exports.get_hunter_kills();
+      prevDrops = wasm.exports.get_drops();
+      prevGrabs = wasm.exports.get_grabs();
+      prevOver = 0;
+      msgEl.style.display = 'none';
+      bannerEl.style.opacity = '0';
+      setPaused(false);
+    }
+
+    // ---------- boot ----------
+    var wasmSource = opts.wasmBase64 || WASM_B64;
+    var instantiate;
+    if (opts.wasmUrl) {
+      instantiate = fetch(opts.wasmUrl)
+        .then(function (r) { return r.arrayBuffer(); })
+        .then(function (buf) { return WebAssembly.instantiate(buf, {}); });
+    } else {
+      // No imports at all: this engine needs no maths JavaScript could lend it.
+      instantiate = WebAssembly.instantiate(base64ToBytes(wasmSource), {});
+    }
+    instantiate.then(function (result) {
+      if (destroyed) return;
+      wasm = result.instance;
+      restart();
+      lastT = performance.now();
+      rafId = requestAnimationFrame(loop);
+    }).catch(function (err) {
+      root.innerHTML = '<div class="wc-fail">Failed to load game engine: ' + err + '</div>';
+    });
+
+    // ---------- public API ----------
+    return {
+      restart: restart,
+      destroy: function () {
+        destroyed = true;
+        cancelAnimationFrame(rafId);
+        global.removeEventListener('keydown', onKeyDown);
+        global.removeEventListener('keyup', onKeyUp);
+        global.removeEventListener('blur', onBlur);
+        global.removeEventListener('pointerup', onStickUp);
+        global.removeEventListener('pointercancel', onStickUp);
+        sound.close();
+        root.remove();
+      },
+      getState: function () {
+        if (!wasm) return null;
+        return {
+          score: wasm.exports.get_score(),
+          lives: wasm.exports.get_lives(),
+          level: wasm.exports.get_level(),
+          owned: wasm.exports.get_owned(),
+          target: wasm.exports.get_target(),
+          total: wasm.exports.get_total(),
+          gameOver: !!wasm.exports.is_game_over(),
+          paused: paused,
+          difficulty: DIFFICULTIES[wasm.exports.get_difficulty()],
+        };
+      },
+    };
+  }
+
+  global.WormChase = { mount: mount };
+
+})(window);

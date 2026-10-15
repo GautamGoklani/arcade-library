@@ -1,0 +1,730 @@
+# Pulse
+
+A twelve-segment tube with you on the rim of it and a bar of music walking
+toward you. Everything arrives on the grid: enemies spawn on sixteenth notes,
+and a shot fired on an eighth note hits three times as hard as one that is not.
+All of it — the tempo, the bar, the pattern, what counts as *in time* — is
+hand-written in WebAssembly Text (`game.wat`) and runs as a compiled `.wasm`
+binary. JavaScript forwards two numbers, calls `step(dt)`, draws what it finds
+in the engine's linear memory, and plays the soundtrack off the engine's step
+counter.
+
+Works on **desktop (arrow keys and space)** and **mobile (two tap zones and a
+fire pad)**.
+
+Open [`index.html`](index.html) to play it.
+
+## What this title was actually waiting for
+
+Pulse sat on the roadmap for as long as it did because it "needs an audio
+system that does not exist yet". That was the wrong way round, and it is
+exactly why it stayed blocked.
+
+The missing piece was never a synthesiser. Every title here since Grid Breaker
+has had one, in about eighty lines of Web Audio in the widget. What was missing
+was an answer to a question the third invariant asks:
+
+> if the music decides when enemies arrive, and the music lives in JavaScript,
+> then JavaScript owns game state.
+
+So it does not live in JavaScript. **The engine is the sequencer.** It owns the
+tempo, the sixteen-step bar, the step counter and the pattern; it decides what
+spawns and when. The widget reads `get_steps()`, diffs it like any other event
+counter, and plays a note. The synthesiser is an *instrument*, not a clock.
+
+What that buys is not tidiness. It is that the music and the game **cannot
+drift**. There is no scheduling to reconcile, no audio-clock-versus-frame-clock
+problem, no "the beat and the spawn were forty milliseconds apart". The spawn
+and the note are the same event, read off the same counter — so a player timing
+a shot to what they hear is timing it to what the engine did.
+
+The cost is stated plainly rather than hidden: notes are played the frame the
+counter moves, so there is up to one frame of jitter — 16ms at 60fps, against a
+sixteenth note of 156ms at the opening tempo. A conventional Web Audio
+sequencer would avoid that by booking a second of music ahead against the audio
+clock, which is the right way to build a music app and the wrong way to build
+this, because the moment the music is booked ahead it is a second out of step
+with a simulation that can be restarted, paused or slowed by a stuttering
+frame.
+
+## Self-contained, deliberately
+
+This folder shares **no code and no assets** with any other title in `games/`.
+It has its own scoped stylesheet (`.pl-` — no other game may use that prefix),
+its own synthesiser and its own drawing. What it takes from the other engines
+is *conventions*, copied by hand: a globals block at the top of the `.wat`,
+entity pools at fixed offsets, an xorshift RNG, monotonic event counters, and
+an `init` / `set_input` / `step` / `get_*` export surface.
+
+The reason is the one [Grid Breaker's README](../grid-breaker/README.md) gives:
+a shared engine library would mean a change made for one game could break
+another. Tooling is the exception — the shared
+[`scripts/build.mjs`](../../scripts/build.mjs) builds every title, so
+`npm run check` verifies all nine committed binaries in one pass.
+
+### It has no imports
+
+Like [Worm Chase](../worm-chase/), [Sector Defense](../sector-defense/),
+[Circuit Runner](../circuit-runner/), [Starfield Runner](../starfield-runner/)
+and [Tower Defense Lite](../tower-defense/):
+
+```js
+WebAssembly.instantiate(bytes, {})   // the whole import object
+```
+
+The tube is twelve **discrete segments and a depth**, so nothing in the engine
+turns through an angle. The widget works out where a segment lands on screen
+with `Math.cos`, because that is a drawing question — and because how big the
+tube is on the canvas is a decision the engine should not have an opinion
+about.
+
+## Files
+
+```
+pulse/
+├── pulse.js     ← the widget (engine embedded inside) — REQUIRED
+├── pulse.css    ← scoped styles (.pl-*)               — REQUIRED
+├── game.wat     ← engine SOURCE — edit to change gameplay
+├── game.wasm    ← compiled engine (also embedded in the .js as base64)
+├── index.html   ← standalone page: the game and nothing else
+├── demo.html    ← minimal working integration example
+├── logo.svg     ← catalogue artwork
+└── README.md
+```
+
+For plain integration you only need to copy **two files** into a site:
+`pulse.js` and `pulse.css`.
+
+## Integration
+
+```html
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<link rel="stylesheet" href="pulse.css">
+
+<div id="game"></div>
+
+<script src="pulse.js"></script>
+<script>
+  var game = Pulse.mount('#game');
+</script>
+```
+
+### JavaScript API
+
+```js
+var game = Pulse.mount(containerOrSelector, options?);
+
+game.restart();    // start a fresh run
+game.getState();   // { score, shield, groove, multiplier, bpm, level, bar,
+                   //   onBeatShots, shots, gameOver, paused, difficulty }
+game.destroy();    // stop the loop, remove DOM + all event listeners
+```
+
+`options` (all optional):
+
+| option       | meaning |
+|--------------|---------|
+| `wasmUrl`    | load the engine from a `.wasm` URL instead of the embedded copy (requires an `application/wasm` MIME type) |
+| `wasmBase64` | supply your own base64 engine build |
+| `difficulty` | `'easy'`, `'normal'` (the default) or `'hard'` for the first run; the HUD button changes it after that |
+
+Multiple instances on one page are supported — each `mount()` is independent.
+**The soundtrack is most of this game**, and browsers will not open an
+AudioContext outside a user gesture, so nothing is heard until the first key or
+tap. Everything else works without it.
+
+## Controls
+
+| Action | Desktop | Mobile |
+|---|---|---|
+| Rotate | ← / → or A / D | tap the left or right side |
+| Fire | Space | the FIRE pad |
+| Difficulty | the EASY / NORMAL / HARD button; changing it starts a fresh run | the same button |
+| Pause | P or Esc; losing focus too | the PAUSE button; tap the tube to resume |
+| Restart | R | tap the GAME OVER text |
+| Mute | M | the SOUND button |
+
+**Gamepad**, standard mapping, no setup: left stick or d-pad rotates (digital,
+because the ring turns one segment at a time), `A` / `X` / either trigger fires,
+`Start` pauses, `Back` or `Y` restarts, a shoulder button mutes. It is polled
+once a frame rather than listened for, because `getGamepads()` only refreshes
+its snapshots when called.
+
+**Pause is the cleanest demonstration of this engine's design.** The engine *is*
+the sequencer — it owns the tempo, the bar and the step counter, and the widget
+plays notes off them — so pausing is the loop no longer calling `step`, and the
+music stops dead with the simulation: nothing queued to flush, nothing to
+resynchronise on the way back in. That is the property
+[chapter 22](../../docs/22-engine-owned-time.md) argues for.
+
+**Tap zones rather than a stick**, as in [Circuit Runner](../circuit-runner/),
+for the same reason: the ring is a *discrete* input, twelve segments and one
+press each, and a stick would mean pushing, waiting and re-centring for every
+one. Firing gets its own pad because it is edge-triggered and has to be timed
+to a sixteenth of a second, which is not something to ask of a thumb that is
+also steering.
+
+Firing is edge-triggered on purpose. Holding the key would let a player spray
+and be on the beat by accident once every eighth note, which is the exact skill
+the game is about not needing.
+
+## Gameplay rules
+
+- **Shield 100.** Anything that reaches the rim costs 20 *and* four fifths of
+  your groove. A leak is a missed beat as much as it is damage, and charging
+  for it twice is what makes the meter mean "you are playing in time" rather
+  than "you have been playing a while".
+- **A shot within 58ms of an eighth note is on the beat.** It flies at 4.4
+  depth-units a second instead of 2.6 and does 3 damage instead of 1.
+- **Groove** rises 0.085 per on-beat shot, falls 0.12 per off-beat one, and
+  bleeds 0.055 a second all the time — so standing still is never a plan. It
+  drives the multiplier (up to ×5) *and the tempo* (up to +54 BPM), which is
+  the whole reward loop in one sentence: play in time and the track speeds up.
+- **A bar with no leak pays.** 12 shield and a 200-point bonus. It is the only
+  repair there is, and it is deliberately a *bar* rather than a kill: the unit
+  of play here is the pattern, so the unit of reward is too.
+- **The first bar is silence.** The song starts one bar in, so you hear the
+  tempo before anything arrives on it. A rhythm game that opens on the downbeat
+  has asked for a reaction to a beat nobody has heard yet.
+- **A level every eight bars**, which raises the tempo floor, the number of
+  spawns in a bar and the climb rate.
+- **From level 2 the song has a second line.** Each bar carries a short lead
+  phrase, a bell two octaves above the bass, drawn as a mint ring outside the
+  bar ring. Every lead note releases a **chime** up its segment that lands on
+  the rim exactly one beat later. Be in that segment when it lands to catch it,
+  for groove and score. Chimes cannot be shot and never leak; missing one costs
+  nothing. See [The lead line](#the-lead-line-october-2026).
+- **Every fourth level opens on a drop.** The bar before it is empty, with a
+  riser, and then the **conductor** appears inside the tube for four bars.
+  Every note in those bars comes out of its segment, and only on-beat shots
+  hurt it, multiplied by your groove. Break it for 600 × the multiplier and 25
+  shield. If it is still standing when the drop ends, it costs one and a half
+  leaks. See [The drop](#the-drop-september-2026).
+
+### The four enemies
+
+| Enemy | HP | Climb | What it is for |
+|---|---|---|---|
+| **Drone** | 3 | steady | the baseline; from the first bar |
+| **Skipper** | 3 | **hops on the step**, and sidesteps a segment every quarter note | the one you can hear moving |
+| **Hulk** | 6 | slow | from level 4; wants on-beat shots because three of them beat six |
+| **Mirror** | 4 | medium | from level 6. **An off-beat shot does nothing at all to it.** |
+| **Conductor** | 45 | does not climb; steps to each note it plays | the boss of the drop, every fourth level. Hurt only on the beat, and by the groove |
+
+The skipper is the reason the step counter belongs to the engine and not the
+widget: it moves *on the note*, so a player who is listening knows where it
+will be before they can see it.
+
+The mirror is the only thing here that requires the beat rather than rewarding
+it, which is why it does not arrive until level 6 — a player who has not yet
+found the rhythm would simply be unable to kill it. It wears a spinning ring so
+that is visible before three wasted shots make the point.
+
+## How a bar is written
+
+Sixteen steps. The engine picks how many carry a spawn (three, rising to eleven
+with the level) and then rejection-samples positions against a **weight by
+where the step falls in the bar**:
+
+| step | weight |
+|---|---|
+| the four quarter notes (0, 4, 8, 12) | 9 |
+| the off-eighths (2, 6, 10, 14) | 4 |
+| the sixteenths in between | 1 |
+
+That weighting is the whole reason the result sounds like music rather than
+noise. Choosing uniformly at random — the first version — produced sixteen
+equally probable events a bar, which a listener hears as a stuttering machine
+and a player cannot anticipate at all.
+
+Segments **wander** rather than jumping: each spawn is within three segments of
+the last one planned. Two spawns a quarter note apart on opposite sides of the
+ring is not a pattern, it is a coin toss the player cannot answer, because
+there is not time to cross.
+
+And the bar plan lives **in linear memory rather than in globals**, because the
+widget reads it *ahead of the simulation*: the HUD draws the coming bar as a
+ring of sixteen ticks outside the rim, coloured by what will arrive on each.
+That turns the track from something you react to into something you can read,
+which is the difference between a rhythm game and whack-a-mole with a
+soundtrack.
+
+## Architecture
+
+```
+pulse.js ── set_input(move, fire) ──▶  game.wasm  (simulation AND sequencer)
+    ▲              step(dt)                 │
+    ├──── reads enemy/bolt records ◀────────┤
+    └──── diffs get_steps() ─▶ synth ◀──────┘
+```
+
+**JavaScript owns no game state** — not the tempo, not the bar, not what counts
+as on the beat. It forwards two numbers, calls `step(dt)`, and reads.
+
+The engine never calls out. It exposes **monotonic event counters**
+(`get_steps`, `get_bars`, `get_spawns`, `get_shots`, `get_beat_shots`,
+`get_kills`, `get_beat_kills`, `get_leaks`, `get_perfects`, `get_moves`) and the
+widget diffs them between frames. `get_steps` is the one that makes this title
+work: it ticks once per sixteenth note and the soundtrack is played off it.
+
+### The song clock advances in a loop
+
+```wat
+(block $ticked
+  (loop $tlp
+    (br_if $ticked (f32.lt (global.get $songT) (local.get $sd)))
+    (global.set $songT (f32.sub (global.get $songT) (local.get $sd)))
+    ...
+    (br $tlp)))
+```
+
+Not a single subtraction. A frame that took longer than one sixteenth note has
+to fire **every step it skipped** — dropping them would let a stutter swallow a
+spawn, and the player would hear a bar with a hole in it. The widget does the
+same on its side, playing up to four notes for one frame's worth of steps.
+
+### WASM linear memory layout
+
+| region | offset | stride | count | fields |
+|--------|--------|--------|-------|--------|
+| bar | 0 | 4 B | 16 | byte 0 segment+1 (0 = no spawn), byte 1 kind, byte 2 spent, byte 3 lead note's segment+1 (0 = none) |
+| enemies | 64 | 32 B | 32 | seg, depth, hp, maxHp, kind (0 drone, 1 skipper, 2 hulk, 3 mirror, 4 conductor), active, flash, hopT |
+| bolts | 1088 | 24 B | 24 | seg, depth, dmg, active, onBeat, speed |
+| chimes | 1664 | 12 B | 8 | seg, depth, active |
+
+Total 1,760 bytes of a single 64 KiB page. `depth` runs 0 at the centre to 1 at
+the rim. Shield, groove, score and the song clock are globals rather than
+memory, as in the other recent titles.
+
+> **The widget hard-codes these offsets.** Change the layout in `game.wat` and
+> `pulse.js` must change with it — nothing links them at build time, and the
+> failure is silent. `npm run check` runs
+> [`scripts/check-layout.mjs`](../../scripts/check-layout.mjs), which compares
+> the named constants and the order of fields in every record — the `@fields`
+> lines in the memory-map comment against the `FIELD` table in the widget. It
+> cannot see the engine's own `offset=` loads, so the memory-map comment at the
+> top of `game.wat` is still the schema to keep honest.
+
+### Exports
+
+```
+init() · set_input(move, fire) · step(dt) · enemies_alive()
+get_score() · get_shield() · get_shield_max() · get_groove() · get_mult()
+get_level() · get_seg() · get_segments()
+get_bpm() · get_step_dur() · get_step_idx() · get_steps_per_bar()
+get_step_phase() · get_beat_error() · get_beat_window() · get_bar()
+get_fire_cd() · is_game_over()
+get_steps() · get_bars() · get_spawns() · get_shots() · get_beat_shots()
+get_kills() · get_beat_kills() · get_leaks() · get_perfects() · get_moves()
+get_drops() · get_cond_hits() · get_cond_kills() · get_slams()
+get_drop_state() · get_drop_bars_left()
+get_lead_notes() · get_chimes()
+```
+
+`get_beat_error()` is how far the song clock is from the nearest eighth note,
+in seconds. It is exported rather than kept private because the widget draws
+the timing feedback from it, and because it is what a bench needs in order to
+play in time at all.
+
+## The graphics
+
+Drawn into a **320×240 buffer and blown up 3× with smoothing off**, as in the
+other recent titles, with **no glow anywhere** and CSS scanlines at true display
+resolution. Both are dropped under `prefers-reduced-motion`.
+
+There are no sprites. Everything on the board is a circle, an arc or a spoke at
+a radius the engine chose, so all of it is drawn as runs of `fillRect` on the
+low-res grid — which is what a line is on that grid anyway.
+
+**The whole picture breathes on `get_step_phase()`**, hardest on quarter notes,
+less on eighths, barely on sixteenths. That is not decoration: a player looking
+at the board rather than at the HUD still has to be able to see where the beat
+is, and the whole tube swelling is the only signal big enough to catch out of
+the corner of an eye.
+
+## Findings from benching
+
+Every number here came from driving the compiled engine headlessly from Node.
+The RNG is seeded to a constant and is touched only by the pattern writer, so
+each pilot below played the same music.
+
+### 1 · Playing in time is worth roughly six times as much
+
+Three pilots, identical targeting, one difference: when they pull the trigger.
+
+| pilot | survived | level | score | per second | on beat | perfect bars |
+|---|---|---|---|---|---|---|
+| **metronome** — fires only inside the window | 75s | 6 | **82,134** | **1,095** | 100% | 40 |
+| **mash** — fires as fast as the edge trigger allows | 101s | 6 | 19,232 | 190 | 38% | 39 |
+| **loose** — aims at the beat and misses it | 46s | 3 | 5,068 | 110 | 14% | 14 |
+
+The masher survives *longest*, and that is the design rather than a hole in it:
+groove drives the tempo, so a player who is in time is asking for a faster
+track and more spawns per second. What they get for it is six times the score
+per second. Sloppiness is safe and worthless; precision is dangerous and worth
+everything.
+
+### 2 · The window was wide enough to pay a button-masher
+
+The first draft's window was 75ms, which is two windows per eighth note out of
+312ms at the opening tempo — **48% of the bar spent inside one**. The masher
+landed 70% of its shots on the beat by accident, which makes the whole mechanic
+a decoration with a light on it.
+
+At 58ms the accidental rate is 38%, which matches the arithmetic, and the
+metronome still clears the window comfortably. The window is a fixed number of
+**seconds** rather than a fraction of a beat, so it stays the same in feel: a
+player timing deliberately needs the same precision at every tempo.
+
+*This finding used to add that the window "gets strictly harder as the track
+speeds up". It does not, and the difficulty bench below is what showed it. A
+fixed window is a larger share of a shorter beat, so at a faster tempo more of a
+masher's shots land in it by accident — 35% at Easy's tempos, 39% at Normal's,
+52% at Hard's. What gets harder as the song speeds up is everything around the
+window: more arrivals a second, less time to cross the ring. That 52% is why
+Hard's window is now narrower; see "Difficulty".*
+
+### 3 · A level every four bars is a level every six seconds
+
+Bars are 2.5s at the opening tempo and 1.5s once groove is up. At four bars a
+level, the difficulty ramp was outrunning the player badly enough that the best
+pilot on the bench was dead in forty-six seconds. At eight bars it lasts
+seventy-five and gets to see the mirror.
+
+## Tuning
+
+The constants worth touching are all at the top of `game.wat`:
+
+| constant | meaning | shipped |
+|----------|---------|---------|
+| `$BPM_BASE` / `$BPM_GROOVE` / `$BPM_CAP` | opening tempo, what full groove adds, ceiling | 96 / +54 / 168 |
+| `$BEAT_WINDOW` | how close to an eighth note counts, in seconds | 0.058 |
+| `$SEGMENTS` | the ring | 12 |
+| `$BOLT_DMG` / `$BOLT_DMG_BEAT` | off the beat, and on it | 1 / 3 |
+| `$BOLT_SPEED` / `$BOLT_SPEED_BEAT` | depth units per second | 2.6 / 4.4 |
+| `$GROOVE_GAIN` / `$GROOVE_MISS` / `$GROOVE_DECAY` | up, down, and the bleed | 0.085 / 0.12 / 0.055 |
+| `$MULT_MAX` | the multiplier at full groove | 5 |
+| `$SHIELD_MAX` / `$LEAK_COST` / `$PERFECT_BAR_HEAL` | the tube | 100 / 20 / 12 |
+| `$FIRE_CD` / `$FIRE_CD_GROOVE` | reload, cold and at full groove | 0.16s / 0.07s |
+| `$MOVE_CD` | how fast holding a direction sweeps the ring | 0.085s |
+| `$LEAD_FROM_LEVEL` / `$LEAD_NOTES` | the lead line: from which level, how many notes a bar | 2 / 2 (+1 from level 5) |
+| `$CHIME_RISE` / `$CHIME_GROOVE` | depth a chime climbs a step (so it lands in one beat); groove for catching one | 0.25 / 0.06 |
+| `$DROP_EVERY` / `$DROP_BARS` | a drop every Nth level, and how long it lasts | 4 / 4 bars |
+| `$CONDUCTOR_HP` / `$CONDUCTOR_DEPTH` | the boss's health, and where in the tube it stands | 45 / 0.3 |
+| `$SLAM_MUL` / `$DROP_HEAL` / `$SCORE_CONDUCTOR` | a drop survived, a drop won | 1.5 leaks / 25 / 600 × mult |
+
+The difficulty curve:
+
+| per level (eight bars) | value |
+|---|---|
+| tempo floor | +2.2 BPM |
+| spawns in a bar | +1 every two levels, from 3 to 11 |
+| climb rate | +11% of the base |
+| kinds in play | drone from 1, skipper from 2, hulk from 4, mirror from 6 |
+
+The tempo floor, the groove and cap rows of the tempo, the spawns-per-bar row
+and the leak cost are the **Normal** column of the difficulty table rather than
+fixed constants. See below.
+
+## Difficulty, September 2026
+
+Three settings, picked with the HUD button or
+`mount(el, { difficulty: 'hard' })`. The table lives in the engine:
+`set_difficulty(d)` records the choice (0 easy, 1 normal, 2 hard) and `init()`
+applies it, so a setting never changes halfway through a run — which matters
+more here than anywhere, because a song whose arrangement changed mid-bar would
+be heard doing it.
+
+| | Easy | Normal | Hard |
+|---|---|---|---|
+| Tempo floor | 84 BPM | 96 | 108 |
+| Tempo added at full groove | 40 | 54 | 62 |
+| Tempo cap | 150 | 168 | 184 |
+| Spawns in a bar at level 1 | 2 | 3 | 3 |
+| ... one more every | 2 levels | 2 levels | **1 level** |
+| ... capped at | 9 | 11 | 12 |
+| Shield lost to a leak | 14 | 20 | 26 |
+| Beat window | 58 ms | 58 ms | **48 ms** |
+
+The two knobs the backlog named were **the tempo floor and how full each bar
+is**, and both belong to the sequencer — which is the point of them. In this
+title the difficulty is written into the music: a setting is a different
+arrangement of the same song, slower and sparser or faster and busier, rather
+than a multiplier on a game the music merely accompanies.
+
+**The groove row is the one the named knobs would have missed.** Groove raises
+the tempo, so a player who is in time is asking for a faster track — finding 1
+is that the metronome dies before the masher, because playing well is what
+speeds the song up. A lower floor alone would not change that: an Easy player
+who found the beat would be carried up past 140 by their own groove inside a
+minute. So Easy also takes less tempo from groove, which keeps the reward for
+playing in time from burying the player who has only just found it.
+
+**Hard opens on Normal's bar and fills it twice as fast** — and that was not the
+first draft. The first gave Hard four spawns from bar one, and the loose pilot
+below died at level 2 in thirty-one seconds. Every other title's Hard lets its
+weak pilot reach level 3. Cutting the leak cost instead changed nothing (22
+against 26: the same 31 s), because the opening density was what killed it, not
+the shield. Dropping Hard's start to three fixed the opening but made its bars
+identical to Normal's for the whole run, since the cap is never reached. So the
+table carries the *rate*: Hard's level 1 is Normal's, and by level 6 it holds
+two more spawns a bar. That is the rule CONTRIBUTING.md states — level 1 gentle, the
+difficulty coming from the level number — arrived at by breaking it first.
+
+**The beat window moves in one direction only.** Easy does not widen it, though
+it is the knob a rhythm game usually reaches for first. Finding 2 is why: a
+window wide enough to pay a button-masher turns the mechanic into a decoration,
+and widening it on Easy would make Easy exactly that. The backlog ruled out
+power-ups for this title for the same reason — a faster gun is a way to stop
+listening — and a wider window is the same thing with a kinder name. Hard
+*narrows* it, for the mirror-image reason: see "The window on Hard" below. The
+climb rate stays put: the note above `$enemy_speed` says two ramps on the same
+axis is how a game becomes unplayable at level 6 without anyone deciding it
+should.
+
+**Normal is the previous balance exactly.** The same input replayed through the
+committed engine and this one gave byte-identical memory — the bar plan and
+both pools, 1,664 bytes — and all twenty-six readers on every frame, over
+36,000 frames, re-initialising on each game over.
+
+Benched with finding 1's three pilots, which share their targeting and differ
+only in when they fire. Same seed, so every row is the same song:
+
+| | Survived | Level | Score / s | On beat | Peak BPM |
+|---|---|---|---|---|---|
+| **metronome**, Easy | 121 s | 8 | 1,017 | 100% | 139 |
+| metronome, Normal | 81 s | 7 | 1,342 | 100% | 163 |
+| metronome, Hard | 57 s | 5 | 1,491 | 100% | 179 |
+| **mash**, Easy | 137 s | 7 | 146 | 35% | 101 |
+| mash, Normal | 103 s | 6 | 182 | 39% | 116 |
+| mash, Hard | 74 s | 5 | 215 | 39% | 126 |
+| **loose**, Easy | 109 s | 5 | 111 | 17% | 99 |
+| loose, Normal | 76 s | 4 | 160 | 33% | 112 |
+| loose, Hard | 41 s | 3 | 153 | 26% | 127 |
+
+(These pilots are this bench's, written to finding 1's description, so Normal's
+rows land near finding 1's numbers rather than on them — 81 s against 75 for the
+metronome, 103 against 101 for the masher.)
+
+The loose pilot reaches **level 3 on every setting**. Each pilot runs roughly
+two-thirds as long on Hard as on Normal, and a third to a half longer on Easy.
+
+### The window on Hard
+
+The first version of this table left the window at 58 ms on every column, and
+the masher's "on beat" column gave it away: 35%, 39%, 52%. A window fixed in
+seconds is a larger share of a shorter beat, so at Hard's faster tempos a
+button-masher landed half its shots on the beat by accident, and precision was
+worth least on the setting that should ask the most of it — 5.9× the masher's
+score per second, against 7.4× on Normal.
+
+Narrowing it needed a pilot the three above could not supply. The metronome
+reads the window from the engine and always fires inside it, so it cannot feel
+a window shrink; a *person* does not get more precise because the window got
+smaller. So the sweep added a **human pilot**: it aims at every eighth note and
+misses by a normal spread, σ = 35 ms, whatever the window is. Medians over eight
+songs:
+
+| | Masher on beat | Human on beat | Human's score/s over the masher's | Loose pilot reaches |
+|---|---|---|---|---|
+| Normal, 58 ms | 39% | 85% | 4.1× | level 4 |
+| Hard, 58 ms | 52% | 84% | 3.6× | level 3 |
+| Hard, 52 ms | 43% | 81% | 3.7× | level 3 |
+| **Hard, 48 ms** | **36%** | **78%** | **4.2×** | **level 3** |
+| Hard, 44 ms | 33% | 73% | 3.4× | level 3 |
+
+52 ms does not go far enough. At 44 the masher barely moves but the human loses
+more than the masher does — the window has started taxing honest timing rather
+than mashing. **48 ms is the one value that puts both numbers back where Normal
+has them**, and it is still Hard: the human lands 78% on the beat there against
+85% on Normal, which is the precision the setting asks for. On the song in the
+table above, the masher now lands exactly Normal's 39%.
+
+Easy and Normal were left alone and replay the previous engine byte for byte;
+Hard diverges on the first frame, at the window, which is the check that the
+change is the only one.
+
+**Best scores are kept per setting.** The page shell records Normal under the
+same key as before, so a best set before difficulty existed is still Normal's,
+and Easy and Hard get `pulse:easy` and `pulse:hard`.
+
+## The drop, September 2026
+
+The backlog's boss idea for this title was *"a boss on the drop, killable only on
+the beat, which its bar already knows how to express"*. Each part of that
+sentence became a rule.
+
+**On the drop.** Every fourth level opens with one. The last bar of the level
+before is written empty: the build-up, a bar of nothing but the beat, while the
+widget plays a riser and counts "DROP IN 4, 3, 2, 1" on the quarter notes. It
+is the one warning a song can give that everybody already knows how to hear.
+Then the **conductor** appears inside the tube, opposite you, at depth 0.3, and
+stays for four bars.
+
+**Its bar already knows how to express it.** The conductor *plays* the drop.
+Every spawn in those four bars comes out of its segment, and it steps there on
+the note. The bar ring the HUD already draws, sixteen ticks of the coming
+pattern, is therefore its route, and during the drop each note on it is ringed
+in the conductor's gold. A player reading the ring knows where it will be on
+every step. The plan starts each bar from where the conductor stands, so the
+route is one walk rather than a jump at the barline.
+
+**Killable only on the beat** — and, as it turned out, only by the groove.
+Like the mirror, an off-beat shot does nothing to it. That was not enough on
+its own. The notes it plays climb out of its own segment and soak up bolts,
+so the limit on hurting it was *reaching* it, not timing. A button-masher
+landed 4.9 on-beat hits a drop by accident against the metronome's 5.8, and
+at 36 health neither broke a single one. So an on-beat hit on the conductor
+does its 3 times the multiplier (×1 to ×5). Groove is the one number in this
+game that only playing in time raises. A masher's sits near zero whatever its
+accidental hit rate is.
+
+Break it inside the drop and it pays 600 × the multiplier and 25 shield. The
+drop is over and the next bar is an ordinary one. If it is still standing when
+the four bars run out, it leaves on the barline with a hit: one and a half
+leaks' worth of shield (30 on Normal) and the same cut to groove a leak takes.
+
+Its segment is lit as a band across the whole width of the tube. Its health
+is that band burning down from both ends, so there is no separate bar to look
+away to.
+
+Before the build-up, the song is untouched. Replaying a timing pilot with
+random jitter through the committed engine and this one gave byte-identical
+memory and thirteen readers on every frame up to bar 22, on all three settings.
+Bar 23, the build-up, is the first bar that differs.
+
+### What the bench found
+
+The three pilots from the Difficulty section plus the human one (aims at every
+eighth and misses by σ = 35 ms), twelve songs each. Conductors broken out of
+drops met:
+
+| | Easy | Normal | Hard |
+|---|---|---|---|
+| metronome | 12 of 14 | **10 of 12** | 3 of 12 |
+| human (σ 35 ms) | 11 of 12 | **8 of 12** | 0 of 1 |
+| mash | 0 of 12 | **0 of 12** | 0 of 6 |
+| loose | 1 of 12 | none met | none met |
+
+(Metronome on Easy met 14 and resolved 12: it died inside two of them.) The
+health sweep, on Normal, with the groove multiplier in:
+
+| Conductor health | metronome | human | mash |
+|---|---|---|---|
+| 30 | 11/12 | 10/12 | 2/12 |
+| **45** | **10/12** | **8/12** | **0/12** |
+| 60 | 9/12 | 3/12 | 0/12 |
+
+30 let the masher through. At 60 the drop stopped being winnable for a person
+with an ordinary spread. 45 is where playing in time wins it and mashing never
+does.
+
+**It changes how long a run lasts very little.** Median survival, before →
+after, on Normal: metronome 69 → 70 s, human 66 → 66, masher 93 → 85, loose
+43 → 43. The masher loses the most, because it takes the slam every time. On
+Easy and Hard every pilot is within four seconds of where it was. The drop is a
+score event and a test, not a new ceiling: the metronome's score per second
+went *up* on every setting (1,100 → 1,134 on Normal). That is what a drop
+should be.
+
+**Hard is where it bites.** The metronome broke only 3 of 12. Hard's bars fill
+faster, so more notes stand between you and the conductor. That is Hard doing
+its job rather than a tuning fault, but it is the setting to watch if the
+drop feels unfair in play.
+
+These pilots are this bench's, written to the Difficulty section's
+descriptions, so their survival lands near that table's numbers rather than on
+them. The loose pilot here reaches level 3 on Normal and so never meets a drop.
+The first drop is at level 4 on purpose: the loose pilots in this README's
+tables reach level 3 or 4. A player who has not found the beat yet does not
+meet a boss that asks for nothing else.
+
+## The lead line, October 2026
+
+The backlog listed this title's own idea as *a second instrument line*. Until now
+the song had one line — every spawn is a bass note on its segment's degree of a
+pentatonic scale — and the only melody was the player's own shots.
+
+**From level 2, each bar also carries a lead phrase**: two notes (three from
+level 5) on steps the bass left empty, preferring the off-eighths so the phrase
+answers the bass rather than doubling it, on segments that step by at most two
+from the last so it walks round the ring as a melody rather than a scatter. It
+plays as a bell two octaves above the bass on the same scale, so the two lines
+cannot clash. The HUD draws it as a **second ring of ticks** outside the bar
+ring, in a pale mint no creature wears. The bar plan already had a spare byte
+per step, so the phrase went there, and the widget reads the coming bar's
+melody the same way it reads its bass.
+
+**Every lead note releases a chime** up its segment. A chime climbs a quarter
+of the tube a step, so it reaches the rim exactly **one beat after its note
+sounded**, lit white for its last quarter. Be in that segment when it lands and
+it is caught: +0.06 groove and 40 × the multiplier. Anywhere else it is simply
+gone. Chimes cannot be shot and never leak.
+
+It is a pickup of a kind, and the backlog ruled power-ups out for this title
+because a faster gun is a way to stop listening. A chime is the opposite. It is
+catchable only by listening to a second line and moving to it on time, while
+the first line is still asking you to shoot. It is also a double-edged prize,
+because groove is what raises the tempo.
+
+**The bass line is untouched**, and making sure of that took a second go. The
+phrase is written from a random stream of its own, so every spawn, kind and
+segment is the song the engine without a lead line played. The first version
+still diverged by level 2. Its chimes lived in the enemy pool, so a chime
+holding a slot moved where the next enemy landed, which changed which of two
+overlapping enemies a bolt found first: one kill different. Chimes now have a
+pool of their own after the bolts (`$CHIMES_OFF`), and replaying a timing
+pilot with jitter through both engines gives identical scores, kills, leaks and
+every other reader on every frame until the first chime is caught, on all
+three settings and through the drops.
+
+### What the bench found
+
+The four pilots from the drop's bench, 12 songs on Normal, flown twice: as
+before, ignoring chimes, and again moving to a chime that is about to land
+whenever nothing else is above half depth.
+
+| | Ignores chimes: survived, caught | Follows them: survived, caught | Conductors broken, ignoring → following |
+|---|---|---|---|
+| metronome | 70 → 66 s, 9% | 65 s, 27% | 10 → 3 of 12 |
+| human (σ 35 ms) | 66 → 67 s, 8% | 61 s, 25% | 8 → 3 |
+| mash | 85 → 85 s, 8% | 84 s, 33% | 0 → 0 |
+| loose | 43 → 42 s, 7% | 41 s, 28% | — |
+
+**Ignored, it changes almost nothing.** Pilots catch 7–9% of chimes by
+standing in the right place, and survival moves by a few seconds. On Hard the
+accidental catches were enough to cost 5–12% of a run, through the tempo that
+groove raises. That is the double edge, measured.
+
+**Chasing it is a real choice, not a free lunch.** Following the melody
+roughly triples the catch rate and costs the drop: the metronome broke 3
+conductors in 12 instead of 10, because the melody pulled it off the boss's
+segment. The masher gains most from following (score per second 185 → 207),
+because chime groove is the one groove it can earn without timing its shots.
+It is still a fifth of the metronome's rate, so precision remains the game.
+
+What the bench cannot say is whether a person *hears* the second line as a
+line. The ring shows it and the bell plays it; whether the two together read
+as something to follow is for a player to say.
+
+## Rebuilding the engine
+
+```bash
+npm install            # wabt is a devDependency of this repo
+npm run build:pulse    # game.wat -> game.wasm, re-embedded into the .js
+npm run check          # verify the committed binary matches its source
+```
+
+`game.wasm` and the base64 copy inside `pulse.js` are both committed, so a
+fresh checkout plays with nothing installed. `npm run check` is what stops the
+three copies of the engine drifting apart.
+
+## Browser support
+
+Any browser with WebAssembly MVP and canvas 2D: Chrome/Edge 57+, Firefox 52+,
+Safari 11+. The engine uses **strict MVP** — four value types, one 64 KiB page,
+structured control flow, no post-MVP feature and no feature detection. The
+soundtrack needs Web Audio and starts on the first input, because browsers
+refuse to open an AudioContext outside a user gesture; without it the game is
+still playable from the visual metronome, which is the reason the whole board
+pulses.

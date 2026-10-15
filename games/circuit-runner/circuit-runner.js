@@ -1,0 +1,786 @@
+/* ============================================================
+ * CIRCUIT RUNNER — embeddable arcade widget
+ * Engine: hand-written WebAssembly (see game.wat)
+ * Renderer/Input/Sound: this file (canvas 2D, keyboard + touch)
+ *
+ * Usage:
+ *   <link rel="stylesheet" href="circuit-runner.css">
+ *   <div id="game"></div>
+ *   <script src="circuit-runner.js"><\/script>
+ *   <script>
+ *     var game = CircuitRunner.mount(document.getElementById('game'));
+ *     // game.restart(); game.destroy(); game.getState();
+ *   <\/script>
+ *
+ * Host page should include (for mobile):
+ *   <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+ *
+ * Self-contained by design: no imports, no shared modules with any other game
+ * in this repo, no network requests at runtime. The engine is embedded below
+ * as base64 and everything it needs — sprites, sound, DOM — is in this file.
+ * ============================================================ */
+(function (global) {
+  'use strict';
+
+  // ---- constants: MUST match the memory layout in game.wat ----
+  var WORLD_W = 960, WORLD_H = 720;
+  var RUNNER_OFF = 0;
+  var PARTS_OFF = 24, PART_STRIDE = 32, MAX_PARTS = 24;
+  var PICKUPS_OFF = 792, PICKUP_STRIDE = 24, MAX_PICKUPS = 20;
+  // Field positions inside each record, in f32 slots — the `@fields` lines in
+  // game.wat, copied. Every read goes through this table rather than a bare
+  // `f32[a + 4]`, so scripts/check-layout.mjs can see a field that moved.
+  var FIELD = {
+    runner: { x: 0, lane: 1, targetLane: 2, stun: 3, alive: 4 },
+    part: { x: 0, y: 1, lane: 2, kind: 3, active: 4, span: 5, timer: 6, charged: 7 },
+    pickup: { x: 0, y: 1, lane: 2, kind: 3, active: 4, phase: 5 },
+  };
+  var PART_HALF_H = 30;
+  var PXS = 3;         // chunky pixel scale for the ASCII sprites
+  var LOW_SCALE = 3;   // 320x240 buffer, blown up — see asteroid-miner.js
+
+  var WASM_B64 = "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";
+
+  // ============================================================
+  // PIXEL SPRITES (ASCII grids -> offscreen canvases)
+  // Each character is one pixel; '.' is transparent. Every row of a sprite
+  // must be the same length.
+  //
+  // Only the fixed-size things are sprites. The components are drawn
+  // procedurally, because a part is 1 or 2 lanes wide and an ASCII grid has
+  // one width — two hand-drawn variants of the same resistor would be two
+  // things to keep looking alike, and the shapes are rectangles with bands and
+  // pins, which is exactly what fillRect is for. Everything still lands on the
+  // low-res grid, so it is the same picture either way.
+  // ============================================================
+  function makeSprite(rows, palette, px) {
+    var w = rows[0].length, h = rows.length;
+    var cv = document.createElement('canvas');
+    cv.width = w * px; cv.height = h * px;
+    var c = cv.getContext('2d');
+    for (var y = 0; y < h; y++) {
+      for (var x = 0; x < w; x++) {
+        var ch = rows[y][x];
+        if (ch === '.') continue;
+        c.fillStyle = palette[ch];
+        c.fillRect(x * px, y * px, px, px);
+      }
+    }
+    return cv;
+  }
+
+  // The runner: a charge carrier riding the trace. Reads as an arrowhead so
+  // "which way is forward" is never in question on a board that scrolls.
+  var RUNNER_PAL = { W: '#e8fff4', C: '#6ee7a8', G: '#2b9c67', D: '#0d3a26', Y: '#ffd166' };
+  var runnerRows = [
+    '......YY......',
+    '.....YWWY.....',
+    '....YWCCWY....',
+    '...CWCCCCWC...',
+    '..CCCCCCCCCC..',
+    '.CCCGGCCGGCCC.',
+    'CCCGGGCCGGGCCC',
+    'CCGGDDCCDDGGCC',
+    'CGGDD.CC.DDGGC',
+    'CGGD...CC..DGC',
+    '.GG.........G.',
+    '.G...........G',
+    '..D.........D.',
+    '...D.......D..',
+  ];
+
+  var CHARGE_PAL = { W: '#ffffff', Y: '#ffd166', O: '#e08a12' };
+  var chargeRows = [
+    '....YY..',
+    '...YWY..',
+    '..YWWY..',
+    '.YWWYYYY',
+    'YYYYWWY.',
+    '..OYWY..',
+    '..OYY...',
+    '..OO....',
+  ];
+
+  var BOOST_PAL = { W: '#ffffff', B: '#7cc7ff', D: '#1f5f8f' };
+  var boostRows = [
+    '.BBBBBB.',
+    'BWWWWWWB',
+    'BWBBBBWB',
+    'BWBWWBWB',
+    'BWBWWBWB',
+    'BWBBBBWB',
+    'BWWWWWWB',
+    '.BDDDDB.',
+  ];
+
+  // Board palette.
+  var PCB = '#071a12';
+  var TRACE = '#1d5c3c';
+  var TRACE_G = '#6b5530';   // a trace during a gauntlet: copper, not green
+  var TRACE_LIT = '#2f8a58';
+  var PAD = '#c08a3e';
+
+  function base64ToBytes(b64) {
+    var bin = atob(b64);
+    var bytes = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes;
+  }
+
+  // ============================================================
+  // SOUND — synthesised, no audio files and nothing to license.
+  // The AudioContext is created on the first real input, because browsers
+  // refuse to start audio outside a user gesture.
+  // ============================================================
+  function createSound() {
+    var ctx = null, muted = false;
+
+    function ensure() {
+      if (ctx) return ctx;
+      var AC = global.AudioContext || global.webkitAudioContext;
+      if (!AC) return null;
+      ctx = new AC();
+      return ctx;
+    }
+
+    function tone(freq, freq2, dur, type, gain) {
+      if (muted) return;
+      var c = ensure();
+      if (!c) return;
+      if (c.state === 'suspended') c.resume();
+      var o = c.createOscillator(), g = c.createGain();
+      o.type = type || 'square';
+      o.frequency.setValueAtTime(freq, c.currentTime);
+      o.frequency.exponentialRampToValueAtTime(Math.max(1, freq2), c.currentTime + dur);
+      g.gain.setValueAtTime(gain == null ? 0.05 : gain, c.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + dur);
+      o.connect(g); g.connect(c.destination);
+      o.start(); o.stop(c.currentTime + dur);
+    }
+
+    function noise(dur, gain) {
+      if (muted) return;
+      var c = ensure();
+      if (!c) return;
+      if (c.state === 'suspended') c.resume();
+      var n = Math.floor(c.sampleRate * dur);
+      var buf = c.createBuffer(1, n, c.sampleRate);
+      var d = buf.getChannelData(0);
+      for (var i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
+      var src = c.createBufferSource(), g = c.createGain();
+      src.buffer = buf;
+      g.gain.setValueAtTime(gain == null ? 0.08 : gain, c.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.0001, c.currentTime + dur);
+      src.connect(g); g.connect(c.destination);
+      src.start();
+    }
+
+    return {
+      slide:  function () { tone(420, 620, 0.05, 'square', 0.022); },
+      // Charges rise a step at a time and wrap every sixth, so a clean run up
+      // the board sounds like one rather than like the same blip repeated.
+      charge: function (n) { tone(560 + (n % 6) * 60, 900 + (n % 6) * 60, 0.07, 'triangle', 0.05); },
+      boost:  function () { tone(500, 1400, 0.26, 'triangle', 0.06); },
+      // a gauntlet's name: one square sweep up an octave, like a bus clocking in
+      gauntlet: function () { tone(330, 660, 0.3, 'square', 0.05); },
+      clean:  function () { tone(520, 1560, 0.35, 'triangle', 0.06); },
+      hit:    function () { noise(0.3, 0.11); tone(210, 55, 0.3, 'sawtooth', 0.07); },
+      over:   function () { tone(240, 45, 0.95, 'sawtooth', 0.085); },
+      setMuted: function (m) { muted = m; },
+      close: function () { if (ctx && ctx.close) { try { ctx.close(); } catch (e) {} } ctx = null; },
+    };
+  }
+
+  // ============================================================
+  // MOUNT
+  // ============================================================
+  function mount(container, opts) {
+    opts = opts || {};
+    if (typeof container === 'string') container = document.querySelector(container);
+    if (!container) throw new Error('CircuitRunner.mount: container not found');
+
+    // ---------- build DOM ----------
+    var root = document.createElement('div');
+    root.className = 'cr-root';
+    root.innerHTML =
+      '<div class="cr-hud">' +
+        '<span>SCORE <b class="cr-a" data-cr="score">0</b></span>' +
+        '<span>DIST <b class="cr-v" data-cr="dist">0m</b></span>' +
+        '<span class="cr-gauge">CURRENT <span class="cr-bar" data-cr="bar"><i data-cr="cur"></i></span></span>' +
+        '<span class="cr-over" data-cr="over">OVERCLOCK x2</span>' +
+        '<button type="button" class="cr-mute" data-cr="mute">SOUND ON</button>' +
+        '<button type="button" class="cr-mute cr-pause" data-cr="pause">PAUSE</button>' +
+        '<button type="button" class="cr-mute cr-diff" data-cr="diff">NORMAL</button>' +
+      '</div>' +
+      '<div class="cr-stage">' +
+        '<canvas class="cr-canvas" width="' + WORLD_W + '" height="' + WORLD_H + '"></canvas>' +
+        '<div class="cr-touch" aria-hidden="true">' +
+          '<div class="cr-tap cr-tap-left" data-cr="tapL">&#9664;</div>' +
+          '<div class="cr-tap cr-tap-right" data-cr="tapR">&#9654;</div>' +
+        '</div>' +
+        '<div class="cr-scan" aria-hidden="true"></div>' +
+        '<div class="cr-overlay cr-note" data-cr="note">CURRENT LOW</div>' +
+        '<div class="cr-overlay cr-note cr-gname" data-cr="gname"></div>' +
+        '<div class="cr-overlay cr-msg" data-cr="msg">POWER LOST<small data-cr="msgsmall">PRESS R TO RESTART</small></div>' +
+        '<div class="cr-overlay cr-msg cr-paused" data-cr="paused">PAUSED<small data-cr="pausedsmall">PRESS P TO RESUME</small></div>' +
+      '</div>' +
+      '<div class="cr-help" data-cr="help">' +
+        '[&larr;][&rarr;] CHANGE TRACE &nbsp; COLLECT CURRENT OR IT RUNS OUT &nbsp; ' +
+        '[P] PAUSE &nbsp; [R] RESTART &nbsp; [M] MUTE</div>';
+    container.appendChild(root);
+
+    var q = function (name) { return root.querySelector('[data-cr="' + name + '"]'); };
+    var canvas = root.querySelector('canvas');
+    var screen = canvas.getContext('2d');
+    screen.imageSmoothingEnabled = false;
+
+    var low = document.createElement('canvas');
+    low.width = WORLD_W / LOW_SCALE;
+    low.height = WORLD_H / LOW_SCALE;
+    var g = low.getContext('2d');
+    g.imageSmoothingEnabled = false;
+
+    var stage = root.querySelector('.cr-stage');
+    var hudScore = q('score'), hudDist = q('dist');
+    var curBar = q('bar'), curFill = q('cur'), overEl = q('over');
+    var msgEl = q('msg'), noteEl = q('note'), helpEl = q('help'), gnameEl = q('gname');
+    // The gauntlets' names. The engine numbers them; what they are called is
+    // presentation, so the names live here.
+    var GAUNTLET_NAMES = ['', 'THE SERPENTINE', 'THE BUS', 'THE CAPACITOR BANK'];
+    var gnameT = 0;
+    var muteBtn = q('mute');
+    var tapL = q('tapL'), tapR = q('tapR');
+
+    function enableTouchUI() {
+      if (root.classList.contains('cr-is-touch')) return;
+      root.classList.add('cr-is-touch');
+      helpEl.textContent = 'TAP A SIDE TO CHANGE TRACE • COLLECT CURRENT OR IT RUNS OUT • TAP TO RESTART';
+      q('msgsmall').textContent = 'TAP TO RESTART';
+      q('pausedsmall').textContent = 'TAP TO RESUME';
+    }
+    if (global.matchMedia && global.matchMedia('(pointer: coarse)').matches) enableTouchUI();
+
+    // ---------- per-instance state ----------
+    var wasm = null, f32 = null;
+    var destroyed = false, paused = false;
+    var rafId = 0, lastT = 0, tGlobal = 0;
+    // Which setting the next run asks for. Only the choice lives here; what a
+    // setting does is the table at the top of game.wat.
+    var DIFFICULTIES = ['easy', 'normal', 'hard'];
+    var difficulty = DIFFICULTIES.indexOf(opts.difficulty);
+    if (difficulty < 0) difficulty = 1;
+    var keys = { left: false, right: false };
+    // Gamepad, read once a frame rather than listened for: the Gamepad API only
+    // refreshes its snapshots when getGamepads() is called, so a listener would
+    // report whatever frame it happened to fire on. Digital, like the keys: this
+    // game changes trace by trace, so there is nothing for an analog push to say.
+    var PAD_DEADZONE = 0.5;
+    var pad = { left: false, right: false };
+    var padPrev = { pause: false, restart: false, mute: false };
+    var tap = { left: false, right: false };
+    var sound = createSound();
+    var muted = false;
+    var particles = [];
+    var shake = 0, flash = 0;
+    var prevSwitches = 0, prevHits = 0, prevCharges = 0, prevBoosts = 0, prevOver = 0;
+    var prevGauntlets = 0, prevClears = 0;
+    var noteT = 0;
+    // Scroll offset for the board texture, in world px, wrapped to the tile
+    // height so it never grows large enough to lose float precision.
+    var scroll = 0;
+
+    // ---------- sprites ----------
+    var sprRunner = makeSprite(runnerRows, RUNNER_PAL, PXS);
+    var sprCharge = makeSprite(chargeRows, CHARGE_PAL, PXS);
+    var sprBoost = makeSprite(boostRows, BOOST_PAL, PXS);
+
+    // ---------- input ----------
+    var KEY_MAP = {
+      ArrowLeft: 'left', a: 'left', A: 'left',
+      ArrowRight: 'right', d: 'right', D: 'right',
+    };
+
+    function onKeyDown(e) {
+      var k = KEY_MAP[e.key];
+      if (k) { keys[k] = true; e.preventDefault(); return; }
+      if (e.key === 'r' || e.key === 'R') restart();
+      if (e.key === 'm' || e.key === 'M') toggleMute();
+      // A held key auto-repeats, and a toggle on every repeat would flicker.
+      if ((e.key === 'p' || e.key === 'P' || e.key === 'Escape') && !e.repeat) {
+        setPaused(!paused);
+        e.preventDefault();
+      }
+    }
+    function onKeyUp(e) {
+      var k = KEY_MAP[e.key];
+      if (k) { keys[k] = false; e.preventDefault(); }
+    }
+
+    function releaseAll() {
+      keys.left = keys.right = false;
+      tap.left = tap.right = false;
+      tapL.classList.remove('cr-active');
+      tapR.classList.remove('cr-active');
+    }
+
+    function bindTap(el, side) {
+      el.addEventListener('pointerdown', function (e) {
+        if (e.pointerType === 'mouse') return;   // a mouse plays with the keyboard
+        enableTouchUI();
+        tap[side] = true;
+        el.classList.add('cr-active');
+        if (el.setPointerCapture) { try { el.setPointerCapture(e.pointerId); } catch (err) {} }
+        e.preventDefault();
+      });
+      var up = function (e) {
+        if (e && e.pointerType === 'mouse') return;
+        tap[side] = false;
+        el.classList.remove('cr-active');
+      };
+      el.addEventListener('pointerup', up);
+      el.addEventListener('pointercancel', up);
+      el.addEventListener('pointerleave', up);
+    }
+    bindTap(tapL, 'left');
+    bindTap(tapR, 'right');
+
+    function toggleMute() {
+      muted = !muted;
+      sound.setMuted(muted);
+      muteBtn.textContent = muted ? 'SOUND OFF' : 'SOUND ON';
+    }
+
+    global.addEventListener('keydown', onKeyDown);
+    global.addEventListener('keyup', onKeyUp);
+    // Losing focus also pauses: whoever alt-tabbed away was not planning to come
+    // back to a runner still sprinting down the board.
+    function onBlur() { releaseAll(); setPaused(true); }
+    global.addEventListener('blur', onBlur);
+
+    // ---------- pause ----------
+    // Pause lives here and not in the engine, because it is a decision about the
+    // clock rather than about the game: the engine advances by whatever dt it is
+    // handed, so pausing is the loop no longer calling step(). The loop keeps
+    // drawing, so the frozen board stays on screen. Chapter 15 makes the case.
+    var pausedEl = q('paused'), pauseBtn = q('pause');
+    function setPaused(on) {
+      if (!wasm) return;
+      if (on && wasm.exports.is_game_over()) return;   // nothing to pause once the power is gone
+      paused = on;
+      pausedEl.style.display = on ? 'block' : 'none';
+      pauseBtn.textContent = on ? 'RESUME' : 'PAUSE';
+      // Anything held when play stopped must not still be held when it resumes:
+      // the same latch releaseAll() exists to prevent on blur.
+      if (on) releaseAll();
+    }
+    pauseBtn.addEventListener('click', function () { setPaused(!paused); pauseBtn.blur(); });
+
+    // ---------- difficulty ----------
+    // The button cycles EASY -> NORMAL -> HARD and starts a fresh run at once,
+    // because a score that was half Easy and half Hard is a number no
+    // best-score list could file — and a distance score in particular, since
+    // Easy's board simply lets you travel further.
+    var diffBtn = q('diff');
+    diffBtn.textContent = DIFFICULTIES[difficulty].toUpperCase();
+    diffBtn.addEventListener('click', function () {
+      difficulty = (difficulty + 1) % DIFFICULTIES.length;
+      diffBtn.textContent = DIFFICULTIES[difficulty].toUpperCase();
+      restart();
+      diffBtn.blur();
+    });
+    // Paused, a press anywhere on the board resumes and does nothing else: this
+    // game's tap zones are the whole stage, so a tap meant to unpause would
+    // otherwise also change trace.
+    stage.addEventListener('pointerdown', function (e) {
+      if (!paused) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setPaused(false);
+    }, true);
+
+    // ---------- gamepad ----------
+    // Standard mapping: left stick or d-pad changes trace, Start pauses, Back or
+    // Y restarts, a shoulder button mutes. There is nothing to shoot here, so
+    // the other face buttons do nothing.
+    function pollGamepad() {
+      pad.left = false; pad.right = false;
+      var nav = global.navigator;
+      var pads = nav && nav.getGamepads ? nav.getGamepads() : null;
+      if (!pads) return;
+      var p = null, i;
+      for (i = 0; i < pads.length; i++) if (pads[i] && pads[i].connected) { p = pads[i]; break; }
+      if (!p) return;
+
+      var buttons = p.buttons || [], axes = p.axes || [];
+      var btn = function (n) { var b = buttons[n]; return !!(b && (b.pressed || b.value > 0.5)); };
+      var ax = axes[0] || 0;
+      pad.left = ax < -PAD_DEADZONE || btn(14);
+      pad.right = ax > PAD_DEADZONE || btn(15);
+
+      var pausePress = btn(9), restartPress = btn(8) || btn(3), mutePress = btn(4) || btn(5);
+      if (pausePress && !padPrev.pause) setPaused(!paused);
+      if (restartPress && !padPrev.restart) restart();
+      if (mutePress && !padPrev.mute) toggleMute();
+      padPrev.pause = pausePress; padPrev.restart = restartPress; padPrev.mute = mutePress;
+    }
+    muteBtn.addEventListener('click', function () { toggleMute(); muteBtn.blur(); });
+    msgEl.addEventListener('click', function () { restart(); });
+
+    // ---------- particles ----------
+    function burst(x, y, n, color, speed) {
+      for (var i = 0; i < n; i++) {
+        var a = Math.random() * Math.PI * 2;
+        var v = speed * (0.3 + Math.random() * 0.9);
+        particles.push({
+          x: x, y: y, vx: Math.cos(a) * v, vy: Math.sin(a) * v,
+          life: 0.3 + Math.random() * 0.4, age: 0, color: color,
+        });
+      }
+      if (particles.length > 360) particles.splice(0, particles.length - 360);
+    }
+
+    function stepParticles(dt) {
+      for (var i = particles.length - 1; i >= 0; i--) {
+        var p = particles[i];
+        p.age += dt;
+        if (p.age >= p.life) { particles.splice(i, 1); continue; }
+        p.x += p.vx * dt; p.y += p.vy * dt;
+        p.vx *= 0.95; p.vy *= 0.95;
+        g.globalAlpha = 1 - p.age / p.life;
+        g.fillStyle = p.color;
+        g.fillRect(snap(p.x) - LOW_SCALE, snap(p.y) - LOW_SCALE, LOW_SCALE * 2, LOW_SCALE * 2);
+      }
+      g.globalAlpha = 1;
+    }
+
+    // ---------- drawing ----------
+    function snap(v) { return Math.round(v / LOW_SCALE) * LOW_SCALE; }
+
+    function drawSpriteAt(spr, x, y) {
+      g.drawImage(spr, snap(x - spr.width / 2), snap(y - spr.height / 2));
+    }
+
+    /**
+     * The board: six copper traces with solder pads sliding down them. The pads
+     * are the only thing that conveys speed — the traces are unbroken lines, and
+     * an unbroken line scrolling past looks identical at any speed.
+     */
+    function drawBoard() {
+      // During a gauntlet the unlit traces take a warmer colour, so the board
+      // itself says "this stretch is named" as well as the banner.
+      var inGauntlet = wasm.exports.get_gauntlet() !== 0;
+      var lanes = wasm.exports.get_lanes();
+      var laneW = wasm.exports.get_lane_w();
+      var lane = wasm.exports.get_lane();
+
+      g.fillStyle = PCB;
+      g.fillRect(0, 0, WORLD_W, WORLD_H);
+
+      for (var l = 0; l < lanes; l++) {
+        var cx = snap((l + 0.5) * laneW);
+        g.fillStyle = (l === lane) ? TRACE_LIT : (inGauntlet ? TRACE_G : TRACE);
+        g.fillRect(cx - LOW_SCALE * 2, 0, LOW_SCALE * 4, WORLD_H);
+        // solder pads, every 120 world px
+        g.fillStyle = PAD;
+        for (var y = (scroll % 120) - 120; y < WORLD_H; y += 120) {
+          g.fillRect(cx - LOW_SCALE * 3, snap(y), LOW_SCALE * 6, LOW_SCALE * 2);
+        }
+      }
+    }
+
+    function drawParts() {
+      var laneW = wasm.exports.get_lane_w();
+      for (var i = 0; i < MAX_PARTS; i++) {
+        var a = (PARTS_OFF + i * PART_STRIDE) >> 2;
+        var R = FIELD.part;
+        if (f32[a + R.active] <= 0) continue;
+        var x = f32[a + R.x], y = f32[a + R.y];
+        var kind = f32[a + R.kind] | 0, span = f32[a + R.span] | 0;
+        var hw = span * (laneW / 2) - 26;
+        var l = snap(x - hw), r = snap(x + hw);
+        var t = snap(y - PART_HALF_H), b = snap(y + PART_HALF_H);
+        var w = r - l, h = b - t;
+
+        if (kind === 0) {
+          // Resistor: beige body, colour bands, leads out each side.
+          g.fillStyle = '#8a6a3a';
+          g.fillRect(l - LOW_SCALE * 3, snap(y) - LOW_SCALE, w + LOW_SCALE * 6, LOW_SCALE * 2);
+          g.fillStyle = '#d8b784';
+          g.fillRect(l, t + LOW_SCALE * 2, w, h - LOW_SCALE * 4);
+          var bands = ['#8a3f2a', '#2b2b2b', '#c8a020'];
+          for (var k = 0; k < 3; k++) {
+            g.fillStyle = bands[k];
+            g.fillRect(l + LOW_SCALE * (3 + k * 3), t + LOW_SCALE * 2,
+                       LOW_SCALE * 2, h - LOW_SCALE * 4);
+          }
+        } else if (kind === 1) {
+          // Capacitor: two plates, live only while charged. A discharged one is
+          // drawn dark and hollow so "safe now" is legible at a glance — the
+          // whole point of the kind is that it is a gate, not a wall.
+          var live = f32[a + R.charged] !== 0;
+          g.fillStyle = live ? '#ffe08a' : '#2a4a3c';
+          g.fillRect(l, t, w, LOW_SCALE * 3);
+          g.fillRect(l, b - LOW_SCALE * 3, w, LOW_SCALE * 3);
+          g.fillStyle = live ? '#ffd166' : '#16281f';
+          g.fillRect(l + LOW_SCALE * 2, t + LOW_SCALE * 3, w - LOW_SCALE * 4, h - LOW_SCALE * 6);
+          if (live) {
+            // arcing between the plates
+            g.fillStyle = '#ffffff';
+            for (var s = 0; s < 3; s++) {
+              var ax = l + LOW_SCALE * 3 + ((Math.random() * (w - LOW_SCALE * 6)) | 0);
+              g.fillRect(snap(ax), t + LOW_SCALE * 4, LOW_SCALE, h - LOW_SCALE * 8);
+            }
+          }
+        } else if (kind === 2) {
+          // Chip: black body, pins along both long edges, orientation notch.
+          g.fillStyle = '#c9c9c9';
+          for (var px = l + LOW_SCALE; px < r - LOW_SCALE; px += LOW_SCALE * 4) {
+            g.fillRect(px, t - LOW_SCALE * 2, LOW_SCALE * 2, LOW_SCALE * 2);
+            g.fillRect(px, b, LOW_SCALE * 2, LOW_SCALE * 2);
+          }
+          g.fillStyle = '#14161a';
+          g.fillRect(l, t, w, h);
+          g.fillStyle = '#3a4048';
+          g.fillRect(l + LOW_SCALE, t + LOW_SCALE, w - LOW_SCALE * 2, LOW_SCALE);
+          g.fillStyle = '#8a9098';
+          g.fillRect(l + LOW_SCALE * 2, snap(y) - LOW_SCALE, LOW_SCALE * 2, LOW_SCALE * 2);
+        } else {
+          // Solder bridge: a spill of molten solder across two traces.
+          g.fillStyle = '#9aa4ad';
+          g.fillRect(l, t + LOW_SCALE * 2, w, h - LOW_SCALE * 4);
+          g.fillStyle = '#d6dee4';
+          g.fillRect(l + LOW_SCALE * 2, t + LOW_SCALE * 3, w - LOW_SCALE * 4, LOW_SCALE * 2);
+          g.fillStyle = '#5c666e';
+          g.fillRect(l, b - LOW_SCALE * 3, w, LOW_SCALE);
+        }
+      }
+    }
+
+    function drawPickups() {
+      for (var i = 0; i < MAX_PICKUPS; i++) {
+        var a = (PICKUPS_OFF + i * PICKUP_STRIDE) >> 2;
+        var P = FIELD.pickup;
+        if (f32[a + P.active] <= 0) continue;
+        var kind = f32[a + P.kind] | 0;
+        var bob = Math.round(Math.sin(tGlobal * 5 + f32[a + P.phase]) * 1.2) * LOW_SCALE;
+        drawSpriteAt(kind === 1 ? sprBoost : sprCharge, f32[a + P.x], f32[a + P.y] + bob);
+      }
+    }
+
+    function drawRunner() {
+      var x = wasm.exports.get_runner_x(), y = wasm.exports.get_runner_y();
+      var stun = wasm.exports.get_stun();
+      // Sparking after a hit: blink, and shed sparks. The engine also makes it
+      // immune for exactly this window, so the blink is honest about state.
+      if (stun > 0 && Math.sin(stun * 40) < -0.1) return;
+      if (wasm.exports.get_overclock() > 0) {
+        g.fillStyle = 'rgba(124,199,255,0.30)';
+        g.fillRect(snap(x) - LOW_SCALE * 8, 0, LOW_SCALE * 16, WORLD_H);
+      }
+      drawSpriteAt(sprRunner, x, y);
+    }
+
+    // ---------- engine events ----------
+    function pollEvents(dt) {
+      var e = wasm.exports;
+
+      var sw = e.get_switches();
+      if (sw > prevSwitches) { sound.slide(); prevSwitches = sw; }
+
+      var ch = e.get_charges();
+      if (ch > prevCharges) {
+        sound.charge(ch);
+        burst(e.get_runner_x(), e.get_runner_y(), 8, '#ffd166', 150);
+        prevCharges = ch;
+      }
+
+      var bo = e.get_boosts();
+      if (bo > prevBoosts) {
+        sound.boost();
+        burst(e.get_runner_x(), e.get_runner_y(), 16, '#7cc7ff', 200);
+        prevBoosts = bo;
+      }
+
+      var hi = e.get_hits();
+      if (hi > prevHits) {
+        sound.hit();
+        shake = Math.max(shake, 0.45);
+        flash = 0.45;
+        burst(e.get_runner_x(), e.get_runner_y(), 24, '#ff5470', 220);
+        prevHits = hi;
+      }
+
+      // A gauntlet: its name, the moment it is decided — which is a row's
+      // worth of empty board before its first row, the time to find the path.
+      var ga = e.get_gauntlets();
+      if (ga > prevGauntlets) {
+        sound.gauntlet();
+        gnameEl.textContent = GAUNTLET_NAMES[e.get_gauntlet()] || 'GAUNTLET';
+        gnameT = 2.2;
+        prevGauntlets = ga;
+      }
+      var gc = e.get_gauntlet_clears();
+      if (gc > prevClears) {
+        sound.clean();
+        gnameEl.textContent = 'CLEAN RUN +CURRENT';
+        gnameT = 1.2;
+        prevClears = gc;
+      }
+
+      var over = e.is_game_over();
+      if (over && !prevOver) { sound.over(); msgEl.style.display = 'block'; }
+      prevOver = over;
+    }
+
+    // ---------- loop ----------
+    function loop(now) {
+      if (destroyed) return;
+      // Before the pause gate: Start has to be able to unpause, and Back to
+      // restart from the game-over screen.
+      pollGamepad();
+      var dt = Math.min((now - lastT) / 1000, 0.05);
+      lastT = now;
+      // Paused stops the animation clock too, so the scrolling board, the
+      // particles and the shake hold still instead of playing on over a frozen
+      // runner. lastT still advances, so the first frame back is one frame long.
+      if (paused) dt = 0;
+      tGlobal += dt;
+
+      if (!paused) {
+        // Held left and right cancel rather than fighting, and the engine only
+        // accepts a change once the previous slide has finished — so holding a
+        // key walks trace by trace instead of queueing turns the player has not
+        // had a chance to see the board for. A pad says the same thing digitally.
+        var move = ((keys.right || tap.right || pad.right) ? 1 : 0) -
+                   ((keys.left || tap.left || pad.left) ? 1 : 0);
+        wasm.exports.set_input(move);
+        wasm.exports.step(dt);
+        pollEvents(dt);
+      }
+
+      if (!wasm.exports.is_game_over()) {
+        scroll = (scroll + wasm.exports.get_speed() * dt) % 120;
+      }
+
+      var Z = 1 / LOW_SCALE;
+      g.setTransform(Z, 0, 0, Z, 0, 0);
+
+      if (shake > 0) {
+        var m = shake * 4;
+        g.setTransform(Z, 0, 0, Z,
+          Math.round((Math.random() * 2 - 1) * m),
+          Math.round((Math.random() * 2 - 1) * m));
+        shake = Math.max(0, shake - dt * 1.8);
+      }
+
+      drawBoard();
+      drawParts();
+      drawPickups();
+      drawRunner();
+      stepParticles(dt);
+
+      g.setTransform(Z, 0, 0, Z, 0, 0);
+      if (flash > 0) {
+        g.fillStyle = 'rgba(255,60,90,' + (flash * 0.7).toFixed(3) + ')';
+        g.fillRect(0, 0, WORLD_W, WORLD_H);
+        flash = Math.max(0, flash - dt * 1.9);
+      }
+
+      screen.setTransform(1, 0, 0, 1, 0, 0);
+      screen.imageSmoothingEnabled = false;
+      screen.drawImage(low, 0, 0, WORLD_W, WORLD_H);
+
+      // HUD.
+      var cur = wasm.exports.get_current(), curMax = wasm.exports.get_current_max();
+      var frac = cur / curMax;
+      hudScore.textContent = Math.round(wasm.exports.get_score());
+      hudDist.textContent = Math.round(wasm.exports.get_dist() / 10) + 'm';
+      curFill.style.width = Math.max(0, frac * 100) + '%';
+      if (frac <= 0.25) curBar.classList.add('cr-crit');
+      else curBar.classList.remove('cr-crit');
+      if (wasm.exports.get_overclock() > 0) overEl.classList.add('cr-on');
+      else overEl.classList.remove('cr-on');
+
+      noteT -= dt;
+      if (frac <= 0.25 && !wasm.exports.is_game_over()) noteT = 0.2;
+      noteEl.style.opacity = noteT > 0 ? '1' : '0';
+      gnameT -= dt;
+      gnameEl.style.opacity = (gnameT > 0 && !wasm.exports.is_game_over()) ? '1' : '0';
+
+      rafId = requestAnimationFrame(loop);
+    }
+
+    function restart() {
+      if (!wasm) return;
+      // set_difficulty only records the choice; init() is what applies it
+      wasm.exports.set_difficulty(difficulty);
+      wasm.exports.init();
+      f32 = new Float32Array(wasm.exports.memory.buffer);
+      particles.length = 0;
+      shake = 0; flash = 0; noteT = 0; scroll = 0;
+      releaseAll();
+      prevSwitches = wasm.exports.get_switches();
+      prevHits = wasm.exports.get_hits();
+      prevCharges = wasm.exports.get_charges();
+      prevBoosts = wasm.exports.get_boosts();
+      prevGauntlets = wasm.exports.get_gauntlets();
+      prevClears = wasm.exports.get_gauntlet_clears();
+      gnameT = 0;
+      prevOver = 0;
+      msgEl.style.display = 'none';
+      setPaused(false);
+    }
+
+    // ---------- boot ----------
+    var wasmSource = opts.wasmBase64 || WASM_B64;
+    var instantiate;
+    if (opts.wasmUrl) {
+      instantiate = fetch(opts.wasmUrl)
+        .then(function (r) { return r.arrayBuffer(); })
+        .then(function (buf) { return WebAssembly.instantiate(buf, {}); });
+    } else {
+      // No imports: nothing in this engine turns through an angle.
+      instantiate = WebAssembly.instantiate(base64ToBytes(wasmSource), {});
+    }
+    instantiate.then(function (result) {
+      if (destroyed) return;
+      wasm = result.instance;
+      restart();
+      lastT = performance.now();
+      rafId = requestAnimationFrame(loop);
+    }).catch(function (err) {
+      root.innerHTML = '<div class="cr-fail">Failed to load game engine: ' + err + '</div>';
+    });
+
+    // ---------- public API ----------
+    return {
+      restart: restart,
+      destroy: function () {
+        destroyed = true;
+        cancelAnimationFrame(rafId);
+        global.removeEventListener('keydown', onKeyDown);
+        global.removeEventListener('keyup', onKeyUp);
+        global.removeEventListener('blur', onBlur);
+        sound.close();
+        root.remove();
+      },
+      getState: function () {
+        if (!wasm) return null;
+        return {
+          score: wasm.exports.get_score(),
+          distance: wasm.exports.get_dist(),
+          current: wasm.exports.get_current(),
+          speed: wasm.exports.get_speed(),
+          lane: wasm.exports.get_lane(),
+          overclock: wasm.exports.get_overclock(),
+          gameOver: !!wasm.exports.is_game_over(),
+          paused: paused,
+          difficulty: DIFFICULTIES[wasm.exports.get_difficulty()],
+        };
+      },
+    };
+  }
+
+  global.CircuitRunner = { mount: mount };
+
+})(window);

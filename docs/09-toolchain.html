@@ -1,0 +1,373 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>09 · The toolchain</title>
+<meta name="description" content="09 · The toolchain — part of the WebAssembly course in the arcade-library repository.">
+<link rel="icon" href="../games/pixel-wave/logo.svg">
+<style>
+:root {
+  --bg: #fbfaf7; --panel: #ffffff; --sunk: #f2f0ea;
+  --fg: #14130f; --soft: #4a4842; --muted: #7a776e;
+  --line: rgba(20,19,15,.12); --accent: #b23a18; --accent-wash: rgba(178,58,24,.07);
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #121110; --panel: #1a1917; --sunk: #232220;
+    --fg: #f4f2ed; --soft: #b5b1a8; --muted: #86827a;
+    --line: rgba(244,242,237,.14); --accent: #e0714b; --accent-wash: rgba(224,113,75,.12);
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 16px/1.7 var(--sans); -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 52rem; margin: 0 auto; padding: clamp(1.5rem,4vw,3rem) clamp(1.1rem,4vw,2rem) 5rem; }
+.wide { max-width: 64rem; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+h1 { font-size: clamp(1.8rem,4.5vw,2.6rem); line-height: 1.12; letter-spacing: -.025em; margin: 0 0 1.2rem; }
+h2 { font-size: clamp(1.3rem,3vw,1.6rem); letter-spacing: -.015em; margin: 3rem 0 1rem; padding-top: 1.4rem; border-top: 1px solid var(--line); }
+h3 { font-size: 1.12rem; margin: 2rem 0 .7rem; }
+h4 { font-size: 1rem; margin: 1.5rem 0 .5rem; }
+p, ul, ol { margin: 0 0 1.05rem; }
+ul, ol { padding-left: 1.4rem; }
+li { margin-bottom: .4rem; }
+li > ul, li > ol { margin-top: .4rem; }
+strong { font-weight: 650; }
+hr { border: 0; border-top: 1px solid var(--line); margin: 2.5rem 0; }
+blockquote {
+  margin: 0 0 1.05rem; padding: .1rem 0 .1rem 1.1rem;
+  border-left: 3px solid var(--accent); color: var(--soft);
+}
+code {
+  font: .87em/1.5 var(--mono);
+  background: var(--sunk); border: 1px solid var(--line); border-radius: 4px;
+  padding: .1em .35em; overflow-wrap: anywhere;
+}
+pre {
+  background: var(--sunk); border: 1px solid var(--line); border-radius: 10px;
+  padding: 1rem 1.15rem; overflow-x: auto; margin: 0 0 1.4rem;
+}
+pre code { background: none; border: 0; padding: 0; font-size: .84rem; line-height: 1.65; overflow-wrap: normal; }
+/* Wide content scrolls inside its own box; the page body never scrolls sideways. */
+.table-scroll { overflow-x: auto; margin: 0 0 1.4rem; border: 1px solid var(--line); border-radius: 10px; }
+table { border-collapse: collapse; width: 100%; font-size: .9rem; }
+th, td { text-align: left; padding: .6rem .85rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { background: var(--sunk); font-weight: 600; white-space: nowrap; }
+tr:last-child td { border-bottom: 0; }
+img { max-width: 100%; height: auto; }
+
+/* ---- chrome ---- */
+.bar {
+  position: sticky; top: 0; z-index: 5;
+  display: flex; flex-wrap: wrap; align-items: center; gap: .4rem 1rem;
+  padding: .7rem clamp(1.1rem,4vw,2rem);
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  backdrop-filter: blur(12px); border-bottom: 1px solid var(--line);
+  font-size: .82rem;
+}
+@supports not (background: color-mix(in srgb, red 50%, transparent)) { .bar { background: var(--bg); } }
+.bar a { color: var(--soft); }
+.bar .sep { color: var(--muted); }
+.bar .here { color: var(--fg); font-weight: 600; }
+.eyebrow {
+  font: 500 .7rem/1 var(--mono); letter-spacing: .16em; text-transform: uppercase;
+  color: var(--muted); margin: 0 0 .9rem;
+}
+.pager {
+  display: flex; flex-wrap: wrap; gap: 1rem; justify-content: space-between;
+  margin-top: 3.5rem; padding-top: 1.5rem; border-top: 1px solid var(--line); font-size: .9rem;
+}
+.pager span { display: block; font: 500 .65rem/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); margin-bottom: .2rem; }
+.pager .next { text-align: right; margin-left: auto; }
+
+/* ---- index ---- */
+.lede { font-size: 1.06rem; color: var(--soft); margin-bottom: 2rem; }
+.part { margin-top: 2.6rem; }
+.part h2 { margin-top: 0; border-top: 0; padding-top: 0; }
+.part > p { color: var(--muted); font-size: .92rem; margin-bottom: 1.1rem; }
+.toc { list-style: none; padding: 0; margin: 0; display: grid; gap: .5rem; }
+.toc a {
+  display: grid; grid-template-columns: 2.4rem 1fr; gap: .8rem; align-items: baseline;
+  padding: .8rem 1rem; border: 1px solid var(--line); border-radius: 10px;
+  background: var(--panel); color: var(--fg);
+}
+.toc a:hover { border-color: var(--accent); text-decoration: none; background: var(--accent-wash); }
+.toc .n { font: 500 .78rem/1.4 var(--mono); color: var(--accent); }
+.toc .t { font-weight: 600; font-size: .97rem; }
+.toc .d { display: block; color: var(--muted); font-size: .85rem; font-weight: 400; margin-top: .15rem; }
+.routes { display: grid; gap: .5rem; grid-template-columns: repeat(auto-fit,minmax(15rem,1fr)); margin-bottom: 2.5rem; }
+.route { padding: .9rem 1rem; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.route strong { display: block; font-size: .93rem; margin-bottom: .2rem; }
+.route span { color: var(--muted); font-size: .85rem; }
+</style>
+</head>
+<body>
+<nav class="bar">
+  <a href="../index.html">Arcade Library</a>
+  <span class="sep">/</span>
+  <a href="index.html">WebAssembly course</a> <span class="sep">/</span> <span class="here">The toolchain</span>
+</nav>
+<main class="wrap ">
+<h1>09 · The toolchain</h1>
+<h2>The two that matter</h2>
+<p><strong>WABT</strong> — the WebAssembly Binary Toolkit. Reference-quality conversion between
+<code>.wat</code> and <code>.wasm</code>, plus validation and inspection. This is what you want when
+you are working <em>at</em> the wasm level.</p>
+<p><strong>Binaryen</strong> — a compiler and optimiser library that treats wasm as its IR. This
+is what you want when you are producing wasm from something else, and where
+<code>wasm-opt</code> comes from.</p>
+<p>Everything else in the ecosystem is built on one of these two.</p>
+<hr>
+<h2>WABT</h2>
+<pre><code class="language-bash"># Node — what this repository uses. No native build required.
+npm install wabt
+
+# Or native binaries
+brew install wabt
+apt install wabt
+</code></pre>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Tool</th>
+<th>Does</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>wat2wasm</code></td>
+<td>Assemble text → binary</td>
+</tr>
+<tr>
+<td><code>wasm2wat</code></td>
+<td>Disassemble binary → text</td>
+</tr>
+<tr>
+<td><code>wasm-validate</code></td>
+<td>Validate; exit code and a message</td>
+</tr>
+<tr>
+<td><code>wasm-objdump</code></td>
+<td>Section-by-section dump — the <code>objdump</code> analogue</td>
+</tr>
+<tr>
+<td><code>wasm-decompile</code></td>
+<td>Binary → a C-like pseudocode. Genuinely readable</td>
+</tr>
+<tr>
+<td><code>wasm-strip</code></td>
+<td>Remove custom sections (names, debug info)</td>
+</tr>
+<tr>
+<td><code>wasm-interp</code></td>
+<td>A reference interpreter. Slow, correct, scriptable</td>
+</tr>
+</tbody></table>
+</div><pre><code class="language-bash">wat2wasm game.wat -o game.wasm
+wat2wasm game.wat --debug-names -o game.wasm    # keep $names for devtools
+wasm2wat game.wasm -o roundtrip.wat
+wasm-objdump -x game.wasm                       # headers and all sections
+wasm-objdump -d game.wasm                       # disassembly
+wasm-decompile game.wasm -o game.dcmp
+</code></pre>
+<p><code>wasm-decompile</code> deserves the recommendation. Faced with an unfamiliar binary it
+produces something much closer to readable code than a WAT dump:</p>
+<pre><code class="language-c">function step(a:float) {
+  if (g_gameOver) return;
+  update_player(a);
+  update_bots(a);
+  ...
+}
+</code></pre>
+<h3>The JavaScript API</h3>
+<p>The build script here uses the npm package, which is the whole of WABT compiled
+to — appropriately — WebAssembly:</p>
+<pre><code class="language-js">const wabt = await require(&#39;wabt&#39;)();
+const mod = wabt.parseWat(&#39;game.wat&#39;, source);
+mod.resolveNames();     // $names → indices
+mod.validate();         // type-check; throws with a line number
+const { buffer } = mod.toBinary({});
+mod.destroy();          // it is wasm underneath; free it
+</code></pre>
+<p><strong>Call <code>resolveNames()</code> and <code>validate()</code>.</strong> Skipping them will happily produce a
+binary that fails at instantiation with a message far less useful than the one
+the validator would have given you. <code>mod.destroy()</code> matters in a long-running
+process — the module object holds wasm memory that is not garbage collected.</p>
+<p>See <a href="../scripts/build.mjs"><code>scripts/build.mjs</code></a> for the version with error
+handling.</p>
+<hr>
+<h2>Binaryen and <code>wasm-opt</code></h2>
+<pre><code class="language-bash">npm install -g binaryen
+# or: brew install binaryen
+</code></pre>
+<p><code>wasm-opt</code> is the single highest-leverage tool in the ecosystem. Run it on
+anything a compiler produced:</p>
+<pre><code class="language-bash">wasm-opt -O3 in.wasm -o out.wasm       # optimise for speed
+wasm-opt -Oz in.wasm -o out.wasm       # optimise hard for size
+wasm-opt -Os --strip-debug --strip-producers in.wasm -o out.wasm
+</code></pre>
+<p>On typical Rust or Emscripten output, <code>-Oz</code> removes 15–40% of the binary that
+the source compiler left behind. On hand-written WAT it does much less — there
+is no dead code and no redundant temporaries to find — which is a reasonable
+sanity check on your own output. Running <code>-Oz</code> over <code>games/pixel-wave/game.wasm</code>
+changes very little, and that is the expected result.</p>
+<p>Other Binaryen tools worth knowing: <code>wasm-metadce</code> (tree-shaking driven by a
+graph of what the host actually calls), <code>wasm-merge</code>, <code>wasm2js</code> (a fallback
+compiler to JavaScript for environments without wasm), and <code>wasm-ctor-eval</code>
+(runs your initialisers at build time and bakes the resulting memory into a data
+segment — a real win for startup).</p>
+<hr>
+<h2>Language toolchains, in one place</h2>
+<div class="table-scroll"><table>
+<thead>
+<tr>
+<th>Language</th>
+<th>Toolchain</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>Rust</strong></td>
+<td><code>rustup target add wasm32-unknown-unknown</code>, then <code>wasm-pack</code> or <code>cargo build --target</code></td>
+<td>The best-supported path. <code>wasm-bindgen</code> generates the JS glue</td>
+</tr>
+<tr>
+<td><strong>C / C++</strong></td>
+<td>Emscripten (<code>emcc</code>), or clang with <code>--target=wasm32</code></td>
+<td>Emscripten brings a POSIX emulation layer; bare clang gives you nothing and a tiny binary</td>
+</tr>
+<tr>
+<td><strong>AssemblyScript</strong></td>
+<td><code>asc</code></td>
+<td>TypeScript-shaped syntax compiled straight to wasm. Small output, gentle learning curve</td>
+</tr>
+<tr>
+<td><strong>Zig</strong></td>
+<td><code>zig build-lib -target wasm32-freestanding</code></td>
+<td>Excellent output size, no runtime, first-class wasm support</td>
+</tr>
+<tr>
+<td><strong>Go</strong></td>
+<td><code>GOOS=js GOARCH=wasm go build</code></td>
+<td>Ships the runtime and GC — 2 MB floor. <code>GOOS=wasip1</code> for WASI</td>
+</tr>
+<tr>
+<td><strong>TinyGo</strong></td>
+<td><code>tinygo build -target wasm</code></td>
+<td>Same language, ~100× smaller output, a subset of the standard library</td>
+</tr>
+<tr>
+<td><strong>Swift, Kotlin, Dart, Java, C#</strong></td>
+<td>SwiftWasm, Kotlin/Wasm, <code>dart compile wasm</code>, TeaVM, Blazor</td>
+<td>Increasingly viable, mostly via the GC proposal</td>
+</tr>
+</tbody></table>
+</div><p><a href="10-source-languages.html">Chapter 10</a> compares these on the axes that actually
+decide the choice.</p>
+<hr>
+<h2>Serving wasm correctly</h2>
+<p>Two headers and a MIME type. Getting them wrong accounts for a large share of
+&quot;WebAssembly doesn&#39;t work&quot; reports.</p>
+<pre><code>Content-Type: application/wasm
+</code></pre>
+<p>Required for <code>instantiateStreaming</code>. Without it Chrome refuses outright.
+Nginx: add <code>application/wasm wasm;</code> to <code>mime.types</code>. Express:
+<code>express.static(dir, { setHeaders: (res, p) =&gt; p.endsWith(&#39;.wasm&#39;) &amp;&amp; res.set(&#39;Content-Type&#39;, &#39;application/wasm&#39;) })</code>.</p>
+<pre><code>Content-Encoding: br      (or gzip)
+</code></pre>
+<p>wasm compresses extremely well — 60–70% is typical, because the opcode stream is
+highly repetitive. Serve it compressed; it is the cheapest optimisation
+available.</p>
+<p>If you use <strong>threads</strong> (<code>SharedArrayBuffer</code>), you additionally need cross-origin
+isolation:</p>
+<pre><code>Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Embedder-Policy: require-corp
+</code></pre>
+<p>These have wide blast radius — they break embedded third-party iframes and
+images without CORP headers. Budget for that before committing to threads.</p>
+<p>Under a strict <strong>Content-Security-Policy</strong>, compiling wasm may require
+<code>&#39;wasm-unsafe-eval&#39;</code> in <code>script-src</code>. The name is unfortunate; it does not
+enable <code>eval</code>, it permits wasm compilation.</p>
+<hr>
+<h2>Reading a disassembly</h2>
+<p>You will do this eventually — to check what a compiler emitted, or why a binary
+is 400 KB.</p>
+<pre><code class="language-bash">wasm-objdump -x game.wasm
+</code></pre>
+<pre><code>Sections:
+     Type start=0x0000000a end=0x00000021 (size=0x00000017) count: 5
+   Import start=0x00000023 end=0x0000004a (size=0x00000027) count: 2
+ Function start=0x0000004c end=0x0000005f (size=0x00000013) count: 18
+   Memory start=0x00000061 end=0x00000064 (size=0x00000003) count: 1
+   Global start=0x00000066 end=0x000000f2 (size=0x0000008c) count: 43
+   Export start=0x000000f4 end=0x00000152 (size=0x0000005e) count: 9
+     Code start=0x00000154 end=0x00000a3c (size=0x000008e8) count: 18
+</code></pre>
+<p>Read it as a budget. If <code>Code</code> is small and the binary is large, something else
+is the problem — usually a <code>Data</code> section full of string literals, or a <code>Custom</code>
+section carrying debug info you meant to strip. <code>wasm-strip</code> handles the second;
+the first is a source-language question.</p>
+<hr>
+<h2>Testing wasm</h2>
+<p>There is no wasm test framework worth adopting, and you do not need one. The
+practical approach is to drive the module from the host language you already
+test in:</p>
+<pre><code class="language-js">import { test } from &#39;node:test&#39;;
+import assert from &#39;node:assert&#39;;
+
+const { instance } = await WebAssembly.instantiate(
+  await readFile(&#39;game.wasm&#39;),
+  { env: { sinf: Math.sin, cosf: Math.cos } },
+);
+const { init, step, set_input, get_lives, memory } = instance.exports;
+const mem = new Float32Array(memory.buffer);
+
+test(&#39;player starts alive and centred&#39;, () =&gt; {
+  init();
+  assert.equal(mem[5], 1);            // player.alive
+  assert.equal(get_lives(), 5);
+});
+
+test(&#39;burst fire yields exactly three rounds per press&#39;, () =&gt; {
+  init();
+  set_input(0, 0, 1);                 // hold fire
+  for (let i = 0; i &lt; 180; i++) step(1 / 60);   // three seconds
+  assert.equal(countActiveBullets(mem, 0), 3);  // owner 0 = player
+});
+</code></pre>
+<p>Because the engine is deterministic and takes <code>dt</code> as a parameter, you can run
+three simulated seconds in microseconds and assert on exact state. That is a
+much better testing position than most game code is in, and it is a direct
+consequence of the host owning the clock (<a href="15-game-loop-architecture.html">chapter
+15</a>).</p>
+<p>The burst-fire behaviour in these engines was verified exactly this way: holding
+Space for 3 s yields 3 rounds, one one-frame tap yields 3, four presses yield
+12, and mashing at 30 presses/second caps at 6.0 rounds/second.</p>
+<hr>
+<h2>Editor support</h2>
+<ul>
+<li><strong>VS Code</strong> — &quot;WebAssembly&quot; (dtsvet) for syntax and <code>wat2wasm</code> on save; the
+&quot;WebAssembly DWARF Debugging&quot; extension for stepping through C/Rust source in
+Chrome devtools.</li>
+<li><strong>Chrome DevTools</strong> — profiles wasm frames natively, shows the disassembly, and
+will step through original source given DWARF info. <code>--debug-names</code> at
+assembly time gets you readable function names in stack traces for free; do it.</li>
+<li><strong><code>wat2wasm</code> online demo</strong> (webassembly.github.io/wabt/demo/wat2wasm) — a live
+WAT editor with instant assembly and a JS scratchpad. The fastest way to try
+something.</li>
+</ul>
+
+<nav class="pager">
+  <a href="08-globals-and-state.html"><span>Previous</span>Globals, mutability and module state</a>
+  <a href="index.html">Contents</a>
+  <a class="next" href="10-source-languages.html"><span>Next</span>Source languages</a>
+</nav>
+</main>
+</body>
+</html>

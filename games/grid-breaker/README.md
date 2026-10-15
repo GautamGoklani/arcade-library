@@ -1,0 +1,519 @@
+# Grid Breaker
+
+A paddle-and-ball wall breaker whose entire simulation — ball physics, swept
+collision, the tile grid, chain-reacting bombs, power-ups and the level curve —
+is hand-written in WebAssembly Text (`game.wat`) and runs as a compiled `.wasm`
+binary. JavaScript forwards input, calls `step(dt)`, and draws what it finds in
+the engine's linear memory.
+
+Works on **desktop (keyboard or mouse)** and **mobile (left thumbstick)**.
+
+Open [`index.html`](index.html) to play it.
+
+## Self-contained, deliberately
+
+This folder shares **no code and no assets** with any other title in `games/`.
+It has its own scoped stylesheet (`.gb-` — no other game may use that prefix),
+its own sprite pipeline and its own synthesised sound. What it takes from the
+shooters is *conventions*, copied by hand: a globals block at the top of the
+`.wat`, entity pools at fixed offsets, an xorshift RNG, and an `init` /
+`set_input` / `step` / `get_*` export surface.
+
+The reason is blunt: a shared engine library would mean a change made for one
+game could break another, and each title here is meant to stand on its own as a
+piece of work. Copying costs a few hundred duplicated lines and buys the
+guarantee that nothing else in the repo can break this game.
+
+Tooling is the one exception, and it changed when this game moved into this
+repository. Grid Breaker arrived from the portfolio repo with its own
+`build.js`, on the same isolation argument. Here it is built by the shared
+[`scripts/build.mjs`](../../scripts/build.mjs) instead, because a single builder
+is what makes `npm run check` able to verify every title's committed `.wasm`
+against its `.wat` in one pass — and with the binaries committed, that drift
+check is worth more than per-title build isolation.
+
+## Files
+
+```
+grid-breaker/
+├── grid-breaker.js   ← the widget (engine embedded inside) — REQUIRED
+├── grid-breaker.css  ← scoped styles (.gb-*)               — REQUIRED
+├── game.wat          ← engine SOURCE — edit to change gameplay
+├── game.wasm         ← compiled engine (also embedded in the .js as base64)
+├── index.html        ← standalone page: the game and nothing else
+├── demo.html         ← minimal working integration example
+├── logo.svg          ← catalogue artwork
+└── README.md
+```
+
+For plain integration you only need to copy **two files** into a site:
+`grid-breaker.js` and `grid-breaker.css`.
+
+## Integration
+
+```html
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<link rel="stylesheet" href="grid-breaker.css">
+
+<div id="game"></div>
+
+<script src="grid-breaker.js"></script>
+<script>
+  var game = GridBreaker.mount('#game');
+</script>
+```
+
+### JavaScript API
+
+```js
+var game = GridBreaker.mount(containerOrSelector, options?);
+
+game.restart();    // start a fresh run
+game.getState();   // { score, lives, level, tilesLeft, gameOver, paused, difficulty }
+game.destroy();    // stop the loop, remove DOM + all event listeners
+```
+
+`options` (all optional):
+
+| option       | meaning |
+|--------------|---------|
+| `wasmUrl`    | load the engine from a `.wasm` URL instead of the embedded copy (requires an `application/wasm` MIME type) |
+| `wasmBase64` | supply your own base64 engine build |
+| `difficulty` | `'easy'`, `'normal'` (the default) or `'hard'` for the first run; the HUD button changes it after that |
+
+Multiple instances on one page are supported — each `mount()` is independent.
+
+## Controls
+
+| Action  | Desktop                    | Mobile                 |
+|---------|----------------------------|------------------------|
+| Move    | A / D, ← / →, or the mouse | left thumbstick        |
+| Launch  | Space                      | LAUNCH button (right)  |
+| Difficulty | the EASY / NORMAL / HARD button; changing it starts a fresh run | the same button |
+| Pause   | P or Esc; losing focus too  | the PAUSE button; tap the arena to resume |
+| Restart | R                          | tap the GAME OVER text |
+| Mute    | M                          | the SOUND button       |
+
+**Gamepad**, standard mapping, no setup: left stick or d-pad steers the paddle
+(the stick is analog, like the touch one), `A` / `X` / either trigger launches,
+`Start` pauses, `Back` or `Y` restarts, a shoulder button mutes. It is polled
+once a frame rather than listened for, because `getGamepads()` only refreshes
+its snapshots when called.
+
+Pause is the widget's, not the engine's: the engine advances by whatever `dt` it
+is handed, so pausing is the loop not handing it one while it keeps drawing the
+frozen frame. See [chapter 15](../../docs/15-game-loop-architecture.md).
+
+On desktop, moving the mouse takes over steering and pressing a key hands it
+back. The engine is told which is driving (`ptrActive`), so the two never fight.
+
+### The thumbstick
+
+Touch devices get a stick rather than a d-pad. The left half of the arena is a
+steering zone: the ring re-anchors under wherever your thumb lands, so there is
+nothing to hunt for and no reason to look away from the ball. The right thumb
+keeps LAUNCH, so steering and serving are two independent fingers.
+
+**The knob only travels horizontally**, and the ring is drawn with a rail across
+it. The paddle has one axis; a knob that slid vertically would promise control
+that does not exist.
+
+It is analog, and that is the point: `set_input` takes the direction as an `f32`
+and the engine applies it as `x += dir * PADDLE_SPEED * dt`, so anything in
+`[-1, 1]` is legal. A nudge walks the paddle into position for a delicate edge
+hit; a full push sprints it across the arena. The keyboard is the special case
+that can only ever ask for `-1`, `0` or `1`. No engine change was needed.
+
+### Which controls you get is decided per event, not per device
+
+There is no device sniffing. Both schemes are bound at once and every pointer is
+routed by its **`pointerType`**: a mouse only ever steers, a finger or pen only
+ever works the stick and the button. They cannot fight, because no pointer can
+drive both.
+
+This matters because the obvious test is wrong. `'ontouchstart' in window` is
+true on every touchscreen laptop, so classing the device as "touch" takes mouse
+steering away from someone holding a mouse — and on a hybrid machine the right
+answer changes the moment they put it down.
+
+So the touch overlay is **always in the DOM and always interactive**, and only
+its *visibility* is gated. Hiding it with `display: none` would swallow the very
+first touch on a device the media query guessed wrong about, leaving the stick
+dead until a second tap. `(pointer: coarse)` — without the `ontouchstart`
+fallback — describes the *primary* pointer, so it is true on phones and tablets
+and false on a laptop with a touchscreen, which makes it a good initial guess for
+presentation. A first touch corrects it, whatever it guessed.
+
+The result on a touchscreen laptop: mouse steering by default, the stick appears
+the moment a finger lands, and the mouse keeps working afterwards.
+
+Input is one pointer registry on `.gb-stage` keyed by `pointerId`, not listeners
+per control. That is what makes the two-finger case hold up: a second finger on
+the button cannot release it for the first, `pointercancel` shares a release path
+with `pointerup` so nothing latches on, and the button stays held while a thumb
+slides off it.
+
+## Gameplay rules
+
+- Clear every breakable tile to advance. There is no last level.
+- **5 lives.** Losing the last ball in play costs one.
+- The paddle steers the ball: the **ends deflect hardest** (up to 1.05 rad off
+  vertical), the middle sends it *almost* straight back — never exactly, see
+  the degenerate-state note under Tuning. Speed is never changed by a bounce,
+  so aim is the only thing the paddle gives you.
+- **Tough tiles** (steel, cracked once hit) take two hits. **Bombs** take out
+  every neighbour, and a neighbouring bomb chains. **Solid tiles** (riveted)
+  never break and never block a level from being cleared.
+- Power-ups fall from broken tiles — catch them with the paddle:
+
+  | capsule | effect | for |
+  |---------|--------|-----|
+  | **WIDE** | paddle grows by 55% | 12s |
+  | **MULTI** | every ball in play splits into three | — |
+  | **SLOW** | the ball travels at 68% speed | 9s |
+  | **STICKY** | the ball is caught on the paddle; Space launches it | 15s |
+
+- A level is a fresh wall: one of five patterns (checkerboard, solid, pyramid,
+  stripes, lattice frame), a row deeper every second level up to 10 rows, with
+  bombs and tough tiles growing more common as levels climb.
+- **The warden.** Every fourth level the centre of the wall's bottom row is a
+  gold, visored **warden** tile with 5 hit points (one more each boss level, up
+  to 8). Every 2.4 seconds it rebuilds the nearest broken cell within two of
+  it as a dull, stitched **patch** — the cell flickers gold just before. Patches
+  take one hit and never drop a capsule. Bombs chip the warden rather than
+  destroy it. Break it for 150 and the rebuilding stops. See
+  [The warden](#the-warden-september-2026).
+
+## Architecture
+
+```
+┌──────────────────────────────────────────────────────┐
+│ grid-breaker.js (JavaScript)                         │
+│   • builds DOM, reads keyboard/mouse/touch input     │
+│   • calls wasm exports each frame:                   │
+│       set_input(dir, launch, ptrOn, ptrX) → step(dt) │
+│   • reads the tile grid and entity records straight  │
+│     out of wasm linear memory and draws them         │
+│   • particles, screen shake and sound are presentation│
+│     only, triggered by diffing the engine's event    │
+│     counters between frames                          │
+└───────────────▲──────────────────────────────────────┘
+                │ exports: init, set_input, step, get_score,
+                │ get_lives, get_level, get_tiles_left,
+                │ balls_alive, is_game_over, get_wide,
+                │ get_slow, get_sticky, memory,
+                │ and the event counters: get_breaks,
+                │ get_chips, get_booms, get_bounces,
+                │ get_powers, get_drains, get_launches,
+                │ get_hurts, get_clears, get_last_break_row,
+                │ get_repairs, get_warden_hits, get_warden_falls,
+                │ get_warden_alive, get_warden_max,
+                │ get_repair_cell, get_repair_t,
+                │ set_difficulty, get_difficulty
+┌───────────────┴──────────────────────────────────────┐
+│ game.wasm (compiled from hand-written game.wat)      │
+│   • paddle motion, pointer easing, clamping          │
+│   • ball physics with sub-stepped swept collision    │
+│   • tile grid, damage, bomb chain reactions          │
+│   • power-up spawn/fall/catch and their timers       │
+│   • level generation, score/lives state machine      │
+└──────────────────────────────────────────────────────┘
+```
+
+### Drawn at 320×240
+
+This title was retrofitted with the library's retro render treatment in
+September 2026. It draws into a **320×240 buffer blown up 3× with smoothing off**,
+with scanlines and a vignette in CSS (`.gb-scan`, dropped under
+`prefers-reduced-motion`) and screen shake that moves in whole low-res pixels.
+The faint background lattice was a set of 1px strokes, which drawn into a
+one-third buffer are a third of a pixel wide; it is one-pixel bars now. One
+quirk is visible and was left alone: tile rows are 26 world pixels, which does
+not divide by three, so rows come out 21 and 24 low-res pixels tall in turn.
+Changing `TILE_H` would move the engine's collision grid, which is not a
+rendering decision.
+
+The draw code was written at full resolution, so the snap to whole low-res
+pixels lives in the adapter rather than at each call: the buffer's `fillRect`
+and `drawImage` are wrapped to round their edges, and a one-pixel detail that
+would round away keeps one low-res pixel. The engine did not change.
+
+### Event counters, added after the fact
+
+This title arrived from a portfolio repository without the event counters every
+later title has, and its widget worked out what had happened by snapshotting
+all 180 tiles each frame and diffing hit points, counting live balls, and
+watching lives and level for changes. That is the renderer deciding what the
+rules did — the thing invariant 4 in [`CONTRIBUTING.md`](../../CONTRIBUTING.md) exists to
+prevent — and it had a cost nobody had noticed: **the widget carried `paddle`,
+`power` and `launch` sounds that were never once played.** None of those events
+leaves anything in memory to diff. A paddle bounce changes a velocity, a caught
+capsule vanishes, a launch clears a flag.
+
+The engine now increments a counter at the line where each event is decided —
+`breaks`, `chips`, `booms`, `bounces`, `powers`, `drains`, `launches`, `hurts`,
+`clears` — plus one scalar, `get_last_break_row()`, because the brick sound is
+pitched by row and a count cannot say where a break was. A bomb chain plays one
+boom rather than a boom and nine bricks.
+
+The tile diff survives, demoted: it only decides *where* to put sparks, which
+is a drawing question. Adding the counters changed nothing about the
+simulation — the same 600-second headless run produced an identical level,
+score, lives and paddle-path hash before and after.
+
+### WASM linear memory layout
+
+| region    | offset | stride | count | fields |
+|-----------|--------|--------|-------|--------|
+| paddle    | 0      | —      | 1     | x, y, halfW, vx |
+| balls     | 16     | 32 B   | 6     | x, y, vx, vy, radius, active, stuck, stickOff |
+| powerups  | 208    | 24 B   | 8     | x, y, vx, vy, kind, active |
+| tiles     | 400    | 8 B    | 180   | hp, kind — cell (c,r) at 400 + (r*15 + c)*8 |
+| score     | 1840   | —      | 1     | f32 |
+| lives     | 1844   | —      | 1     | f32 |
+| level     | 1848   | —      | 1     | i32 |
+| tilesLeft | 1852   | —      | 1     | i32 |
+
+`hp` of 0 means empty and a negative `hp` means indestructible. Tile kinds are
+0 plain, 1 tough, 2 bomb, 3 solid, 4 warden, 5 patch; power-up kinds are 0 WIDE,
+1 MULTI, 2 SLOW, 3 STICKY. An empty cell keeps the kind it had, and a cell the
+pattern never built has kind -1 — that is how the warden tells a cell it may
+rebuild from a gap the pattern left on purpose. Nothing else reads the kind of
+an empty cell.
+
+**If you change this layout in `game.wat`, change the constants at the top of
+`grid-breaker.js` with it.** Nothing links the two at build time.
+
+## The one hard problem: tunnelling
+
+A ball moving fast enough covers more than a tile's height in a single frame,
+and a naive `position += velocity * dt` walks it straight through the wall
+without ever testing the cell it crossed. Every brick-breaker has to solve this.
+
+`$step_ball` splits each frame into sub-steps short enough that the ball can
+never advance more than 5px at a time, and moves **one axis at a time** within
+each sub-step, so the axis that hit something is the axis that reverses — which
+is also what makes a ball clip the side of a tile and continue along it rather
+than bouncing back the way it came.
+
+The sub-step count is capped at 12 so a stalled frame cannot make the engine do
+unbounded work. That cap is never reached in play: at the engine's speed cap of
+620px/s and the widget's `dt` clamp of 0.05s, a frame is at most 31px of travel,
+which is 7 sub-steps.
+
+Verified with a headless harness driving the compiled binary: a ball fired into
+an intact wall at 430, 620, 900 and 1500 px/s — the last being 2.4x the engine's
+own cap — breaks a tile and never crosses the wall, at frame times of 1/60,
+1/30 and 0.05s. The same harness confirms a 3x3 block of bombs chain-clears
+completely and terminates, that solid tiles bounce without breaking, and that
+across 40 generated levels `tilesLeft` never disagrees with the grid.
+
+## Difficulty, September 2026
+
+Three settings, picked with the HUD button or
+`mount(el, { difficulty: 'hard' })`. The table lives in the engine:
+`set_difficulty(d)` records the choice (0 easy, 1 normal, 2 hard) and `init()`
+applies it, so a setting never changes halfway through a run.
+
+| | Easy | Normal | Hard |
+|---|---|---|---|
+| Starting lives | 7 | 5 | 3 |
+| Paddle half-width | 86 px | 70 px | 56 px |
+| Paddle speed | 700 px/s | 640 px/s | 600 px/s |
+| Ball speed: base / per level / cap | 380 / 10 / 540 | 430 / 14 / 620 | 480 / 20 / 700 |
+| Power-up drop rate | 0.24 | 0.16 | 0.10 |
+
+**The paddle is the widest lever.** At 86 px the ball has to be badly misjudged
+to be missed at all; at 56 px a return has to be aimed. The drop rate moves with
+it, because WIDE and STICKY are themselves a difficulty knob — an easy game that
+also showered capsules would be two settings deep.
+
+**Normal is the previous balance exactly.** Identical input replayed through the
+committed engine and this one gave byte-identical memory on every frame, over
+162,000 frames of three runs.
+
+Benched with a pilot that plays badly — and for a paddle game that takes care,
+because simply tracking the ball's x is close to optimal and never dies. This
+one reacts a quarter-second late, ignores the ball until it reaches the lower
+third, drifts inside a 40px dead zone, and never predicts a bounce or aims with
+the paddle's edge. 24 runs each:
+
+| | Survived: worst / median / best | Mean | Tiles broken (median) | Levels cleared, 24 runs |
+|---|---|---|---|---|
+| Easy | 56 / 89 / 127 s | 89.8 s | 28 | 6 |
+| Normal | 15 / 37 / 60 s | 35.0 s | 15 | 0 |
+| Hard | 7 / 12 / 20 s | 11.8 s | 6 | 0 |
+
+The library's usual "a bad pilot must reach level 3" rule does not transfer
+here: one level is 180 tiles, so a level is minutes of play rather than seconds.
+Tiles broken and levels cleared are the honest progress measures, and they
+separate the three settings cleanly — Easy clears levels this pilot never
+reaches on Normal.
+
+**Best scores are kept per setting.** The page shell records Normal under the
+same key as before, so a best set before difficulty existed is still Normal's,
+and Easy and Hard get `grid-breaker:easy` and `grid-breaker:hard`.
+
+## The warden, September 2026
+
+The backlog listed the same idea for this title twice: a boss wave, *"an armoured
+tile that repairs its neighbours until you break it first"*, and its own idea,
+*"a tile that repairs its neighbours"*. This is both.
+
+On every fourth level the centre cell of the wall's bottom row becomes the
+**warden**, over whatever the pattern put there. It has 5 hit points on level
+4, one more on each boss level after, capped at 8; pips along its bottom edge
+show what is left, and the maximum comes from the engine (`get_warden_max()`),
+not the widget. Every 2.4 seconds it rebuilds one broken cell within two cells
+of it — the nearest first, so the gap you opened to get at it is the one that
+closes. It is always on the bottom row so a ball from below can always reach
+it: a boss the ball cannot get at would be a timer, not a fight.
+
+Four decisions, each commented in `game.wat`:
+
+- **It rebuilds patches, not what was there.** Restoring the original kind
+  was the first thought and the wrong one: a warden that puts bombs back beside
+  itself can be farmed for blasts, and one that puts tough tiles back can be
+  farmed for chip score. A patch takes one hit, scores 5 and never drops a
+  capsule, so it is only ever in the way.
+- **It only rebuilds cells that held a tile.** An empty cell used to have kind
+  0, the same as a plain tile, so "broken" and "never built" looked the same.
+  Empty cells are now kind -1 until something is built there. Without this, a
+  warden would fill in the stripes and the lattice's holes — pockets the
+  patterns leave on purpose.
+- **Bombs chip it, one hit per blast.** Otherwise a bomb landing next to it
+  ends the boss in one frame, and which bombs land next to it is decided by the
+  dice, not the player.
+- **The next cell is chosen 0.6 s early** and the widget flickers its outline,
+  faster in the last quarter-second. A tile that appears in front of the ball
+  without warning looks like the game cheating; one that was marked first looks
+  like a rule. No cell is rebuilt on top of a ball — that rebuild is skipped and
+  the clock starts over, so a ball sitting in the gap cannot trigger a rebuild
+  the moment it leaves.
+
+The choice of cell uses no randomness at all (ties go to scan order), so
+levels without a warden draw exactly what they drew before. Replaying the same
+input through the committed engine and this one gave identical memory — tile
+kinds of empty cells aside — every frame up to level 4, on all three settings.
+
+### What the bench found
+
+Normal, six seeds, each run starting on the level in question and played to
+the end of it. The first two pilots track the ball perfectly. One ignores the
+warden, and the other angles each return with the paddle's edge to hit it:
+
+| | Warden broken at (s) | Patches built |
+|---|---|---|
+| Level 4, ignores it | 75–262 | 11–50 |
+| Level 4, goes for it | 14–41 | 2–6 |
+| Level 8, ignores it | 32–155 | 7–26 |
+| Level 8, goes for it | 13–36 | 4–13 |
+| Level 12, ignores it | 60–166 | 13–41 |
+| Level 12, goes for it | 20–53 | 8–21 |
+
+**The rebuild rate is not what decides the fight.** Runs at 1.6, 2.4 and 3.2
+seconds had the aiming pilot break the warden in the same 13–53 s range at
+all three; what ends it is hits. The rate sets what ignoring it costs: about one patch per ball
+round trip at 2.4. That is also why it is a single constant and not a column
+in the difficulty table. It would have been a setting that did nothing
+noticeable.
+
+**Ignoring it costs time, not lives.** A weaker pilot that ignores the warden
+(reacts 120 ms late, drifts inside a 15 px dead zone) cleared level 4 on all
+six seeds and lost no lives, but took a median 246 s against 128 s for the
+same level without a warden. **Going for it costs lives.** The same pilot
+angling its returns at the warden — offsetting by at most 30% of the paddle's
+half-width — cleared only two of six, because a late paddle that also aims off
+centre has no margin left. That is a real choice between time and risk, not a
+longer wave. Level lengths in general are noisy in this game, though, because
+they end with the hunt for the last few tiles. The longest stall the bench
+found (187 s on level 12) came *after* the warden fell, with one tough tile
+left in a corner. That hunt was there before the warden.
+
+What no bench here can say is whether a person *reads* the warden as the
+thing to go for. The gold, the pips, the flicker before each rebuild and the
+"LEVEL 4 · WARDEN" banner are the widget's case for it, and they are
+unplayed.
+
+---
+
+## Tuning
+
+The constants worth touching are all at the top of `game.wat`:
+
+| constant | meaning | shipped |
+|----------|---------|---------|
+| `$BALL_SPEED_BASE` | ball speed at level 1 | 430 |
+| `$BALL_SPEED_STEP` / `$BALL_SPEED_CAP` | per-level increase, ceiling | 14 / 620 |
+| `$PADDLE_HALF_BASE` | half-width at level 1 (floor is 44) | 70 |
+| `$MAX_DEFLECT` | how far the paddle's edge throws the ball, in radians | 1.05 |
+| `$MIN_DEFLECT` / `$MIN_DEFLECT_HI` | the band a too-vertical return is pushed into | 0.15 / 0.45 |
+| `$DROP_CHANCE` | chance a broken tile drops a capsule | 0.16 |
+| `$START_LIVES` | starting lives | 5 |
+| `$WARDEN_EVERY` | a warden on every Nth level | 4 |
+| `$WARDEN_HP_BASE` / `$WARDEN_HP_CAP` | warden hit points: base + boss levels so far, ceiling | 4 / 8 |
+| `$REPAIR_EVERY` / `$REPAIR_REACH` | seconds between rebuilds, reach in cells | 2.4 / 2 |
+
+Two findings from benching, both commented in place:
+
+1. **Speed is set against the arena, not in the abstract.** At the first-draft
+   330px/s a round trip of the 720px arena took about 4 seconds, which made a
+   60-tile wall a four-minute level. 430 puts a round trip near 2.7s.
+2. **Level 1 is the checkerboard, not the solid block.** Half the tiles, so a
+   first-time player reaches a level-up before deciding whether the game is
+   worth their time.
+
+### The degenerate state, and the two goes it took to close it
+
+**A ball is never sent vertically — not on the serve, and not off the paddle.**
+A ball with `vx == 0` drills a single column, and if the paddle simply tracks
+it, it stays vertical for the rest of the run.
+
+The serve was guarded first: a launch angle within 0.15 rad of vertical is
+nudged to a random 0.22–0.5 rad instead. That closed one door and left the
+other open, because a *bounce* recomputes the angle from where the ball landed
+on the paddle, and a paddle that keeps the ball on its centre computes zero
+every time. The headless pilot centres perfectly, so it walked straight into
+it: **level 2, one tile left, 153 seconds with nothing happening.** No agency,
+no threat, no progress — the dead-time case, arrived at from the other side.
+
+The first fix was a fixed floor of 0.15 rad, and it made things *worse* — 645
+seconds, because a constant angle off a perfectly-tracking paddle is a
+perfectly periodic orbit. The ball rang between the left wall and the same four
+pixels of paddle for eleven minutes. What ships is a **band**: the magnitude is
+drawn from 0.15–0.45 rad, which cannot resonate, while the *sign* still comes
+from where the ball landed, so the paddle reads as slightly curved rather than
+as disobeying.
+
+Measured over the same 900-second bench with the perfect-tracking pilot:
+
+| paddle-bounce floor | level reached | worst stall |
+|---|---|---|
+| none (as shipped before) | 2 | 153s |
+| fixed 0.15 rad | 2 | 645s |
+| band 0.15–0.33 | 7 | 54s |
+| **band 0.15–0.45** | **7** | **35s** |
+| band 0.15–0.60 | 7 | 63s |
+
+What is left at 0.45 is not a lock — it is the last-two-tiles hunt every game
+of this shape has, and MULTI is the answer the player already has for it.
+
+## Rebuilding the engine
+
+```bash
+npm install                    # wabt is a devDependency of this repo
+npm run build:grid-breaker     # game.wat -> game.wasm, re-embedded into the .js
+npm run check                  # verify the committed binary matches its source
+```
+
+`game.wasm` and the base64 copy inside `grid-breaker.js` are both committed, so
+a fresh checkout plays with nothing installed — which is exactly the arrangement
+that lets a binary drift away from the `.wat` it claims to be built from.
+`npm run check` recompiles into memory and fails if either committed copy
+disagrees with the source. It covers every title, so run it before pushing an
+engine change.
+
+## Browser support
+
+Any browser with WebAssembly. No build step, no dependencies, and no network
+requests at runtime — the engine ships inside the JS file.

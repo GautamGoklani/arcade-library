@@ -1,0 +1,24 @@
+# Line endings are load-bearing in this repository, which is not usually true.
+#
+# `scripts/build-docs.mjs --check` and `scripts/build.mjs --check` do a *byte*
+# comparison: they re-render the docs and recompile the engines in memory and
+# fail if what is committed differs. That is the guard that stops a committed
+# `.wasm` or `.html` drifting away from the source it claims to be built from.
+#
+# The builders emit LF. With `core.autocrlf=true` — the Windows default, and
+# what this repo was developed under — a checkout hands the working tree CRLF
+# instead, so every generated page compares unequal and `npm run check` reports
+# all of them stale on a clean clone. Pinning the text formats to LF on
+# checkout makes the comparison mean what it says on every platform.
+#
+# Verified against d194645: before this file existed, `--check` failed on a
+# fresh worktree with 20 pages reported stale and nothing actually wrong.
+* text=auto eol=lf
+
+# Never let a filter near a compiled engine. Git detects these as binary
+# anyway, but the committed `.wasm` files are the one thing in here that a
+# newline conversion would silently corrupt, so say it explicitly.
+*.wasm binary
+
+# Artwork is generated as text by the logo scripts and diffed like text.
+*.svg text eol=lf

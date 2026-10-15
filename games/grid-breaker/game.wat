@@ -1,0 +1,1315 @@
+(module
+  ;; ============================================================
+  ;; GRID BREAKER — hand-written WebAssembly Text engine
+  ;;
+  ;; Self-contained: this engine shares no code with any other title in
+  ;; games/. It follows the same *conventions* as arena-shooters/game.wat
+  ;; (globals block at the top, entity pools at fixed offsets in linear
+  ;; memory, xorshift RNG, an init/set_input/step/get_* export surface)
+  ;; and nothing else. Every constant and every routine below is its own.
+  ;;
+  ;; JavaScript owns no game state. It forwards input, calls step(dt), and
+  ;; reads entity records straight out of the memory below to draw them.
+  ;; ============================================================
+  ;; sin/cos are imported because wasm has no instruction for them. sqrt is
+  ;; not imported — f32.sqrt is native, so reaching out to JS for it would be
+  ;; slower and pointless.
+  (import "env" "sinf" (func $sinf (param f32) (result f32)))
+  (import "env" "cosf" (func $cosf (param f32) (result f32)))
+
+  (memory (export "memory") 1)
+
+  ;; ================= MEMORY LAYOUT =================
+  ;; paddle   @0    : x, y, halfW, vx                        (4 f32 = 16 B)
+  ;; balls    @16   : stride 32, MAX_BALLS=6
+  ;;                  x, y, vx, vy, radius, active, stuck, stickOff
+  ;;                  ends at 16 + 6*32 = 208
+  ;; powerups @208  : stride 24, MAX_POWER=8
+  ;;                  x, y, vx, vy, kind, active
+  ;;                  ends at 208 + 8*24 = 400
+  ;; tiles    @400  : stride 8, COLS*ROWS = 15*12 = 180 cells
+  ;;                  hp, kind    (hp 0 = empty, hp <0 = indestructible;
+  ;;                  an empty cell keeps its kind, and kind -1 marks a cell
+  ;;                  that was never built — see the warden)
+  ;;                  cell (col,row) is at 400 + (row*COLS + col)*8
+  ;;                  ends at 400 + 180*8 = 1840
+  ;; score @1840  lives @1844  level @1848  tilesLeft @1852
+  ;;
+  ;; tile kinds: 0 = plain, 1 = tough (2 hp), 2 = bomb, 3 = solid,
+  ;;             4 = warden, 5 = patch (a cell the warden rebuilt)
+  ;; powerup kinds: 0 = WIDE, 1 = MULTI, 2 = SLOW, 3 = STICKY
+  ;;
+  ;; The field lists above, once more, in the form scripts/check-layout.mjs
+  ;; reads. It fails if any line here disagrees with the prose, overflows
+  ;; its stride, or disagrees with the FIELD table at the top of the widget
+  ;; — so a field that moves has to move in all three places at once.
+  ;; @fields paddle f32 -: x y halfW vx
+  ;; @fields ball   f32 BALL_STRIDE: x y vx vy radius active stuck stickOff
+  ;; @fields power  f32 POWER_STRIDE: x y vx vy kind active
+  ;; @fields tile   f32 TILE_STRIDE: hp kind
+  ;; ===================================================
+
+  (global $MAX_BALLS i32 (i32.const 6))
+  (global $MAX_POWER i32 (i32.const 8))
+  (global $BALLS_OFF i32 (i32.const 16))
+  (global $BALL_STRIDE i32 (i32.const 32))
+  (global $POWER_OFF i32 (i32.const 208))
+  (global $POWER_STRIDE i32 (i32.const 24))
+  (global $TILES_OFF i32 (i32.const 400))
+  (global $TILE_STRIDE i32 (i32.const 8))
+  (global $SCORE_OFF i32 (i32.const 1840))
+  (global $LIVES_OFF i32 (i32.const 1844))
+  (global $LEVEL_OFF i32 (i32.const 1848))
+  (global $LEFT_OFF i32 (i32.const 1852))
+
+  (global $WORLD_W f32 (f32.const 960.0))
+  (global $WORLD_H f32 (f32.const 720.0))
+
+  ;; The tile grid. 15 * 60 = 900, leaving a 30px gutter either side.
+  (global $COLS i32 (i32.const 15))
+  (global $ROWS i32 (i32.const 12))
+  (global $TILE_W f32 (f32.const 60.0))
+  (global $TILE_H f32 (f32.const 26.0))
+  (global $GRID_X f32 (f32.const 30.0))
+  (global $GRID_Y f32 (f32.const 70.0))
+
+  (global $PADDLE_Y f32 (f32.const 660.0))
+  (global $PADDLE_HALF_H f32 (f32.const 9.0))
+  ;; Mutable because the difficulty table writes them — see $apply_difficulty.
+  ;; The initialisers are Normal's values, which is what makes a Normal run
+  ;; identical to the engine that had no settings at all.
+  (global $PADDLE_HALF_BASE (mut f32) (f32.const 70.0))
+  (global $PADDLE_SPEED (mut f32) (f32.const 640.0))
+  ;; How wide WIDE makes it, and how far a caught ball can be deflected.
+  (global $WIDE_MUL f32 (f32.const 1.55))
+  (global $MAX_DEFLECT f32 (f32.const 1.05))
+  ;; And how *little* it may be deflected. The serve already refuses to send a
+  ;; ball straight up (see $serve); the bounce did not, and that was the hole:
+  ;; a paddle that keeps the ball on its centre returns it near-vertical every
+  ;; time, so the ball drills one column and then rings between the ceiling and
+  ;; the paddle. The headless bench, whose pilot tracks perfectly, sat on level
+  ;; 2 with one tile left for 153 seconds — no agency, nothing happening, which
+  ;; is the dead-time case this repo goes looking for.
+  ;;
+  ;; 0.15 rad is the same number $serve treats as "too vertical", so there is
+  ;; one threshold in this file rather than two.
+  ;;
+  ;; The floor is a *band*, not a value, and that is the whole fix. A fixed
+  ;; 0.15 was tried first and made the stall worse — 645 seconds instead of
+  ;; 153 — because a fixed angle off a perfectly-tracking paddle is a
+  ;; perfectly periodic orbit: the ball rang between the left wall and the same
+  ;; four pixels of paddle for eleven minutes. Anything the player cannot vary
+  ;; has to be varied for them. Drawing the magnitude from a band breaks the
+  ;; cycle on the first bounce, and the *sign* still comes from where the ball
+  ;; landed, so the paddle reads as slightly curved rather than as disobeying.
+  ;;
+  ;; Over the same 900-second bench, the perfect-tracking pilot went from level
+  ;; 2 to level 7. The upper edge was chosen by measuring: 0.33 left a worst
+  ;; stall of 54s, 0.45 of 35s, 0.60 of 63s. What is left at 0.45 is not a lock
+  ;; but the last-two-tiles hunt every game of this shape has, and MULTI is the
+  ;; answer the player already has for it.
+  (global $MIN_DEFLECT f32 (f32.const 0.15))
+  (global $MIN_DEFLECT_HI f32 (f32.const 0.45))
+
+  (global $BALL_R f32 (f32.const 9.0))
+  ;; Speed is set against the arena, not in the abstract: at 330 the ball took
+  ;; ~4s to cross 720px and back, so a 60-tile wall was a four-minute level.
+  ;; 430 puts a round trip near 2.7s, which is a level in about a minute.
+  (global $BALL_SPEED_BASE (mut f32) (f32.const 430.0))
+  (global $BALL_SPEED_STEP (mut f32) (f32.const 14.0))
+  (global $BALL_SPEED_CAP (mut f32) (f32.const 620.0))
+  ;; SLOW does not change a ball's stored velocity, only how far it is
+  ;; advanced per second — so the effect expiring restores the exact
+  ;; trajectory rather than an approximation of it.
+  (global $SLOW_MUL f32 (f32.const 0.68))
+
+  (global $POWER_FALL f32 (f32.const 155.0))
+  (global $POWER_HALF f32 (f32.const 14.0))
+  (global $DROP_CHANCE (mut f32) (f32.const 0.16))
+  (global $WIDE_TIME f32 (f32.const 12.0))
+  (global $SLOW_TIME f32 (f32.const 9.0))
+  (global $STICKY_TIME f32 (f32.const 15.0))
+
+  ;; Scoring.
+  (global $SCORE_PLAIN f32 (f32.const 10.0))
+  (global $SCORE_TOUGH f32 (f32.const 25.0))
+  (global $SCORE_BOMB f32 (f32.const 15.0))
+  (global $SCORE_CHIP f32 (f32.const 5.0))
+  (global $SCORE_POWER f32 (f32.const 25.0))
+  (global $SCORE_LEVEL f32 (f32.const 100.0))
+
+  (global $START_LIVES (mut f32) (f32.const 5.0))
+
+  ;; ---- the warden ---------------------------------------------------------
+  ;; Every fourth level the wall has a boss in it: an armoured tile, centre of
+  ;; the wall's bottom row, that rebuilds the broken cells around it until it
+  ;; is broken itself. It is the one tile in the game that argues with the
+  ;; order you dig in — leave it for last and you are clearing its reach
+  ;; twice. It sits on the bottom row so it is always in reach of a ball from
+  ;; below: a boss the ball cannot get at would be a timer, not a fight.
+  ;;
+  ;; What it rebuilds is a *patch* (kind 5): one hit, worth little, and it
+  ;; never drops a capsule. Rebuilding the cell's own kind was the first
+  ;; thought and the wrong one — a warden restoring bombs beside itself is a
+  ;; warden that can be farmed for blasts, and one restoring tough tiles can
+  ;; be farmed for chip score. A patch is only ever in the way.
+  (global $WARDEN_EVERY i32 (i32.const 4))
+  (global $WARDEN_HP_BASE f32 (f32.const 4.0))   ;; + one per boss level so far
+  (global $WARDEN_HP_CAP f32 (f32.const 8.0))
+  ;; Seconds between rebuilds, and how far it reaches: a square of this
+  ;; radius, so two cells either side and two rows up from the bottom row.
+  ;;
+  ;; Not in the difficulty table, because the bench said it would not be a
+  ;; setting. A pilot that aims at the warden broke it in 13-53s at 1.6, 2.4
+  ;; and 3.2 alike — what ends the fight is hits, not the rebuild rate — and
+  ;; a pilot that ignores it paid in patches afterwards (about 25 of them at
+  ;; 2.4), which is the cost of ignoring it, as intended. 2.4 is roughly one
+  ;; rebuild per ball round trip, so a gap you open is usually still open when
+  ;; the ball comes back to use it.
+  (global $REPAIR_EVERY f32 (f32.const 2.4))
+  (global $REPAIR_REACH i32 (i32.const 2))
+  ;; The cell about to be rebuilt is chosen this long before it is, so the
+  ;; widget can show it coming — a tile that appears unannounced in front of
+  ;; the ball reads as the game cheating.
+  (global $REPAIR_WARN f32 (f32.const 0.6))
+  (global $SCORE_WARDEN f32 (f32.const 150.0))
+  (global $SCORE_PATCH f32 (f32.const 5.0))
+
+  ;; ---- difficulty ---------------------------------------------------------
+  ;; Easy / Normal / Hard. The widget calls set_difficulty(d) and then init();
+  ;; init() copies one column of this table into the globals above, and nothing
+  ;; else in the engine knows a setting exists.
+  ;;
+  ;;                        easy    normal    hard
+  ;;   starting lives         7        5        3
+  ;;   paddle half-width     86       70       56    px
+  ;;   paddle speed         700      640      600    px/s
+  ;;   ball speed base      380      430      480    px/s
+  ;;   ... per level         10       14       20
+  ;;   ... cap              540      620      700
+  ;;   power-up drop rate  0.24     0.16     0.10    per tile broken
+  ;;
+  ;; The paddle is the widest lever: at 86 the ball has to be badly misjudged
+  ;; to be missed at all, and at 56 a return has to be aimed. The drop rate
+  ;; moves with it, because WIDE and STICKY are themselves a difficulty knob —
+  ;; an easy game that also showers capsules would be two settings deep.
+  ;;
+  ;; $difficulty is not reset by init: it is a choice about the next run, so a
+  ;; restart has to carry it rather than wipe it. Chapter 8 makes that argument
+  ;; for $rng, and it is the same argument.
+  (global $difficulty (mut i32) (i32.const 1))   ;; 0 easy, 1 normal, 2 hard
+
+  (global $rng (mut i32) (i32.const 1973272912))
+  (global $level (mut i32) (i32.const 1))
+  (global $gameOver (mut i32) (i32.const 0))
+
+  ;; input, as reported by set_input each frame
+  (global $moveDir (mut f32) (f32.const 0.0))
+  (global $launchReq (mut i32) (i32.const 0))
+  (global $ptrActive (mut i32) (i32.const 0))
+  (global $ptrX (mut f32) (f32.const 0.0))
+
+  ;; power-up timers
+  (global $wideTimer (mut f32) (f32.const 0.0))
+  (global $slowTimer (mut f32) (f32.const 0.0))
+  (global $stickyTimer (mut f32) (f32.const 0.0))
+
+  ;; Event counters. JavaScript diffs these between frames to decide what to
+  ;; play and what to shake — the engine never calls out, so a counter is the
+  ;; whole notification channel. They only ever increase.
+  ;;
+  ;; This title arrived from a portfolio repository without them. Its widget
+  ;; worked out what had happened by snapshotting all 180 tiles every frame and
+  ;; diffing hit points, and by counting live balls — which is the renderer
+  ;; deciding what the rules did, the exact thing invariant 4 exists to
+  ;; prevent. It also had a quiet cost nobody had noticed: the widget carried
+  ;; `paddle`, `power` and `launch` sounds that nothing ever played, because
+  ;; none of those three events leaves anything behind in memory to diff. A
+  ;; paddle bounce changes a velocity; a caught capsule vanishes; a launch
+  ;; clears a flag. Counters are the only way a renderer can hear them.
+  (global $breaks (mut i32) (i32.const 0))    ;; a tile destroyed, by ball or blast
+  (global $chips (mut i32) (i32.const 0))     ;; a tough tile hit and survived
+  (global $booms (mut i32) (i32.const 0))     ;; a bomb detonated
+  (global $bounces (mut i32) (i32.const 0))   ;; a ball returned by the paddle
+  (global $powers (mut i32) (i32.const 0))    ;; a capsule caught
+  (global $drains (mut i32) (i32.const 0))    ;; a ball lost below the floor
+  (global $launches (mut i32) (i32.const 0))  ;; a stuck ball sent off the paddle
+  (global $hurts (mut i32) (i32.const 0))     ;; a life lost
+  (global $clears (mut i32) (i32.const 0))    ;; a level cleared
+  ;; Which row the most recent break was on. Not a counter: the brick sound is
+  ;; pitched by row, and a count of breaks cannot say where one happened. One
+  ;; scalar is enough because the widget plays one brick note a frame however
+  ;; many broke — a bomb chain is the boom, not twenty bricks.
+  (global $lastBreakRow (mut i32) (i32.const 0))
+  (global $repairs (mut i32) (i32.const 0))     ;; a cell rebuilt by the warden
+  (global $wardenHits (mut i32) (i32.const 0))  ;; the warden struck and survived
+  (global $wardenFalls (mut i32) (i32.const 0)) ;; the warden broken
+
+  ;; Warden state. $wardenC is -1 when there is no live warden, which is also
+  ;; the whole of "is this a boss level" as far as the rest of the step knows.
+  (global $wardenC (mut i32) (i32.const -1))
+  (global $wardenR (mut i32) (i32.const 0))
+  (global $wardenMax (mut f32) (f32.const 0.0))
+  (global $repairTimer (mut f32) (f32.const 0.0))
+  (global $repairCell (mut i32) (i32.const -1))   ;; row*COLS+col, or -1
+
+  ;; ---------------- helpers ----------------
+
+  (func $ball_addr (param $i i32) (result i32)
+    (i32.add (global.get $BALLS_OFF) (i32.mul (local.get $i) (global.get $BALL_STRIDE))))
+  (func $power_addr (param $i i32) (result i32)
+    (i32.add (global.get $POWER_OFF) (i32.mul (local.get $i) (global.get $POWER_STRIDE))))
+  (func $tile_addr (param $c i32) (param $r i32) (result i32)
+    (i32.add (global.get $TILES_OFF)
+      (i32.mul (i32.add (i32.mul (local.get $r) (global.get $COLS)) (local.get $c))
+               (global.get $TILE_STRIDE))))
+
+  (func $rand_f32 (result f32)
+    (local $x i32)
+    (local.set $x (global.get $rng))
+    (local.set $x (i32.xor (local.get $x) (i32.shl (local.get $x) (i32.const 13))))
+    (local.set $x (i32.xor (local.get $x) (i32.shr_u (local.get $x) (i32.const 17))))
+    (local.set $x (i32.xor (local.get $x) (i32.shl (local.get $x) (i32.const 5))))
+    (global.set $rng (local.get $x))
+    (f32.div (f32.convert_i32_u (local.get $x)) (f32.const 4294967296.0)))
+
+  (func $frand (param $lo f32) (param $hi f32) (result f32)
+    (f32.add (local.get $lo) (f32.mul (call $rand_f32) (f32.sub (local.get $hi) (local.get $lo)))))
+
+  (func $clampf (param $v f32) (param $lo f32) (param $hi f32) (result f32)
+    (local $r f32)
+    (local.set $r (local.get $v))
+    (if (f32.lt (local.get $r) (local.get $lo)) (then (local.set $r (local.get $lo))))
+    (if (f32.gt (local.get $r) (local.get $hi)) (then (local.set $r (local.get $hi))))
+    (local.get $r))
+
+  (func $clampi (param $v i32) (param $lo i32) (param $hi i32) (result i32)
+    (local $r i32)
+    (local.set $r (local.get $v))
+    (if (i32.lt_s (local.get $r) (local.get $lo)) (then (local.set $r (local.get $lo))))
+    (if (i32.gt_s (local.get $r) (local.get $hi)) (then (local.set $r (local.get $hi))))
+    (local.get $r))
+
+  (func $cell_cx (param $c i32) (result f32)
+    (f32.add (global.get $GRID_X)
+      (f32.mul (f32.add (f32.convert_i32_s (local.get $c)) (f32.const 0.5)) (global.get $TILE_W))))
+  (func $cell_cy (param $r i32) (result f32)
+    (f32.add (global.get $GRID_Y)
+      (f32.mul (f32.add (f32.convert_i32_s (local.get $r)) (f32.const 0.5)) (global.get $TILE_H))))
+
+  ;; Ball speed for the current level, capped.
+  (func $level_speed (result f32)
+    (call $clampf
+      (f32.add (global.get $BALL_SPEED_BASE)
+        (f32.mul (f32.convert_i32_s (i32.sub (global.get $level) (i32.const 1)))
+                 (global.get $BALL_SPEED_STEP)))
+      (global.get $BALL_SPEED_BASE)
+      (global.get $BALL_SPEED_CAP)))
+
+  ;; Paddle half-width for the current level and power-up state. The paddle
+  ;; narrows by 1.5px a level down to a floor, so late levels press without
+  ;; the ball ever getting fast enough to be unreadable.
+  (func $paddle_half (result f32)
+    (local $h f32)
+    (local.set $h
+      (call $clampf
+        (f32.sub (global.get $PADDLE_HALF_BASE)
+          (f32.mul (f32.convert_i32_s (i32.sub (global.get $level) (i32.const 1))) (f32.const 1.5)))
+        (f32.const 44.0)
+        (global.get $PADDLE_HALF_BASE)))
+    (if (f32.gt (global.get $wideTimer) (f32.const 0.0))
+      (then (local.set $h (f32.mul (local.get $h) (global.get $WIDE_MUL)))))
+    (local.get $h))
+
+  (func $add_score (param $n f32)
+    (f32.store (global.get $SCORE_OFF)
+      (f32.add (f32.load (global.get $SCORE_OFF)) (local.get $n))))
+
+  ;; ---------------- spawning ----------------
+
+  (func $spawn_ball (param $x f32) (param $y f32) (param $vx f32) (param $vy f32)
+    (local $i i32) (local $a i32)
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $lp
+        (br_if $done (i32.ge_s (local.get $i) (global.get $MAX_BALLS)))
+        (local.set $a (call $ball_addr (local.get $i)))
+        (if (f32.eq (f32.load offset=20 (local.get $a)) (f32.const 0.0))
+          (then
+            (f32.store offset=0 (local.get $a) (local.get $x))
+            (f32.store offset=4 (local.get $a) (local.get $y))
+            (f32.store offset=8 (local.get $a) (local.get $vx))
+            (f32.store offset=12 (local.get $a) (local.get $vy))
+            (f32.store offset=16 (local.get $a) (global.get $BALL_R))
+            (f32.store offset=20 (local.get $a) (f32.const 1.0))
+            (f32.store offset=24 (local.get $a) (f32.const 0.0))
+            (f32.store offset=28 (local.get $a) (f32.const 0.0))
+            (br $done)))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $lp))))
+
+  (func $spawn_power (param $x f32) (param $y f32) (param $kind i32)
+    (local $i i32) (local $a i32)
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $lp
+        (br_if $done (i32.ge_s (local.get $i) (global.get $MAX_POWER)))
+        (local.set $a (call $power_addr (local.get $i)))
+        (if (f32.eq (f32.load offset=20 (local.get $a)) (f32.const 0.0))
+          (then
+            (f32.store offset=0 (local.get $a) (local.get $x))
+            (f32.store offset=4 (local.get $a) (local.get $y))
+            (f32.store offset=8 (local.get $a) (f32.const 0.0))
+            (f32.store offset=12 (local.get $a) (global.get $POWER_FALL))
+            (f32.store offset=16 (local.get $a) (f32.convert_i32_s (local.get $kind)))
+            (f32.store offset=20 (local.get $a) (f32.const 1.0))
+            (br $done)))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $lp))))
+
+  (func $maybe_drop (param $c i32) (param $r i32)
+    (if (f32.lt (call $rand_f32) (global.get $DROP_CHANCE))
+      (then
+        (call $spawn_power
+          (call $cell_cx (local.get $c))
+          (call $cell_cy (local.get $r))
+          (i32.trunc_f32_s (call $frand (f32.const 0.0) (f32.const 3.999)))))))
+
+  ;; ---------------- tile destruction ----------------
+  ;;
+  ;; $blast and $explode_at are mutually recursive: a bomb destroys its
+  ;; neighbours, and a neighbour that is itself a bomb goes off in turn. The
+  ;; recursion terminates because $blast zeroes a cell's hp *before* it calls
+  ;; $explode_at, so a cell can never be blasted twice; depth is bounded by
+  ;; the 180 cells in the grid.
+
+  ;; One hit on the warden, from a ball or a blast alike. It is armoured
+  ;; against blasts on purpose: a bomb beside it would otherwise end the boss
+  ;; in one frame, and which bombs land beside it is the dice, not the player.
+  (func $strike_warden (param $c i32) (param $r i32) (param $a i32)
+    (local $hp f32)
+    (local.set $hp (f32.sub (f32.load offset=0 (local.get $a)) (f32.const 1.0)))
+    (if (f32.gt (local.get $hp) (f32.const 0.0))
+      (then
+        (f32.store offset=0 (local.get $a) (local.get $hp))
+        (global.set $wardenHits (i32.add (global.get $wardenHits) (i32.const 1)))
+        (call $add_score (global.get $SCORE_CHIP))
+        (return)))
+    (f32.store offset=0 (local.get $a) (f32.const 0.0))
+    (i32.store (global.get $LEFT_OFF)
+      (i32.sub (i32.load (global.get $LEFT_OFF)) (i32.const 1)))
+    (call $add_score (global.get $SCORE_WARDEN))
+    (global.set $breaks (i32.add (global.get $breaks) (i32.const 1)))
+    (global.set $lastBreakRow (local.get $r))
+    (global.set $wardenFalls (i32.add (global.get $wardenFalls) (i32.const 1)))
+    (global.set $wardenC (i32.const -1))
+    (global.set $repairCell (i32.const -1))
+    (call $maybe_drop (local.get $c) (local.get $r)))
+
+  ;; Destroy a cell outright, whatever its hp — this is a blast, not a hit.
+  ;; Solid cells (hp < 0) and empty cells are left alone, and the warden takes
+  ;; it as one hit.
+  (func $blast (param $c i32) (param $r i32)
+    (local $a i32) (local $kind i32)
+    (local.set $a (call $tile_addr (local.get $c) (local.get $r)))
+    (if (f32.le (f32.load offset=0 (local.get $a)) (f32.const 0.0)) (then (return)))
+    (local.set $kind (i32.trunc_f32_s (f32.load offset=4 (local.get $a))))
+    (if (i32.eq (local.get $kind) (i32.const 4))
+      (then
+        (call $strike_warden (local.get $c) (local.get $r) (local.get $a))
+        (return)))
+    (f32.store offset=0 (local.get $a) (f32.const 0.0))
+    (i32.store (global.get $LEFT_OFF)
+      (i32.sub (i32.load (global.get $LEFT_OFF)) (i32.const 1)))
+    (call $add_score (global.get $SCORE_BOMB))
+    (global.set $breaks (i32.add (global.get $breaks) (i32.const 1)))
+    (global.set $lastBreakRow (local.get $r))
+    ;; a patch never drops — see $SCORE_PATCH
+    (if (i32.ne (local.get $kind) (i32.const 5))
+      (then (call $maybe_drop (local.get $c) (local.get $r))))
+    (if (i32.eq (local.get $kind) (i32.const 2))
+      (then (call $explode_at (local.get $c) (local.get $r)))))
+
+  (func $explode_at (param $c i32) (param $r i32)
+    (local $dc i32) (local $dr i32) (local $nc i32) (local $nr i32)
+    (global.set $booms (i32.add (global.get $booms) (i32.const 1)))
+    (local.set $dr (i32.const -1))
+    (block $rdone
+      (loop $rlp
+        (br_if $rdone (i32.gt_s (local.get $dr) (i32.const 1)))
+        (local.set $dc (i32.const -1))
+        (block $cdone
+          (loop $clp
+            (br_if $cdone (i32.gt_s (local.get $dc) (i32.const 1)))
+            (local.set $nc (i32.add (local.get $c) (local.get $dc)))
+            (local.set $nr (i32.add (local.get $r) (local.get $dr)))
+            (if (i32.and
+                  (i32.and (i32.ge_s (local.get $nc) (i32.const 0))
+                           (i32.lt_s (local.get $nc) (global.get $COLS)))
+                  (i32.and (i32.ge_s (local.get $nr) (i32.const 0))
+                           (i32.lt_s (local.get $nr) (global.get $ROWS))))
+              (then (call $blast (local.get $nc) (local.get $nr))))
+            (local.set $dc (i32.add (local.get $dc) (i32.const 1)))
+            (br $clp)))
+        (local.set $dr (i32.add (local.get $dr) (i32.const 1)))
+        (br $rlp))))
+
+  ;; One ball-strike on a cell. Returns 1 if the cell was occupied (so the
+  ;; ball bounces) and 0 if it was empty (so the ball passes through).
+  (func $damage_tile (param $c i32) (param $r i32) (result i32)
+    (local $a i32) (local $hp f32) (local $kind i32)
+    (local.set $a (call $tile_addr (local.get $c) (local.get $r)))
+    (local.set $hp (f32.load offset=0 (local.get $a)))
+    (if (f32.eq (local.get $hp) (f32.const 0.0)) (then (return (i32.const 0))))
+    ;; solid: bounces, never breaks
+    (if (f32.lt (local.get $hp) (f32.const 0.0)) (then (return (i32.const 1))))
+
+    (local.set $kind (i32.trunc_f32_s (f32.load offset=4 (local.get $a))))
+    (if (i32.eq (local.get $kind) (i32.const 4))
+      (then
+        (call $strike_warden (local.get $c) (local.get $r) (local.get $a))
+        (return (i32.const 1))))
+    (local.set $hp (f32.sub (local.get $hp) (f32.const 1.0)))
+    (f32.store offset=0 (local.get $a) (local.get $hp))
+
+    (if (f32.le (local.get $hp) (f32.const 0.0))
+      (then
+        (f32.store offset=0 (local.get $a) (f32.const 0.0))
+        (i32.store (global.get $LEFT_OFF)
+          (i32.sub (i32.load (global.get $LEFT_OFF)) (i32.const 1)))
+        (call $add_score
+          (if (result f32) (i32.eq (local.get $kind) (i32.const 1))
+            (then (global.get $SCORE_TOUGH))
+            (else (if (result f32) (i32.eq (local.get $kind) (i32.const 2))
+                    (then (global.get $SCORE_BOMB))
+                    (else (if (result f32) (i32.eq (local.get $kind) (i32.const 5))
+                            (then (global.get $SCORE_PATCH))
+                            (else (global.get $SCORE_PLAIN))))))))
+        (global.set $breaks (i32.add (global.get $breaks) (i32.const 1)))
+        (global.set $lastBreakRow (local.get $r))
+        (if (i32.ne (local.get $kind) (i32.const 5))
+          (then (call $maybe_drop (local.get $c) (local.get $r))))
+        (if (i32.eq (local.get $kind) (i32.const 2))
+          (then (call $explode_at (local.get $c) (local.get $r)))))
+      (else
+        ;; a tough tile that survived — chipping it is worth something
+        (global.set $chips (i32.add (global.get $chips) (i32.const 1)))
+        (call $add_score (global.get $SCORE_CHIP))))
+    (i32.const 1))
+
+  ;; Does a ball at (x,y,r) overlap an occupied cell? If so, strike the first
+  ;; one found and report the bounce.
+  (func $collide_tiles (param $x f32) (param $y f32) (param $r f32) (result i32)
+    (local $x0 f32) (local $x1 f32) (local $y0 f32) (local $y1 f32)
+    (local $c0 i32) (local $c1 i32) (local $r0 i32) (local $r1 i32)
+    (local $c i32) (local $rr i32)
+
+    (local.set $x0 (f32.sub (f32.sub (local.get $x) (local.get $r)) (global.get $GRID_X)))
+    (local.set $x1 (f32.sub (f32.add (local.get $x) (local.get $r)) (global.get $GRID_X)))
+    (local.set $y0 (f32.sub (f32.sub (local.get $y) (local.get $r)) (global.get $GRID_Y)))
+    (local.set $y1 (f32.sub (f32.add (local.get $y) (local.get $r)) (global.get $GRID_Y)))
+
+    ;; entirely outside the grid — the common case, so it is checked first
+    (if (f32.lt (local.get $x1) (f32.const 0.0)) (then (return (i32.const 0))))
+    (if (f32.lt (local.get $y1) (f32.const 0.0)) (then (return (i32.const 0))))
+    (if (f32.gt (local.get $x0)
+          (f32.mul (f32.convert_i32_s (global.get $COLS)) (global.get $TILE_W)))
+      (then (return (i32.const 0))))
+    (if (f32.gt (local.get $y0)
+          (f32.mul (f32.convert_i32_s (global.get $ROWS)) (global.get $TILE_H)))
+      (then (return (i32.const 0))))
+
+    (local.set $c0 (call $clampi (i32.trunc_f32_s (f32.div (local.get $x0) (global.get $TILE_W)))
+                                 (i32.const 0) (i32.sub (global.get $COLS) (i32.const 1))))
+    (local.set $c1 (call $clampi (i32.trunc_f32_s (f32.div (local.get $x1) (global.get $TILE_W)))
+                                 (i32.const 0) (i32.sub (global.get $COLS) (i32.const 1))))
+    (local.set $r0 (call $clampi (i32.trunc_f32_s (f32.div (local.get $y0) (global.get $TILE_H)))
+                                 (i32.const 0) (i32.sub (global.get $ROWS) (i32.const 1))))
+    (local.set $r1 (call $clampi (i32.trunc_f32_s (f32.div (local.get $y1) (global.get $TILE_H)))
+                                 (i32.const 0) (i32.sub (global.get $ROWS) (i32.const 1))))
+
+    (local.set $rr (local.get $r0))
+    (block $done
+      (loop $rlp
+        (br_if $done (i32.gt_s (local.get $rr) (local.get $r1)))
+        (local.set $c (local.get $c0))
+        (block $cdone
+          (loop $clp
+            (br_if $cdone (i32.gt_s (local.get $c) (local.get $c1)))
+            (if (call $damage_tile (local.get $c) (local.get $rr))
+              (then (return (i32.const 1))))
+            (local.set $c (i32.add (local.get $c) (i32.const 1)))
+            (br $clp)))
+        (local.set $rr (i32.add (local.get $rr) (i32.const 1)))
+        (br $rlp)))
+    (i32.const 0))
+
+  ;; ---------------- level construction ----------------
+
+  (func $clear_grid
+    (local $i i32) (local $n i32) (local $a i32)
+    (local.set $n (i32.mul (global.get $COLS) (global.get $ROWS)))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $lp
+        (br_if $done (i32.ge_s (local.get $i) (local.get $n)))
+        (local.set $a (i32.add (global.get $TILES_OFF)
+                        (i32.mul (local.get $i) (global.get $TILE_STRIDE))))
+        (f32.store offset=0 (local.get $a) (f32.const 0.0))
+        ;; never built — the warden rebuilds only cells that held a tile, so
+        ;; it cannot plug the pockets a pattern leaves on purpose
+        (f32.store offset=4 (local.get $a) (f32.const -1.0))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $lp))))
+
+  ;; Five patterns, cycled by level, so the wall a player meets is laid out
+  ;; differently every level rather than being the same rectangle with more
+  ;; hit points. Returns 1 if cell (c,r) should hold a tile.
+  (func $pattern_fill (param $pat i32) (param $c i32) (param $r i32) (param $rows i32) (result i32)
+    (local $mid i32) (local $d i32)
+    (local.set $mid (i32.div_s (global.get $COLS) (i32.const 2)))
+    (local.set $d (i32.sub (local.get $c) (local.get $mid)))
+    (if (i32.lt_s (local.get $d) (i32.const 0)) (then (local.set $d (i32.sub (i32.const 0) (local.get $d)))))
+
+    ;; 0 — checkerboard. Level 1 is this rather than the solid block on
+    ;; purpose: half the tiles, so a first-time player clears a level and sees
+    ;; the level-up before deciding whether the game is worth their time.
+    (if (i32.eq (local.get $pat) (i32.const 0))
+      (then (return (i32.eqz (i32.and (i32.add (local.get $c) (local.get $r)) (i32.const 1))))))
+    ;; 1 — solid block
+    (if (i32.eq (local.get $pat) (i32.const 1)) (then (return (i32.const 1))))
+    ;; 2 — pyramid, one tile wide at the top
+    (if (i32.eq (local.get $pat) (i32.const 2))
+      (then (return (i32.le_s (local.get $d) (local.get $r)))))
+    ;; 3 — vertical stripes with gaps to thread
+    (if (i32.eq (local.get $pat) (i32.const 3))
+      (then (return (i32.ne (i32.rem_s (local.get $c) (i32.const 3)) (i32.const 2)))))
+    ;; 4 — hollow frame with a lattice inside
+    (return (i32.or
+      (i32.or (i32.eqz (local.get $r))
+              (i32.eq (local.get $r) (i32.sub (local.get $rows) (i32.const 1))))
+      (i32.or (i32.or (i32.eqz (local.get $c))
+                      (i32.eq (local.get $c) (i32.sub (global.get $COLS) (i32.const 1))))
+              (i32.eqz (i32.and (i32.add (local.get $c) (local.get $r)) (i32.const 3)))))))
+
+  (func $build_level
+    (local $pat i32) (local $rows i32) (local $c i32) (local $r i32) (local $a i32)
+    (local $roll f32) (local $bomb f32) (local $tough f32) (local $kind i32)
+
+    (call $clear_grid)
+    (i32.store (global.get $LEFT_OFF) (i32.const 0))
+
+    (local.set $pat (i32.rem_s (i32.sub (global.get $level) (i32.const 1)) (i32.const 5)))
+    ;; four rows at level 1, one more every second level, capped at 10 of the
+    ;; 12 the grid can hold — the last two stay empty so the wall never starts
+    ;; within a ball's reach of the paddle.
+    (local.set $rows (call $clampi
+      (i32.add (i32.const 4) (i32.div_s (global.get $level) (i32.const 2)))
+      (i32.const 4) (i32.const 10)))
+
+    (local.set $bomb (call $clampf
+      (f32.add (f32.const 0.06) (f32.mul (f32.convert_i32_s (global.get $level)) (f32.const 0.005)))
+      (f32.const 0.0) (f32.const 0.14)))
+    (local.set $tough (call $clampf
+      (f32.add (f32.const 0.10) (f32.mul (f32.convert_i32_s (global.get $level)) (f32.const 0.02)))
+      (f32.const 0.0) (f32.const 0.35)))
+
+    (local.set $r (i32.const 0))
+    (block $rdone
+      (loop $rlp
+        (br_if $rdone (i32.ge_s (local.get $r) (local.get $rows)))
+        (local.set $c (i32.const 0))
+        (block $cdone
+          (loop $clp
+            (br_if $cdone (i32.ge_s (local.get $c) (global.get $COLS)))
+            (if (call $pattern_fill (local.get $pat) (local.get $c) (local.get $r) (local.get $rows))
+              (then
+                (local.set $a (call $tile_addr (local.get $c) (local.get $r)))
+                (local.set $roll (call $rand_f32))
+                (local.set $kind (i32.const 0))
+                (if (f32.lt (local.get $roll) (local.get $bomb))
+                  (then (local.set $kind (i32.const 2)))
+                  (else (if (f32.lt (local.get $roll) (f32.add (local.get $bomb) (local.get $tough)))
+                          (then (local.set $kind (i32.const 1)))
+                          ;; solid tiles only from level 3, and never on the
+                          ;; bottom row of the wall — one parked in front of a
+                          ;; pocket can make a level unclearable
+                          (else (if (i32.and (i32.ge_s (global.get $level) (i32.const 3))
+                                             (i32.and (f32.gt (local.get $roll) (f32.const 0.94))
+                                                      (i32.lt_s (local.get $r) (i32.sub (local.get $rows) (i32.const 1)))))
+                                  (then (local.set $kind (i32.const 3))))))))
+
+                (f32.store offset=4 (local.get $a) (f32.convert_i32_s (local.get $kind)))
+                (if (i32.eq (local.get $kind) (i32.const 3))
+                  (then
+                    (f32.store offset=0 (local.get $a) (f32.const -1.0)))
+                  (else
+                    (f32.store offset=0 (local.get $a)
+                      (if (result f32) (i32.eq (local.get $kind) (i32.const 1))
+                        (then (f32.const 2.0))
+                        (else (f32.const 1.0))))
+                    (i32.store (global.get $LEFT_OFF)
+                      (i32.add (i32.load (global.get $LEFT_OFF)) (i32.const 1)))))))
+            (local.set $c (i32.add (local.get $c) (i32.const 1)))
+            (br $clp)))
+        (local.set $r (i32.add (local.get $r) (i32.const 1)))
+        (br $rlp)))
+    (call $place_warden (local.get $rows)))
+
+  ;; On a boss level, set the warden into the centre of the wall's bottom row,
+  ;; over whatever the pattern put there. Otherwise make sure none is live.
+  ;;
+  ;; Its hit points grow with the boss levels, not the level number, so the
+  ;; second warden is one tougher than the first however the levels between
+  ;; them went: 5, 6, 7, 8 and then no further.
+  (func $place_warden (param $rows i32)
+    (local $a i32) (local $hp f32)
+    (global.set $wardenC (i32.const -1))
+    (global.set $repairCell (i32.const -1))
+    (if (i32.rem_s (global.get $level) (global.get $WARDEN_EVERY)) (then (return)))
+    (global.set $wardenC (i32.div_s (global.get $COLS) (i32.const 2)))
+    (global.set $wardenR (i32.sub (local.get $rows) (i32.const 1)))
+    (local.set $hp (f32.min (global.get $WARDEN_HP_CAP)
+      (f32.add (global.get $WARDEN_HP_BASE)
+        (f32.convert_i32_s (i32.div_s (global.get $level) (global.get $WARDEN_EVERY))))))
+    (global.set $wardenMax (local.get $hp))
+    (local.set $a (call $tile_addr (global.get $wardenC) (global.get $wardenR)))
+    ;; the pattern may have left this cell empty; if so it is one more to clear
+    (if (f32.eq (f32.load offset=0 (local.get $a)) (f32.const 0.0))
+      (then (i32.store (global.get $LEFT_OFF)
+              (i32.add (i32.load (global.get $LEFT_OFF)) (i32.const 1)))))
+    (f32.store offset=0 (local.get $a) (local.get $hp))
+    (f32.store offset=4 (local.get $a) (f32.const 4.0))
+    (global.set $repairTimer (global.get $REPAIR_EVERY)))
+
+  ;; ---------------- resets ----------------
+
+  (func $clear_balls
+    (local $i i32)
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $lp
+        (br_if $done (i32.ge_s (local.get $i) (global.get $MAX_BALLS)))
+        (f32.store offset=20 (call $ball_addr (local.get $i)) (f32.const 0.0))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $lp))))
+
+  (func $clear_powers
+    (local $i i32)
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $lp
+        (br_if $done (i32.ge_s (local.get $i) (global.get $MAX_POWER)))
+        (f32.store offset=20 (call $power_addr (local.get $i)) (f32.const 0.0))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $lp))))
+
+  ;; One ball, parked on the paddle, waiting for a launch press. Every way of
+  ;; starting a ball goes through here: a new level, a lost life, a new game.
+  (func $serve
+    (local $a i32)
+    (call $clear_balls)
+    (call $clear_powers)
+    (global.set $wideTimer (f32.const 0.0))
+    (global.set $slowTimer (f32.const 0.0))
+    (global.set $stickyTimer (f32.const 0.0))
+    (f32.store offset=8 (i32.const 0) (call $paddle_half))
+    (call $spawn_ball
+      (f32.load offset=0 (i32.const 0))
+      (f32.sub (f32.sub (global.get $PADDLE_Y) (global.get $PADDLE_HALF_H)) (global.get $BALL_R))
+      (f32.const 0.0) (f32.const 0.0))
+    (local.set $a (call $ball_addr (i32.const 0)))
+    (f32.store offset=24 (local.get $a) (f32.const 1.0))
+    (f32.store offset=28 (local.get $a) (f32.const 0.0)))
+
+  ;; Copy one column of the difficulty table into the globals the rest of the
+  ;; engine reads. Called only from init, so a run never changes balance
+  ;; halfway through. Normal restates the initialisers, because a restart after
+  ;; an Easy or Hard run has to put them back.
+  (func $apply_difficulty
+    (if (i32.eqz (global.get $difficulty))
+      (then   ;; easy
+        (global.set $START_LIVES (f32.const 7.0))
+        (global.set $PADDLE_HALF_BASE (f32.const 86.0))
+        (global.set $PADDLE_SPEED (f32.const 700.0))
+        (global.set $BALL_SPEED_BASE (f32.const 380.0))
+        (global.set $BALL_SPEED_STEP (f32.const 10.0))
+        (global.set $BALL_SPEED_CAP (f32.const 540.0))
+        (global.set $DROP_CHANCE (f32.const 0.24)))
+      (else
+        (if (i32.eq (global.get $difficulty) (i32.const 2))
+          (then   ;; hard
+            (global.set $START_LIVES (f32.const 3.0))
+            (global.set $PADDLE_HALF_BASE (f32.const 56.0))
+            (global.set $PADDLE_SPEED (f32.const 600.0))
+            (global.set $BALL_SPEED_BASE (f32.const 480.0))
+            (global.set $BALL_SPEED_STEP (f32.const 20.0))
+            (global.set $BALL_SPEED_CAP (f32.const 700.0))
+            (global.set $DROP_CHANCE (f32.const 0.10)))
+          (else   ;; normal
+            (global.set $START_LIVES (f32.const 5.0))
+            (global.set $PADDLE_HALF_BASE (f32.const 70.0))
+            (global.set $PADDLE_SPEED (f32.const 640.0))
+            (global.set $BALL_SPEED_BASE (f32.const 430.0))
+            (global.set $BALL_SPEED_STEP (f32.const 14.0))
+            (global.set $BALL_SPEED_CAP (f32.const 620.0))
+            (global.set $DROP_CHANCE (f32.const 0.16)))))))
+
+  ;; 0 easy, 1 normal, 2 hard; anything else is clamped rather than trusted, and
+  ;; a JavaScript call with no argument arrives as 0. Takes effect at the next
+  ;; init().
+  (func $set_difficulty (export "set_difficulty") (param $d i32)
+    (if (i32.lt_s (local.get $d) (i32.const 0)) (then (local.set $d (i32.const 0))))
+    (if (i32.gt_s (local.get $d) (i32.const 2)) (then (local.set $d (i32.const 2))))
+    (global.set $difficulty (local.get $d)))
+  (func $get_difficulty (export "get_difficulty") (result i32) (global.get $difficulty))
+
+  (func $init (export "init")
+    ;; first, because the lives, the paddle and the serve below all read it
+    (call $apply_difficulty)
+    (global.set $level (i32.const 1))
+    (global.set $gameOver (i32.const 0))
+    (global.set $moveDir (f32.const 0.0))
+    ;; A launch key still held from the last run must not serve the next one:
+    ;; the press has to arrive fresh.
+    (global.set $launchReq (i32.const 0))
+    (global.set $ptrActive (i32.const 0))
+    (global.set $breaks (i32.const 0))
+    (global.set $chips (i32.const 0))
+    (global.set $booms (i32.const 0))
+    (global.set $bounces (i32.const 0))
+    (global.set $powers (i32.const 0))
+    (global.set $drains (i32.const 0))
+    (global.set $launches (i32.const 0))
+    (global.set $hurts (i32.const 0))
+    (global.set $clears (i32.const 0))
+    (global.set $lastBreakRow (i32.const 0))
+    (global.set $repairs (i32.const 0))
+    (global.set $wardenHits (i32.const 0))
+    (global.set $wardenFalls (i32.const 0))
+
+    (f32.store offset=0 (i32.const 0) (f32.mul (global.get $WORLD_W) (f32.const 0.5)))
+    (f32.store offset=4 (i32.const 0) (global.get $PADDLE_Y))
+    (f32.store offset=8 (i32.const 0) (global.get $PADDLE_HALF_BASE))
+    (f32.store offset=12 (i32.const 0) (f32.const 0.0))
+
+    (f32.store (global.get $SCORE_OFF) (f32.const 0.0))
+    (f32.store (global.get $LIVES_OFF) (global.get $START_LIVES))
+    (i32.store (global.get $LEVEL_OFF) (i32.const 1))
+
+    (call $build_level)
+    (call $serve))
+
+  (func $set_input (export "set_input")
+      (param $dir f32) (param $launch i32) (param $ptrOn i32) (param $px f32)
+    (global.set $moveDir (local.get $dir))
+    (global.set $launchReq (local.get $launch))
+    (global.set $ptrActive (local.get $ptrOn))
+    (global.set $ptrX (local.get $px)))
+
+  ;; ---------------- per-frame passes ----------------
+
+  (func $step_paddle (param $dt f32)
+    (local $x f32) (local $half f32) (local $target f32) (local $prev f32)
+    (local.set $prev (f32.load offset=0 (i32.const 0)))
+    (local.set $half (call $paddle_half))
+    (local.set $x (local.get $prev))
+
+    (if (i32.ne (global.get $ptrActive) (i32.const 0))
+      (then
+        ;; Pointer/touch steering wins over the keys when both arrive: the
+        ;; paddle eases toward the finger rather than snapping, so a drag
+        ;; cannot teleport it across the arena between two frames.
+        (local.set $target (global.get $ptrX))
+        (local.set $x (f32.add (local.get $x)
+          (f32.mul (f32.sub (local.get $target) (local.get $x))
+                   (call $clampf (f32.mul (local.get $dt) (f32.const 18.0))
+                                 (f32.const 0.0) (f32.const 1.0))))))
+      (else
+        (local.set $x (f32.add (local.get $x)
+          (f32.mul (f32.mul (global.get $moveDir) (global.get $PADDLE_SPEED)) (local.get $dt))))))
+
+    (local.set $x (call $clampf (local.get $x)
+      (local.get $half) (f32.sub (global.get $WORLD_W) (local.get $half))))
+
+    (f32.store offset=0 (i32.const 0) (local.get $x))
+    (f32.store offset=8 (i32.const 0) (local.get $half))
+    (f32.store offset=12 (i32.const 0)
+      (f32.div (f32.sub (local.get $x) (local.get $prev)) (f32.max (local.get $dt) (f32.const 0.0001)))))
+
+  ;; Bounce a ball off the paddle, steering it by where it landed: the edges
+  ;; throw it out at up to $MAX_DEFLECT from vertical, the middle sends it
+  ;; nearly straight back — but never *exactly* straight back, see
+  ;; $MIN_DEFLECT. Speed is preserved exactly, so control is the only thing the
+  ;; paddle gives you.
+  (func $paddle_bounce (param $a i32) (param $half f32)
+    (local $off f32) (local $ang f32) (local $sp f32) (local $sgn f32)
+    (global.set $bounces (i32.add (global.get $bounces) (i32.const 1)))
+    (local.set $off (call $clampf
+      (f32.div (f32.sub (f32.load offset=0 (local.get $a)) (f32.load offset=0 (i32.const 0)))
+               (local.get $half))
+      (f32.const -1.0) (f32.const 1.0)))
+    (local.set $ang (f32.mul (local.get $off) (global.get $MAX_DEFLECT)))
+
+    ;; Too close to vertical: keep the magnitude off the floor. Which way it
+    ;; goes is still the player's, in order of what is known — where on the
+    ;; paddle it landed, then which way it was already travelling, then a coin
+    ;; toss for the one case where neither says anything.
+    (if (f32.lt (f32.abs (local.get $ang)) (global.get $MIN_DEFLECT))
+      (then
+        (if (f32.ne (local.get $off) (f32.const 0.0))
+          (then (local.set $sgn (f32.copysign (f32.const 1.0) (local.get $off))))
+          (else
+            (if (f32.ne (f32.load offset=8 (local.get $a)) (f32.const 0.0))
+              (then (local.set $sgn
+                (f32.copysign (f32.const 1.0) (f32.load offset=8 (local.get $a)))))
+              (else (local.set $sgn
+                (if (result f32) (f32.lt (call $rand_f32) (f32.const 0.5))
+                  (then (f32.const -1.0)) (else (f32.const 1.0))))))))
+        (local.set $ang (f32.mul (local.get $sgn)
+          (call $frand (global.get $MIN_DEFLECT) (global.get $MIN_DEFLECT_HI))))))
+    (local.set $sp (f32.sqrt
+      (f32.add (f32.mul (f32.load offset=8 (local.get $a)) (f32.load offset=8 (local.get $a)))
+               (f32.mul (f32.load offset=12 (local.get $a)) (f32.load offset=12 (local.get $a))))))
+    (if (f32.lt (local.get $sp) (f32.const 1.0))
+      (then (local.set $sp (call $level_speed))))
+
+    (f32.store offset=4 (local.get $a)
+      (f32.sub (f32.sub (global.get $PADDLE_Y) (global.get $PADDLE_HALF_H)) (global.get $BALL_R)))
+    (f32.store offset=8 (local.get $a) (f32.mul (call $sinf (local.get $ang)) (local.get $sp)))
+    (f32.store offset=12 (local.get $a)
+      (f32.mul (f32.mul (call $cosf (local.get $ang)) (local.get $sp)) (f32.const -1.0)))
+
+    ;; STICKY catches the ball instead of returning it, until it is launched.
+    (if (f32.gt (global.get $stickyTimer) (f32.const 0.0))
+      (then
+        (f32.store offset=24 (local.get $a) (f32.const 1.0))
+        (f32.store offset=28 (local.get $a)
+          (f32.sub (f32.load offset=0 (local.get $a)) (f32.load offset=0 (i32.const 0)))))))
+
+  ;; Advance one ball. The motion is split into sub-steps short enough that a
+  ;; ball can never cross a whole tile in one of them — without this a fast
+  ;; ball tunnels straight through the wall — and each sub-step moves one axis
+  ;; at a time, so the axis that hit something is the axis that reverses.
+  (func $step_ball (param $a i32) (param $dt f32)
+    (local $mul f32) (local $sp f32) (local $n i32) (local $i i32) (local $sdt f32)
+    (local $x f32) (local $y f32) (local $vx f32) (local $vy f32) (local $r f32)
+    (local $half f32) (local $px f32)
+
+    (local.set $r (f32.load offset=16 (local.get $a)))
+    (local.set $mul (if (result f32) (f32.gt (global.get $slowTimer) (f32.const 0.0))
+                      (then (global.get $SLOW_MUL)) (else (f32.const 1.0))))
+
+    (local.set $vx (f32.mul (f32.load offset=8 (local.get $a)) (local.get $mul)))
+    (local.set $vy (f32.mul (f32.load offset=12 (local.get $a)) (local.get $mul)))
+    (local.set $sp (f32.sqrt
+      (f32.add (f32.mul (local.get $vx) (local.get $vx)) (f32.mul (local.get $vy) (local.get $vy)))))
+
+    ;; one sub-step per 5px of travel, capped so a stalled frame cannot spin here
+    (local.set $n (i32.trunc_f32_s
+      (f32.add (f32.div (f32.mul (local.get $sp) (local.get $dt)) (f32.const 5.0)) (f32.const 1.0))))
+    (local.set $n (call $clampi (local.get $n) (i32.const 1) (i32.const 12)))
+    (local.set $sdt (f32.div (local.get $dt) (f32.convert_i32_s (local.get $n))))
+
+    (local.set $x (f32.load offset=0 (local.get $a)))
+    (local.set $y (f32.load offset=4 (local.get $a)))
+    (local.set $half (f32.load offset=8 (i32.const 0)))
+    (local.set $px (f32.load offset=0 (i32.const 0)))
+
+    (local.set $i (i32.const 0))
+    (block $sdone
+      (loop $slp
+        (br_if $sdone (i32.ge_s (local.get $i) (local.get $n)))
+
+        ;; ---- X axis ----
+        (local.set $x (f32.add (local.get $x) (f32.mul (local.get $vx) (local.get $sdt))))
+        (if (call $collide_tiles (local.get $x) (local.get $y) (local.get $r))
+          (then
+            (local.set $x (f32.sub (local.get $x) (f32.mul (local.get $vx) (local.get $sdt))))
+            (local.set $vx (f32.mul (local.get $vx) (f32.const -1.0)))
+            (f32.store offset=8 (local.get $a)
+              (f32.mul (f32.load offset=8 (local.get $a)) (f32.const -1.0)))))
+
+        ;; side walls
+        (if (f32.lt (local.get $x) (local.get $r))
+          (then
+            (local.set $x (local.get $r))
+            (local.set $vx (f32.abs (local.get $vx)))
+            (f32.store offset=8 (local.get $a) (f32.abs (f32.load offset=8 (local.get $a))))))
+        (if (f32.gt (local.get $x) (f32.sub (global.get $WORLD_W) (local.get $r)))
+          (then
+            (local.set $x (f32.sub (global.get $WORLD_W) (local.get $r)))
+            (local.set $vx (f32.neg (f32.abs (local.get $vx))))
+            (f32.store offset=8 (local.get $a) (f32.neg (f32.abs (f32.load offset=8 (local.get $a)))))))
+
+        ;; ---- Y axis ----
+        (local.set $y (f32.add (local.get $y) (f32.mul (local.get $vy) (local.get $sdt))))
+        (if (call $collide_tiles (local.get $x) (local.get $y) (local.get $r))
+          (then
+            (local.set $y (f32.sub (local.get $y) (f32.mul (local.get $vy) (local.get $sdt))))
+            (local.set $vy (f32.mul (local.get $vy) (f32.const -1.0)))
+            (f32.store offset=12 (local.get $a)
+              (f32.mul (f32.load offset=12 (local.get $a)) (f32.const -1.0)))))
+
+        ;; ceiling
+        (if (f32.lt (local.get $y) (local.get $r))
+          (then
+            (local.set $y (local.get $r))
+            (local.set $vy (f32.abs (local.get $vy)))
+            (f32.store offset=12 (local.get $a) (f32.abs (f32.load offset=12 (local.get $a))))))
+
+        ;; paddle — only ever while descending, so a ball that clipped the
+        ;; edge cannot be caught a second time on its way back up
+        (if (i32.and (f32.gt (local.get $vy) (f32.const 0.0))
+              (i32.and
+                (f32.ge (f32.add (local.get $y) (local.get $r))
+                        (f32.sub (global.get $PADDLE_Y) (global.get $PADDLE_HALF_H)))
+                (i32.and
+                  (f32.le (f32.sub (local.get $y) (local.get $r))
+                          (f32.add (global.get $PADDLE_Y) (global.get $PADDLE_HALF_H)))
+                  (f32.le (f32.abs (f32.sub (local.get $x) (local.get $px)))
+                          (f32.add (local.get $half) (local.get $r))))))
+          (then
+            (f32.store offset=0 (local.get $a) (local.get $x))
+            (call $paddle_bounce (local.get $a) (local.get $half))
+            (local.set $y (f32.load offset=4 (local.get $a)))
+            (local.set $vx (f32.mul (f32.load offset=8 (local.get $a)) (local.get $mul)))
+            (local.set $vy (f32.mul (f32.load offset=12 (local.get $a)) (local.get $mul)))
+            ;; caught by STICKY — stop here, the ball is on the paddle now
+            (if (f32.gt (f32.load offset=24 (local.get $a)) (f32.const 0.0))
+              (then (br $sdone)))))
+
+        ;; lost below the floor
+        (if (f32.gt (f32.sub (local.get $y) (local.get $r)) (global.get $WORLD_H))
+          (then
+            (global.set $drains (i32.add (global.get $drains) (i32.const 1)))
+            (f32.store offset=20 (local.get $a) (f32.const 0.0))
+            (br $sdone)))
+
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $slp)))
+
+    (if (f32.gt (f32.load offset=20 (local.get $a)) (f32.const 0.0))
+      (then
+        (f32.store offset=0 (local.get $a) (local.get $x))
+        (f32.store offset=4 (local.get $a) (local.get $y)))))
+
+  (func $balls_alive (export "balls_alive") (result i32)
+    (local $i i32) (local $n i32)
+    (local.set $i (i32.const 0))
+    (local.set $n (i32.const 0))
+    (block $done
+      (loop $lp
+        (br_if $done (i32.ge_s (local.get $i) (global.get $MAX_BALLS)))
+        (if (f32.gt (f32.load offset=20 (call $ball_addr (local.get $i))) (f32.const 0.0))
+          (then (local.set $n (i32.add (local.get $n) (i32.const 1)))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $lp)))
+    (local.get $n))
+
+  ;; MULTI: every ball in play splits into three, the copies leaving at
+  ;; ±0.4 rad. Read the live count first — otherwise the balls this loop
+  ;; spawns are themselves split, and one capsule fills the pool.
+  (func $split_balls
+    (local $i i32) (local $a i32) (local $vx f32) (local $vy f32) (local $c f32) (local $s f32)
+    (local.set $c (call $cosf (f32.const 0.4)))
+    (local.set $s (call $sinf (f32.const 0.4)))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $lp
+        (br_if $done (i32.ge_s (local.get $i) (global.get $MAX_BALLS)))
+        (local.set $a (call $ball_addr (local.get $i)))
+        (if (i32.and (f32.gt (f32.load offset=20 (local.get $a)) (f32.const 0.0))
+                     (f32.eq (f32.load offset=24 (local.get $a)) (f32.const 0.0)))
+          (then
+            (local.set $vx (f32.load offset=8 (local.get $a)))
+            (local.set $vy (f32.load offset=12 (local.get $a)))
+            (call $spawn_ball (f32.load offset=0 (local.get $a)) (f32.load offset=4 (local.get $a))
+              (f32.sub (f32.mul (local.get $vx) (local.get $c)) (f32.mul (local.get $vy) (local.get $s)))
+              (f32.add (f32.mul (local.get $vx) (local.get $s)) (f32.mul (local.get $vy) (local.get $c))))
+            (call $spawn_ball (f32.load offset=0 (local.get $a)) (f32.load offset=4 (local.get $a))
+              (f32.add (f32.mul (local.get $vx) (local.get $c)) (f32.mul (local.get $vy) (local.get $s)))
+              (f32.sub (f32.mul (local.get $vy) (local.get $c)) (f32.mul (local.get $vx) (local.get $s))))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $lp))))
+
+  (func $apply_power (param $kind i32)
+    (global.set $powers (i32.add (global.get $powers) (i32.const 1)))
+    (call $add_score (global.get $SCORE_POWER))
+    (if (i32.eq (local.get $kind) (i32.const 0))
+      (then (global.set $wideTimer (global.get $WIDE_TIME))))
+    (if (i32.eq (local.get $kind) (i32.const 1))
+      (then (call $split_balls)))
+    (if (i32.eq (local.get $kind) (i32.const 2))
+      (then (global.set $slowTimer (global.get $SLOW_TIME))))
+    (if (i32.eq (local.get $kind) (i32.const 3))
+      (then (global.set $stickyTimer (global.get $STICKY_TIME)))))
+
+  (func $step_powers (param $dt f32)
+    (local $i i32) (local $a i32) (local $x f32) (local $y f32) (local $half f32) (local $px f32)
+    (local.set $half (f32.load offset=8 (i32.const 0)))
+    (local.set $px (f32.load offset=0 (i32.const 0)))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $lp
+        (br_if $done (i32.ge_s (local.get $i) (global.get $MAX_POWER)))
+        (local.set $a (call $power_addr (local.get $i)))
+        (if (f32.gt (f32.load offset=20 (local.get $a)) (f32.const 0.0))
+          (then
+            (local.set $x (f32.load offset=0 (local.get $a)))
+            (local.set $y (f32.add (f32.load offset=4 (local.get $a))
+                            (f32.mul (f32.load offset=12 (local.get $a)) (local.get $dt))))
+            (f32.store offset=4 (local.get $a) (local.get $y))
+
+            (if (i32.and
+                  (f32.ge (f32.add (local.get $y) (global.get $POWER_HALF))
+                          (f32.sub (global.get $PADDLE_Y) (global.get $PADDLE_HALF_H)))
+                  (i32.and
+                    (f32.le (f32.sub (local.get $y) (global.get $POWER_HALF))
+                            (f32.add (global.get $PADDLE_Y) (global.get $PADDLE_HALF_H)))
+                    (f32.le (f32.abs (f32.sub (local.get $x) (local.get $px)))
+                            (f32.add (local.get $half) (global.get $POWER_HALF)))))
+              (then
+                (f32.store offset=20 (local.get $a) (f32.const 0.0))
+                (call $apply_power (i32.trunc_f32_s (f32.load offset=16 (local.get $a)))))
+              (else
+                (if (f32.gt (f32.sub (local.get $y) (global.get $POWER_HALF)) (global.get $WORLD_H))
+                  (then (f32.store offset=20 (local.get $a) (f32.const 0.0))))))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $lp))))
+
+  ;; A stuck ball rides the paddle until the launch key is pressed. The offset
+  ;; it was caught at is kept, so it leaves from where it landed.
+  (func $step_stuck
+    (local $i i32) (local $a i32) (local $sp f32) (local $ang f32)
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $lp
+        (br_if $done (i32.ge_s (local.get $i) (global.get $MAX_BALLS)))
+        (local.set $a (call $ball_addr (local.get $i)))
+        (if (i32.and (f32.gt (f32.load offset=20 (local.get $a)) (f32.const 0.0))
+                     (f32.gt (f32.load offset=24 (local.get $a)) (f32.const 0.0)))
+          (then
+            (f32.store offset=0 (local.get $a)
+              (f32.add (f32.load offset=0 (i32.const 0)) (f32.load offset=28 (local.get $a))))
+            (f32.store offset=4 (local.get $a)
+              (f32.sub (f32.sub (global.get $PADDLE_Y) (global.get $PADDLE_HALF_H)) (global.get $BALL_R)))
+            (if (i32.ne (global.get $launchReq) (i32.const 0))
+              (then
+                (local.set $sp (call $level_speed))
+                ;; leaves at the angle its resting offset implies, so a ball
+                ;; caught on the edge launches outward rather than straight up
+                (local.set $ang (f32.mul
+                  (call $clampf (f32.div (f32.load offset=28 (local.get $a))
+                                         (f32.load offset=8 (i32.const 0)))
+                                (f32.const -1.0) (f32.const 1.0))
+                  (f32.const 0.6)))
+                ;; Never serve vertically. A ball with vx == 0 drills a single
+                ;; column and, if the paddle just tracks it, stays vertical for
+                ;; the rest of the run — found by the headless bench, whose
+                ;; pilot centres perfectly and so hit exactly that state.
+                (if (f32.lt (f32.abs (local.get $ang)) (f32.const 0.15))
+                  (then
+                    (local.set $ang (call $frand (f32.const 0.22) (f32.const 0.5)))
+                    (if (f32.lt (call $rand_f32) (f32.const 0.5))
+                      (then (local.set $ang (f32.neg (local.get $ang)))))))
+                (f32.store offset=8 (local.get $a) (f32.mul (call $sinf (local.get $ang)) (local.get $sp)))
+                (f32.store offset=12 (local.get $a)
+                  (f32.mul (f32.mul (call $cosf (local.get $ang)) (local.get $sp)) (f32.const -1.0)))
+                (f32.store offset=24 (local.get $a) (f32.const 0.0))
+                (global.set $launches (i32.add (global.get $launches) (i32.const 1)))))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $lp))))
+
+  ;; ---------------- the warden ----------------
+
+  ;; Does any live ball overlap cell (c,r)? A cell is never rebuilt around a
+  ;; ball: the ball would be inside a tile, and which way it bounced out would
+  ;; be an accident of the sub-step order.
+  (func $ball_in_cell (param $c i32) (param $r i32) (result i32)
+    (local $i i32) (local $a i32) (local $x0 f32) (local $y0 f32) (local $br f32)
+    (local.set $x0 (f32.add (global.get $GRID_X)
+      (f32.mul (f32.convert_i32_s (local.get $c)) (global.get $TILE_W))))
+    (local.set $y0 (f32.add (global.get $GRID_Y)
+      (f32.mul (f32.convert_i32_s (local.get $r)) (global.get $TILE_H))))
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $lp
+        (br_if $done (i32.ge_s (local.get $i) (global.get $MAX_BALLS)))
+        (local.set $a (call $ball_addr (local.get $i)))
+        (if (f32.gt (f32.load offset=20 (local.get $a)) (f32.const 0.0))
+          (then
+            (local.set $br (f32.load offset=16 (local.get $a)))
+            (if (i32.and
+                  (i32.and
+                    (f32.gt (f32.add (f32.load offset=0 (local.get $a)) (local.get $br)) (local.get $x0))
+                    (f32.lt (f32.sub (f32.load offset=0 (local.get $a)) (local.get $br))
+                            (f32.add (local.get $x0) (global.get $TILE_W))))
+                  (i32.and
+                    (f32.gt (f32.add (f32.load offset=4 (local.get $a)) (local.get $br)) (local.get $y0))
+                    (f32.lt (f32.sub (f32.load offset=4 (local.get $a)) (local.get $br))
+                            (f32.add (local.get $y0) (global.get $TILE_H)))))
+              (then (return (i32.const 1))))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $lp)))
+    (i32.const 0))
+
+  ;; The broken cell in reach nearest the warden, or -1 if there is none.
+  ;; Nearest first, so it re-shields itself before it rebuilds anything else —
+  ;; the cell you just broke to get at it is the one that comes back.
+  ;; Ties go to scan order, which keeps the choice deterministic without a
+  ;; draw from $rng: every level without a warden stays the level it was.
+  (func $pick_repair (result i32)
+    (local $dc i32) (local $dr i32) (local $c i32) (local $r i32) (local $a i32)
+    (local $d i32) (local $best i32) (local $bestD i32) (local $k i32)
+    (local.set $best (i32.const -1))
+    (local.set $bestD (i32.const 1000))
+    (local.set $k (global.get $REPAIR_REACH))
+    (local.set $dr (i32.sub (i32.const 0) (local.get $k)))
+    (block $rdone
+      (loop $rlp
+        (br_if $rdone (i32.gt_s (local.get $dr) (local.get $k)))
+        (local.set $dc (i32.sub (i32.const 0) (local.get $k)))
+        (block $cdone
+          (loop $clp
+            (br_if $cdone (i32.gt_s (local.get $dc) (local.get $k)))
+            (local.set $c (i32.add (global.get $wardenC) (local.get $dc)))
+            (local.set $r (i32.add (global.get $wardenR) (local.get $dr)))
+            (if (i32.and
+                  (i32.and (i32.ge_s (local.get $c) (i32.const 0))
+                           (i32.lt_s (local.get $c) (global.get $COLS)))
+                  (i32.and (i32.ge_s (local.get $r) (i32.const 0))
+                           (i32.lt_s (local.get $r) (global.get $ROWS))))
+              (then
+                (local.set $a (call $tile_addr (local.get $c) (local.get $r)))
+                (if (i32.and (f32.eq (f32.load offset=0 (local.get $a)) (f32.const 0.0))
+                             (f32.ge (f32.load offset=4 (local.get $a)) (f32.const 0.0)))
+                  (then
+                    (local.set $d (i32.add (i32.mul (local.get $dc) (local.get $dc))
+                                           (i32.mul (local.get $dr) (local.get $dr))))
+                    (if (i32.lt_s (local.get $d) (local.get $bestD))
+                      (then
+                        (local.set $bestD (local.get $d))
+                        (local.set $best (i32.add (i32.mul (local.get $r) (global.get $COLS))
+                                                  (local.get $c)))))))))
+            (local.set $dc (i32.add (local.get $dc) (i32.const 1)))
+            (br $clp)))
+        (local.set $dr (i32.add (local.get $dr) (i32.const 1)))
+        (br $rlp)))
+    (local.get $best))
+
+  ;; The warden's clock. It picks its next cell $REPAIR_WARN before the rebuild
+  ;; so the widget can mark it, and rebuilds it when the clock runs out — as
+  ;; long as the cell is still empty and no ball is in it. A rebuild that is
+  ;; refused is skipped, not retried: the clock starts over either way, so a
+  ;; ball parked in the gap cannot make the warden rebuild the instant it leaves.
+  (func $step_warden (param $dt f32)
+    (local $c i32) (local $r i32) (local $a i32)
+    (if (i32.lt_s (global.get $wardenC) (i32.const 0)) (then (return)))
+    (global.set $repairTimer (f32.sub (global.get $repairTimer) (local.get $dt)))
+    (if (i32.and (f32.le (global.get $repairTimer) (global.get $REPAIR_WARN))
+                 (i32.lt_s (global.get $repairCell) (i32.const 0)))
+      (then (global.set $repairCell (call $pick_repair))))
+    (if (f32.gt (global.get $repairTimer) (f32.const 0.0)) (then (return)))
+    (global.set $repairTimer (global.get $REPAIR_EVERY))
+    (if (i32.lt_s (global.get $repairCell) (i32.const 0)) (then (return)))
+    (local.set $c (i32.rem_s (global.get $repairCell) (global.get $COLS)))
+    (local.set $r (i32.div_s (global.get $repairCell) (global.get $COLS)))
+    (global.set $repairCell (i32.const -1))
+    (local.set $a (call $tile_addr (local.get $c) (local.get $r)))
+    (if (f32.ne (f32.load offset=0 (local.get $a)) (f32.const 0.0)) (then (return)))
+    (if (call $ball_in_cell (local.get $c) (local.get $r)) (then (return)))
+    (f32.store offset=0 (local.get $a) (f32.const 1.0))
+    (f32.store offset=4 (local.get $a) (f32.const 5.0))
+    (i32.store (global.get $LEFT_OFF)
+      (i32.add (i32.load (global.get $LEFT_OFF)) (i32.const 1)))
+    (global.set $repairs (i32.add (global.get $repairs) (i32.const 1))))
+
+  (func $lose_life
+    (global.set $hurts (i32.add (global.get $hurts) (i32.const 1)))
+    (f32.store (global.get $LIVES_OFF)
+      (f32.sub (f32.load (global.get $LIVES_OFF)) (f32.const 1.0)))
+    (if (f32.le (f32.load (global.get $LIVES_OFF)) (f32.const 0.0))
+      (then
+        (f32.store (global.get $LIVES_OFF) (f32.const 0.0))
+        (global.set $gameOver (i32.const 1)))
+      (else (call $serve))))
+
+  (func $next_level
+    (global.set $clears (i32.add (global.get $clears) (i32.const 1)))
+    (global.set $level (i32.add (global.get $level) (i32.const 1)))
+    (i32.store (global.get $LEVEL_OFF) (global.get $level))
+    (call $add_score (global.get $SCORE_LEVEL))
+    (call $build_level)
+    (call $serve))
+
+  (func $step (export "step") (param $dt f32)
+    (local $i i32) (local $a i32)
+    (if (i32.ne (global.get $gameOver) (i32.const 0)) (then (return)))
+
+    (if (f32.gt (global.get $wideTimer) (f32.const 0.0))
+      (then (global.set $wideTimer (f32.sub (global.get $wideTimer) (local.get $dt)))))
+    (if (f32.gt (global.get $slowTimer) (f32.const 0.0))
+      (then (global.set $slowTimer (f32.sub (global.get $slowTimer) (local.get $dt)))))
+    (if (f32.gt (global.get $stickyTimer) (f32.const 0.0))
+      (then (global.set $stickyTimer (f32.sub (global.get $stickyTimer) (local.get $dt)))))
+
+    (call $step_paddle (local.get $dt))
+    (call $step_stuck)
+
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $lp
+        (br_if $done (i32.ge_s (local.get $i) (global.get $MAX_BALLS)))
+        (local.set $a (call $ball_addr (local.get $i)))
+        (if (i32.and (f32.gt (f32.load offset=20 (local.get $a)) (f32.const 0.0))
+                     (f32.eq (f32.load offset=24 (local.get $a)) (f32.const 0.0)))
+          (then (call $step_ball (local.get $a) (local.get $dt))))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $lp)))
+
+    (call $step_powers (local.get $dt))
+    (call $step_warden (local.get $dt))
+
+    ;; Order matters: a level cleared by the shot that also lost the last ball
+    ;; should advance, not cost a life.
+    (if (i32.le_s (i32.load (global.get $LEFT_OFF)) (i32.const 0))
+      (then (call $next_level))
+      (else
+        (if (i32.eqz (call $balls_alive))
+          (then (call $lose_life))))))
+
+  ;; ---------------- readers ----------------
+
+  (func $get_score (export "get_score") (result f32) (f32.load (global.get $SCORE_OFF)))
+  (func $get_lives (export "get_lives") (result f32) (f32.load (global.get $LIVES_OFF)))
+  (func $get_level (export "get_level") (result i32) (global.get $level))
+  (func $get_tiles_left (export "get_tiles_left") (result i32) (i32.load (global.get $LEFT_OFF)))
+  (func $is_game_over (export "is_game_over") (result i32) (global.get $gameOver))
+  (func $get_wide (export "get_wide") (result f32) (global.get $wideTimer))
+  (func $get_slow (export "get_slow") (result f32) (global.get $slowTimer))
+  (func $get_sticky (export "get_sticky") (result f32) (global.get $stickyTimer))
+  (func $get_breaks (export "get_breaks") (result i32) (global.get $breaks))
+  (func $get_chips (export "get_chips") (result i32) (global.get $chips))
+  (func $get_booms (export "get_booms") (result i32) (global.get $booms))
+  (func $get_bounces (export "get_bounces") (result i32) (global.get $bounces))
+  (func $get_powers (export "get_powers") (result i32) (global.get $powers))
+  (func $get_drains (export "get_drains") (result i32) (global.get $drains))
+  (func $get_launches (export "get_launches") (result i32) (global.get $launches))
+  (func $get_hurts (export "get_hurts") (result i32) (global.get $hurts))
+  (func $get_clears (export "get_clears") (result i32) (global.get $clears))
+  (func $get_last_break_row (export "get_last_break_row") (result i32) (global.get $lastBreakRow))
+  (func $get_repairs (export "get_repairs") (result i32) (global.get $repairs))
+  (func $get_warden_hits (export "get_warden_hits") (result i32) (global.get $wardenHits))
+  (func $get_warden_falls (export "get_warden_falls") (result i32) (global.get $wardenFalls))
+  ;; 1 while a warden stands. Its position and hit points are in the tile grid
+  ;; like any other tile's; its starting hit points are here, because the pips
+  ;; the widget draws need a maximum and the engine is what decides it.
+  (func $get_warden_alive (export "get_warden_alive") (result i32)
+    (i32.ge_s (global.get $wardenC) (i32.const 0)))
+  (func $get_warden_max (export "get_warden_max") (result f32) (global.get $wardenMax))
+  ;; The cell the warden will rebuild next, as row*COLS+col, or -1; and the
+  ;; seconds until it does, so a marker can tighten as the moment arrives.
+  (func $get_repair_cell (export "get_repair_cell") (result i32) (global.get $repairCell))
+  (func $get_repair_t (export "get_repair_t") (result f32) (global.get $repairTimer))
+)
