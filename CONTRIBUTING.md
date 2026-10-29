@@ -151,7 +151,9 @@ region ends.
 3. `games/<slug>/<slug>.css` — everything under `.<prefix>-root`.
 4. `index.html` (standalone page) and `demo.html` (minimal integration example).
    Copy an existing pair; the `--<prefix>-max-width` hook is how the standalone
-   page caps width by available height.
+   page caps width by available height. The standalone page also carries the
+   `arcade-bar` (back to the library, full screen) and the frame CSS; keep both
+   and change only the title. Its height calc subtracts `--bar` for the bar.
 5. `logo.svg` — 480×300, `shape-rendering="crispEdges"`, in the same pixel
    language the game uses.
 6. `README.md` — controls, memory layout table, exports, tuning table, and the
