@@ -106,6 +106,11 @@ frozen frame. See [chapter 15](../../docs/15-game-loop-architecture.md).
 
 On desktop, moving the mouse takes over steering and pressing a key hands it
 back. The engine is told which is driving (`ptrActive`), so the two never fight.
+The cursor is followed across the whole window, not only over the arena, and
+clamped to the arena's edges — full screen, the page letterboxes the arena and a
+touchpad swipe overshoots it easily, and steering that stopped at the stage's
+edge froze the paddle until the cursor found its way back. Steering is dropped
+only when the cursor leaves the window.
 
 ### The thumbstick
 

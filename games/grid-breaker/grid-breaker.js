@@ -458,9 +458,15 @@
     // Mouse steering: the paddle follows the cursor in world coordinates, so it
     // works at any rendered size. This is the better control for a breaker,
     // which is why a mouse keeps it even on a machine that can also be touched.
+    //
+    // Clamped to the arena, because the cursor is tracked across the whole
+    // window rather than only over the stage (see onPointerMove): past either
+    // edge the paddle should sit against that wall, not chase a point outside
+    // the world.
     function mouseX(e) {
       var rect = canvas.getBoundingClientRect();
-      return ((e.clientX - rect.left) / rect.width) * WORLD_W;
+      var x = ((e.clientX - rect.left) / rect.width) * WORLD_W;
+      return Math.max(0, Math.min(WORLD_W, x));
     }
 
     var isMouse = function (e) { return !e.pointerType || e.pointerType === 'mouse'; };
@@ -545,15 +551,25 @@
       }
     }
 
+    // Mouse steering used to stop at the stage's edge: `pointermove` was bound
+    // to the stage and `pointerleave` dropped steering. That is fine in a small
+    // embed and wrong full screen, where the standalone page letterboxes the
+    // arena and a touchpad swipe easily overshoots it — the cursor slid into
+    // the margin and the paddle froze, with no way to steer back short of
+    // finding the arena again. The cursor is now followed across the whole
+    // window, so moving it anywhere keeps driving the paddle, and steering is
+    // only dropped when the cursor leaves the window altogether (`relatedTarget`
+    // is null exactly then). Touch is unaffected: a finger is still routed only
+    // through the stick, by pointerId.
     function onPointerOut(e) {
-      if (isMouse(e)) pointer.active = false;
+      if (isMouse(e) && !e.relatedTarget) pointer.active = false;
     }
 
     stage.addEventListener('pointerdown', onPointerDown);
-    stage.addEventListener('pointermove', onPointerMove);
+    global.addEventListener('pointermove', onPointerMove);
     stage.addEventListener('pointerup', onPointerUp);
     stage.addEventListener('pointercancel', onPointerUp);
-    stage.addEventListener('pointerleave', onPointerOut);
+    global.document.addEventListener('pointerout', onPointerOut);
     // Releasing outside the stage never emits pointerup on it.
     global.addEventListener('pointerup', onPointerUp);
     global.addEventListener('pointercancel', onPointerUp);
@@ -1090,6 +1106,8 @@
         global.removeEventListener('blur', onBlur);
         global.removeEventListener('pointerup', onPointerUp);
         global.removeEventListener('pointercancel', onPointerUp);
+        global.removeEventListener('pointermove', onPointerMove);
+        global.document.removeEventListener('pointerout', onPointerOut);
         sound.close();
         root.remove();
       },

@@ -34,7 +34,7 @@ body {
 
 .sr-root {
   --chrome: 9rem;                              /* HUD + widget help + padding */
-  --sr-max-width: min(1000px, calc((100dvh - var(--chrome)) * 1.3333));
+  --sr-max-width: min(1000px, calc((100dvh - var(--chrome) - var(--bar, 0px)) * 1.3333));
 }
 
 /* Very short windows: drop the chrome allowance rather than shrinking the
@@ -42,9 +42,113 @@ body {
 @media (max-height: 32rem) {
   .sr-root { --chrome: 6rem; }
 }
+/* -----------------------------------------------------------------------
+   The frame: modern around the edges, retro inside them.
+
+   The game keeps every pixel of its own look — the low-res buffer, the
+   scanlines, the HUD. What changed is only the page around it, which used to
+   be a flat colour with the widget dropped in the middle: a slim bar with the
+   way back to the library and a full-screen button, a faint grid on the
+   ground (the same hairline texture as the library's card plates), and the
+   arena set on it with rounded corners and depth rather than floating
+   edge-to-edge. The bar's height is subtracted from the height budget above
+   (`--bar`), so the arena still never falls below the fold.
+
+   Copied into each title's page by hand, like everything else the titles
+   share — see CONTRIBUTING.md, invariant 1.
+   --------------------------------------------------------------------- */
+:root { --bar: 3.25rem; }
+
+body {
+  flex-direction: column;
+  justify-content: flex-start;
+  gap: clamp(0.25rem, 1vw, 0.75rem);
+  padding-top: 0;
+  background-image:
+    radial-gradient(ellipse 70% 55% at 50% 40%, rgba(255, 255, 255, 0.045), transparent 70%),
+    linear-gradient(to right, rgba(255, 255, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+  background-size: auto, 32px 32px, 32px 32px;
+  background-attachment: fixed;
+}
+
+#game { margin-block: auto; width: 100%; display: flex; justify-content: center; }
+
+.arcade-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  max-width: 1240px;
+  height: var(--bar);
+  font: 500 0.8125rem/1 -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, system-ui, sans-serif;
+  color: rgba(244, 242, 237, 0.72);
+  box-sizing: border-box;
+}
+.arcade-bar a,
+.arcade-bar button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  height: 2.125rem;
+  padding: 0 0.875rem;
+  border: 1px solid rgba(244, 242, 237, 0.14);
+  border-radius: 999px;
+  background: rgba(244, 242, 237, 0.04);
+  color: inherit;
+  font: inherit;
+  text-decoration: none;
+  cursor: pointer;
+  -webkit-backdrop-filter: blur(10px);
+          backdrop-filter: blur(10px);
+  transition: color 220ms cubic-bezier(0.22, 1, 0.36, 1), border-color 220ms cubic-bezier(0.22, 1, 0.36, 1), background 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.arcade-bar a:hover,
+.arcade-bar button:hover { color: #f4f2ed; border-color: rgba(244, 242, 237, 0.32); background: rgba(244, 242, 237, 0.08); }
+.arcade-bar a:focus-visible,
+.arcade-bar button:focus-visible { outline: 2px solid #2563eb; outline-offset: 3px; }
+.arcade-bar .arcade-title {
+  margin: 0 auto;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-size: 0.75rem;
+  color: rgba(244, 242, 237, 0.9);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.arcade-bar svg { width: 0.95rem; height: 0.95rem; flex-shrink: 0; }
+/* The full-screen button is only shown where the API exists (iOS Safari on a
+   phone has none for a page), and hidden while already full screen. */
+.arcade-bar [data-fs] { display: none; }
+.arcade-bar[data-fs-ok='true'] [data-fs] { display: inline-flex; }
+@media (max-width: 30rem) {
+  .arcade-bar .arcade-label { display: none; }
+  .arcade-bar a, .arcade-bar button { padding: 0 0.625rem; }
+}
+
+.sr-root {
+  border-radius: 14px;
+  box-shadow:
+    0 0 0 1px rgba(244, 242, 237, 0.08),
+    0 24px 60px -24px rgba(0, 0, 0, 0.9);
+}
 </style>
 </head>
 <body>
+
+<nav class="arcade-bar" aria-label="Arcade Library">
+  <a href="../../" title="Back to the Arcade Library">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M13 8H3M7 4L3 8l4 4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <span class="arcade-label">Library</span>
+  </a>
+  <p class="arcade-title">Starfield Runner</p>
+  <button type="button" data-fs aria-label="Full screen" title="Full screen">
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10" stroke-linecap="round" stroke-linejoin="round"/></svg>
+    <span class="arcade-label">Full screen</span>
+  </button>
+</nav>
 
 <div id="game"></div>
 
@@ -62,6 +166,33 @@ body {
   if (window.ArcadeScores) ArcadeScores.watch(function (st) {
     return st.difficulty && st.difficulty !== 'normal' ? 'starfield-runner:' + st.difficulty : 'starfield-runner';
   }, game);
+</script>
+
+<!-- The frame's full-screen button. Hosting, like hiscores.js: the widget does
+     not know it exists. The whole page goes full screen, not the canvas, so the
+     HUD and the controls come along and the height budget above simply grows. -->
+<script>
+  (function () {
+    var bar = document.querySelector('.arcade-bar');
+    var btn = bar && bar.querySelector('[data-fs]');
+    var root = document.documentElement;
+    if (!btn || !(root.requestFullscreen || root.webkitRequestFullscreen)) return;
+    bar.setAttribute('data-fs-ok', 'true');
+    function isFull() { return !!(document.fullscreenElement || document.webkitFullscreenElement); }
+    function paint() {
+      var label = isFull() ? 'Exit full screen' : 'Full screen';
+      btn.setAttribute('aria-label', label);
+      btn.title = label;
+      btn.querySelector('.arcade-label').textContent = label;
+    }
+    btn.addEventListener('click', function () {
+      if (isFull()) (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+      else (root.requestFullscreen || root.webkitRequestFullscreen).call(root);
+      btn.blur();   // so Space launches/fires instead of pressing the button again
+    });
+    document.addEventListener('fullscreenchange', paint);
+    document.addEventListener('webkitfullscreenchange', paint);
+  })();
 </script>
 
 </body>
