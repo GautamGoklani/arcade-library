@@ -1,4 +1,4 @@
-# Rules — arcade-library (library.gautamgoklani.com)
+# Rules — arcade-library (arcade.gautamgoklani.com)
 
 Read this file before any code, git, task-list or docs work. It overrides default behaviour.
 Generated 2026-10-29 from the portfolio repo's `DOCS-REFERENCE.md`. Every "Settled" date is when
@@ -75,9 +75,11 @@ When two disagree, the higher one wins. Log the conflict in `PROJECT-GAPS.md` an
 ## Scope rules
 - **The documentation is the deliverable; the games are the excuse** (`CONTRIBUTING.md`). When a
   change would improve the code but weaken the explanation, the explanation wins.
-- Settled 2026-10-29: the library is served at `https://library.gautamgoklani.com`. The portfolio
-  (`https://www.gautamgoklani.com`, repo `portfolio`) links to it from its footer and 308s
-  `/arcade`, `/arcade/:slug` and `/library` to the hub. The hub and every game page link back.
+- Settled 2026-11-04 (replaces 2026-10-29): this site is served at the subdomain
+  `https://arcade.gautamgoklani.com`, not at a route on the portfolio. The portfolio
+  (`https://www.gautamgoklani.com`, repo `portfolio`) links to it from its footer, and 308s only its
+  old `/arcade` and `/arcade/:slug` URLs to the hub. There is no `library.` subdomain and no
+  `/library` route. The hub and every game page link back to the portfolio.
 - Settled 2026-10-29: the hub and the game page shells share the portfolio's look (warm paper and
   ink, one rust accent, light and dark). The games themselves stay retro. Owner's words: "looks
   nostalgic as needed but it should also feel modern".
@@ -117,7 +119,7 @@ These restate `CONTRIBUTING.md`. If one changes, change it there and here togeth
 | A game is added | Every step in `CONTRIBUTING.md` "Adding a game", plus `checklists/new-game.md` ticked |
 | The hub or a page shell | `ui-standards.md`, `test-cases.md` (TC-HUB / TC-SHELL) |
 | A design token | Both repos' tokens together (see "Frontend rules") |
-| The domain or hosting | `runbooks/deploy.md`, `architecture.md`, the portfolio's redirects and `SITE.libraryUrl` |
+| The domain or hosting | `runbooks/deploy.md`, `architecture.md`, the portfolio's redirects and `SITE.arcadeUrl` |
 | A check or CI step | "Checks" above, `CONTRIBUTING.md` "Commands" |
 | A bug fix | A `TC-` case; add it to `regression-suite.md` if it was P1 |
 | Something that doesn't match the plan | New `GAP-n` in `PROJECT-GAPS.md` (never a new task) |

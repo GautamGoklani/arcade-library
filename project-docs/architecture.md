@@ -8,8 +8,8 @@ Engineering detail lives in `CONTRIBUTING.md`; this file is the map.
 ## Hosts
 | Host | Serves | Repo |
 |---|---|---|
-| `https://library.gautamgoklani.com` | This repo | `arcade-library` |
-| `https://www.gautamgoklani.com` | The portfolio. Footer links here; `/arcade`, `/arcade/:slug`, `/library` 308 to the hub | `portfolio` (`next.config.ts`, `SITE.libraryUrl`) |
+| `https://arcade.gautamgoklani.com` | This repo | `arcade-library` |
+| `https://www.gautamgoklani.com` | The portfolio. Footer links here; only its old `/arcade` and `/arcade/:slug` URLs 308 to the hub | `portfolio` (`next.config.ts`, `SITE.arcadeUrl`) |
 
 ## Routes
 | Path | What it is |

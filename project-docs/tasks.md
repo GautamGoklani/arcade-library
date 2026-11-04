@@ -5,11 +5,12 @@ trailing `- blocked (<reason>)` = stuck on something outside the code.
 
 Entry format: `[status] - **<n>\. <title>** - blocked (<reason>)`
 
-**Current task:** [Milestone 1 · 5\. Point library.gautamgoklani.com at this repo](#current-task)
+**Current task:** [Milestone 1 · 5\. Point arcade.gautamgoklani.com at this repo](#current-task)
 
 Rules in `project-docs/CLAUDE.md` → "Task tracking rules". Milestone 1 records the owner's
 request of 2026-10-29. Its wording is the agent's reading of that request and needs the owner's
-OK before it counts as agreed scope (GAP-1). Future games are tracked in
+OK before it counts as agreed scope (GAP-1). The domain in task 5 was changed from `library.` to
+`arcade.` by the owner on 2026-11-04. Future games are tracked in
 `games/plans-for-other-games.md`, not here.
 
 # Milestone 1 — One site with the portfolio
@@ -61,21 +62,21 @@ Deliverable: TC-GB-001 passes.
 [x] - **4\. Link the two sites**
 
 Platform: this repo (hub header and footer, game bars) and the `portfolio` repo (footer,
-`next.config.ts` redirects, `SITE.libraryUrl`)
+`next.config.ts` redirects, `SITE.arcadeUrl`)
 
 Deliverable: TC-HUB-004 and the portfolio's TC-WEB-007 pass.
 
 ---
 
-[ ] - **5\. Point library.gautamgoklani.com at this repo** <a id="current-task"></a> - blocked (needs the owner's Vercel and DNS access)
+[ ] - **5\. Point arcade.gautamgoklani.com at this repo** <a id="current-task"></a> - blocked (needs the owner's Vercel and DNS access)
 
 Platform: Vercel dashboard, DNS
 
 Details:
-* Add `library.gautamgoklani.com` as the domain of this repo's Vercel project, with the DNS
+* Add `arcade.gautamgoklani.com` as the domain of this repo's Vercel project, with the DNS
   record Vercel asks for. See `runbooks/deploy.md`.
 
-Deliverable: `https://library.gautamgoklani.com/` serves the hub and a game page plays.
+Deliverable: `https://arcade.gautamgoklani.com/` serves the hub and a game page plays.
 
 ---
 

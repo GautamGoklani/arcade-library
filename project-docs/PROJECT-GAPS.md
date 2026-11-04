@@ -7,15 +7,15 @@ never a task. Fields: **Kind** (`decision-needed`, `doc-overclaims`, `doc-unders
 move its substance into code comments or the doc that owns the subject.
 
 ## Headline
-The site is ready to go live on `library.gautamgoklani.com`. What's left is the owner's: the
+The site is ready to go live on `arcade.gautamgoklani.com`. What's left is the owner's: the
 domain setting (GAP-2) and confirming the rules this repo inherited by default (GAP-1).
 
 ## High
 
 ### GAP-2 — The subdomain isn't confirmed as connected
 - **Kind:** missing · **Tag:** hosting · **Where:** Vercel dashboard, DNS
-- The portfolio now redirects `/arcade` and `/library` to `https://library.gautamgoklani.com`.
-  Until that host serves this repo, those redirects land on an error. Nothing in either repo can
+- The portfolio's footer links to `https://arcade.gautamgoklani.com`, and its old `/arcade` URLs
+  308 there. Until that host serves this repo, both land on an error. Nothing in either repo can
   show whether the domain is attached. Tracked as task M1·5.
 
 ## Medium
@@ -29,7 +29,7 @@ domain setting (GAP-2) and confirming the rules this repo inherited by default (
 ### GAP-3 — Comments say GitHub Pages; the repo deploys with Vercel
 - **Kind:** doc-overclaims · **Tag:** hosting · **Where:** `scripts/build-docs.mjs` header comment
 - The comment names "GitHub Pages" as the static host, but `vercel.json` exists and the owner
-  said the library lives on a gautamgoklani.com subdomain. The reasoning (commit the HTML, no
+  said the site lives on a gautamgoklani.com subdomain. The reasoning (commit the HTML, no
   build step on the host) holds for both. Which host is real needs the owner. Then reword the
   comment.
 

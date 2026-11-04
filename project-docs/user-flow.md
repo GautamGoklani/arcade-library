@@ -7,7 +7,7 @@ One kind of visitor, with no account: someone who wants to play, or to learn Web
 
 ### Arrive
 - **Entry points:** the portfolio footer ("Arcade library"), old portfolio URLs (`/arcade/*`,
-  `/library`, which 308 to the hub), a direct link to a game, a course chapter from search.
+  which 308 to the hub), a direct link to a game, a course chapter from search.
 - **Screens:** `/` (hub).
 
 ### Pick a game

@@ -6,5 +6,5 @@
 ## Release
 - [ ] Merge to `main`. Vercel deploys the repo root.
 ## After
-- [ ] `https://library.gautamgoklani.com/` loads, and one game plays.
+- [ ] `https://arcade.gautamgoklani.com/` loads, and one game plays.
 - [ ] `https://www.gautamgoklani.com/arcade` lands on the hub.
